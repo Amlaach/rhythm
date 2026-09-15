@@ -205,6 +205,10 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) { }
+            // Solid ground first: the cover tint on top is deliberately translucent,
+            // and while the artwork filled the window that never showed. Now that it
+            // does not, the browsing UI would read straight through the sheet.
+            .background(Bg)
             .background(
                 Brush.verticalGradient(
                     listOf(c1.copy(alpha = 0.55f), c2.copy(alpha = 0.25f), Bg, Bg)
@@ -310,6 +314,10 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
             } else {
                 Column(
                     modifier = Modifier
+                        // Without this the column wraps the cover, and a wrapped
+                        // column parks at the parent's start edge - the right, in RTL -
+                        // so centring it never takes effect.
+                        .fillMaxWidth()
                         .weight(1f)
                         .padding(horizontal = 28.dp),
                     verticalArrangement = Arrangement.Center,
