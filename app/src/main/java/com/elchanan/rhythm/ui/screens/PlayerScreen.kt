@@ -3,8 +3,15 @@ package com.elchanan.rhythm.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,10 +30,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.FormatQuote
@@ -180,9 +187,17 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
+    // Swipe the sheet down to put the player away, the way YouTube Music does.
+    // The offset follows the finger while dragging and either carries on past the
+    // threshold into a dismiss, or springs back.
+    val scope = rememberCoroutineScope()
+    val dragY = remember { Animatable(0f) }
+    val dismissPx = with(LocalDensity.current) { 120.dp.toPx() }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .offset { IntOffset(0, dragY.value.roundToInt()) }
             // The player floats above the browsing UI. Without something to catch
             // them, taps on its empty areas reach the list underneath and play a
             // different song.
@@ -201,6 +216,41 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                 .fillMaxSize()
                 .padding(top = topPad, bottom = bottomPad)
         ) {
+            // The drag lives on the header alone rather than the whole sheet, so it
+            // can never fight the scrubber, the queue list or the lyrics scroller.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pointerInput(Unit) {
+                        detectVerticalDragGestures(
+                            onDragEnd = {
+                                scope.launch {
+                                    if (dragY.value > dismissPx) {
+                                        onCollapse()
+                                        dragY.snapTo(0f)
+                                    } else {
+                                        dragY.animateTo(0f)
+                                    }
+                                }
+                            },
+                            onDragCancel = { scope.launch { dragY.animateTo(0f) } }
+                        ) { change, amount ->
+                            change.consume()
+                            scope.launch {
+                                dragY.snapTo((dragY.value + amount).coerceAtLeast(0f))
+                            }
+                        }
+                    }
+            ) {
+                // The grab handle: the affordance that says this panel pulls down.
+                Box(
+                    modifier = Modifier
+                        .padding(top = 8.dp, bottom = 4.dp)
+                        .align(Alignment.CenterHorizontally)
+                        .size(width = 38.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(TextSecondary.copy(alpha = 0.5f))
+                )
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -246,6 +296,7 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                     )
                 }
             }
+            }
 
             if (showQueue) {
                 QueueList(vm = vm, modifier = Modifier.weight(1f))
@@ -268,18 +319,20 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                         songId = song.id,
                         albumId = song.albumId,
                         seed = song.artistKey,
+                        // An explicit square. `fillMaxWidth().aspectRatio(1f)` asks
+                        // for a box as tall as the window is wide, which in landscape
+                        // is far taller than the space it was given - and since a
+                        // Column does not clip, it simply drew over the header and
+                        // swallowed the close button.
                         modifier = Modifier
-                            .fillMaxWidth()
-                            // Left unbounded the square cover eats a landscape or
-                            // tablet window whole and pushes the controls off screen.
-                            .widthIn(max = metrics.artworkMax)
-                            .aspectRatio(1f)
+                            .size(metrics.artworkMax)
                             .pointerInput(song.id) {
                                 var drag = 0f
-                                detectVerticalDragGestures(
+                                detectHorizontalDragGestures(
                                     onDragEnd = {
-                                        if (drag < -70f) vm.player.next()
-                                        else if (drag > 70f) vm.player.previous()
+                                        // RTL: dragging right goes forward.
+                                        if (drag > 70f) vm.player.next()
+                                        else if (drag < -70f) vm.player.previous()
                                         drag = 0f
                                     }
                                 ) { _, amount -> drag += amount }

@@ -48,9 +48,10 @@ fun rememberMetrics(): Metrics {
         val mix = ((width - gutter * 2) / 2.1f).coerceIn(165f, 260f)
 
         // In landscape the limit is the height, not the width: the cover has to
-        // leave room for the title, the scrubber and the transport row.
-        val artwork = minOf(width - gutter * 2, (height * 0.46f).toInt())
-            .coerceIn(180, 420)
+        // leave room for the header, the title, the scrubber and the transport row,
+        // which together want a little over half the window.
+        val artwork = minOf(width - gutter * 2, (height * 0.42f).toInt())
+            .coerceIn(160, 400)
 
         Metrics(
             gutter = gutter.dp,
