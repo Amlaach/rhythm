@@ -167,8 +167,7 @@ fun RhythmRoot(
                         onOpenDetail = { navController.navigate(Routes.DETAIL) },
                         onOpenArtist = { navController.navigate(Routes.ARTIST) },
                         onOpenAlbums = { navController.navigate(Routes.ALBUMS) },
-                        onOpenRatings = { navController.navigate(Routes.RATINGS) },
-                        onOpenRecap = { navController.navigate(Routes.RECAP) }
+                        onOpenRatings = { navController.navigate(Routes.RATINGS) }
                     )
                 }
                 composable(Routes.RATINGS) {
