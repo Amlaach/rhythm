@@ -47,7 +47,11 @@ import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.SectionKind
 import com.elchanan.rhythm.ui.MainViewModel
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.text.style.TextOverflow
+import com.elchanan.rhythm.ui.AlbumInfo
 import com.elchanan.rhythm.ui.components.Artwork
+import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.EmptyState
 import com.elchanan.rhythm.ui.components.MixCard
@@ -168,6 +172,26 @@ fun HomeScreen(
                     )
                 }
 
+                // Only worth a shelf once there is something to browse. A library
+                // of singles collapses into a single folder-named album, and one
+                // lone tile reads as a bug rather than a section.
+                if (library.albums.size >= 3) {
+                    item {
+                        AlbumShelf(
+                            albums = library.albums,
+                            onOpen = { album ->
+                                vm.openList(
+                                    album.name,
+                                    album.artistName,
+                                    album.songs,
+                                    "album:${album.albumId}"
+                                )
+                                onOpenDetail()
+                            }
+                        )
+                    }
+                }
+
                 if (feed.isEmpty()) {
                     item {
                         EmptyState(
@@ -181,6 +205,46 @@ fun HomeScreen(
                             }
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AlbumShelf(albums: List<AlbumInfo>, onOpen: (AlbumInfo) -> Unit) {
+    val width = rememberMetrics().cardWidth
+    Column {
+        SectionHeader(title = "אלבומים בשבילך", subtitle = "מתוך הספרייה שלך")
+        LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
+            items(albums.take(20), key = { it.albumId }) { album ->
+                Column(
+                    modifier = Modifier
+                        .width(width)
+                        .clickable { onOpen(album) }
+                        .padding(horizontal = 4.dp, vertical = 4.dp)
+                ) {
+                    Artwork(
+                        songId = album.songs.firstOrNull()?.id ?: -1L,
+                        albumId = album.albumId,
+                        seed = album.name,
+                        modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                        corner = 12
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = album.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${album.songs.size} שירים",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        maxLines = 1
+                    )
                 }
             }
         }

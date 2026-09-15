@@ -27,6 +27,20 @@ data class Mix(
 
 enum class SectionKind { QUICK_PICKS, MIX_ROW, SONG_ROW }
 
+/**
+ * Whether a title announces itself as a stage recording.
+ *
+ * Deliberately literal: only wording that actually says "live". Venue names and
+ * years - "קיסריה 2025" and the like - are just as often studio releases, and a
+ * shelf that quietly mixes the two is worse than one that misses a few.
+ */
+private val LIVE_MARKERS = Regex(
+    """\blive\b|לייב|בהופעה|הופעה חיה|בהופעה חיה""",
+    RegexOption.IGNORE_CASE
+)
+
+fun isLiveRecording(title: String): Boolean = LIVE_MARKERS.containsMatchIn(title)
+
 data class FeedSection(
     val id: String,
     val title: String,
@@ -781,6 +795,22 @@ class Recommender(
                     subtitle = "מדורג לפי הדירוגים, הסגנונות והסאונד",
                     kind = SectionKind.SONG_ROW,
                     songs = pick(unheard, 20, salt = 71L, maxPerArtist = 2)
+                )
+            )
+        }
+
+        // A stage recording of a song you already own is a genuinely different
+        // listen, so the live takes get a shelf of their own rather than being
+        // scattered through the others.
+        val live = notDisliked.filter { isLiveRecording(it.title) }
+        if (live.size >= 4) {
+            sections.add(
+                FeedSection(
+                    id = "live",
+                    title = "הופעות חיות",
+                    subtitle = "הקלטות במה שנמצאו בספרייה",
+                    kind = SectionKind.SONG_ROW,
+                    songs = live.sortedByDescending { totalScore(it) }.take(24)
                 )
             )
         }
