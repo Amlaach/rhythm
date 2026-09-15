@@ -146,6 +146,25 @@ fun SongOptionsSheet(
                 tint = if (liked == -1) Accent else null
             ) { vm.dislike(song.id); onDismiss() }
 
+            // Near the top, where it is in every other player. Buried under ten
+            // other rows it may as well not exist - and it is always offered, even
+            // with no playlists yet, since having to leave for the library tab to
+            // make the first one is the step that stops playlists being used.
+            Text(
+                "הוספה לרשימה",
+                style = MaterialTheme.typography.labelLarge,
+                color = TextSecondary,
+                modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp)
+            )
+            OptionRow(Icons.Filled.Add, "רשימה חדשה", tint = Accent) { newPlaylist = true }
+            playlists.forEach { info ->
+                OptionRow(Icons.Filled.PlaylistAdd, info.playlist.name) {
+                    vm.addToPlaylist(info.playlist.id, song.id)
+                    onDismiss()
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+
             OptionRow(Icons.Filled.Insights, "למה זה הומלץ לי") { showWhy = true }
             OptionRow(Icons.Filled.LocalOffer, "תגיות סגנון לשיר") { showTags = true }
             if (onOpenDetail != null) {
@@ -168,25 +187,6 @@ fun SongOptionsSheet(
             if (onRemoveFromPlaylist != null) {
                 OptionRow(Icons.Filled.PlaylistRemove, "הסר מהרשימה") {
                     onRemoveFromPlaylist(); onDismiss()
-                }
-            }
-
-            // Always offered, even with no playlists yet: having to leave for the
-            // library tab to make the first one is the step that stops people
-            // using playlists at all.
-            Text(
-                "הוספה לרשימה",
-                style = MaterialTheme.typography.labelLarge,
-                color = TextSecondary,
-                modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp)
-            )
-            OptionRow(Icons.Filled.Add, "רשימה חדשה", tint = Accent) { newPlaylist = true }
-            if (playlists.isNotEmpty()) {
-                playlists.forEach { info ->
-                    OptionRow(Icons.Filled.PlaylistAdd, info.playlist.name) {
-                        vm.addToPlaylist(info.playlist.id, song.id)
-                        onDismiss()
-                    }
                 }
             }
         }
