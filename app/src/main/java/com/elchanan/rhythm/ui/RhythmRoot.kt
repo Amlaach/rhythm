@@ -130,7 +130,8 @@ fun RhythmRoot(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
                 Column(modifier = Modifier.background(BgElevated)) {
-                    if (currentSong != null) {
+                    // Hidden while the full player is up - it is the same controls.
+                    if (currentSong != null && !playerOpen) {
                         MiniPlayer(
                             song = currentSong,
                             isPlaying = playerState.isPlaying,
@@ -144,16 +145,23 @@ fun RhythmRoot(
                             onExpand = { playerOpen = true }
                         )
                     }
-                    RhythmBottomBar(navController, currentRoute)
+                    RhythmBottomBar(
+                        navController = navController,
+                        currentRoute = currentRoute,
+                        onNavigate = { playerOpen = false }
+                    )
                 }
             }
         ) { inner ->
-            NavHost(
-                navController = navController,
-                startDestination = Routes.HOME,
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(bottom = inner.calculateBottomPadding())
+            ) {
+            NavHost(
+                navController = navController,
+                startDestination = Routes.HOME,
+                modifier = Modifier.fillMaxSize()
             ) {
                 composable(Routes.HOME) {
                     HomeScreen(
@@ -216,23 +224,32 @@ fun RhythmRoot(
                     )
                 }
             }
-        }
 
-        AnimatedVisibility(
-            visible = playerOpen && currentSong != null,
-            enter = slideInVertically { it },
-            exit = slideOutVertically { it }
-        ) {
-            PlayerScreen(
-                vm = vm,
-                onCollapse = { playerOpen = false }
-            )
+            // Inside the Scaffold body rather than over the whole window, so the
+            // navigation bar stays on top and reachable. Covering it meant a tap on
+            // a tab hit the player instead - which swallows taps so they do not
+            // reach the list underneath - and nothing happened at all.
+            AnimatedVisibility(
+                visible = playerOpen && currentSong != null,
+                enter = slideInVertically { it },
+                exit = slideOutVertically { it }
+            ) {
+                PlayerScreen(
+                    vm = vm,
+                    onCollapse = { playerOpen = false }
+                )
+            }
+            }
         }
     }
 }
 
 @Composable
-private fun RhythmBottomBar(navController: NavHostController, currentRoute: String?) {
+private fun RhythmBottomBar(
+    navController: NavHostController,
+    currentRoute: String?,
+    onNavigate: () -> Unit
+) {
     NavigationBar(
         containerColor = Color.Transparent,
         modifier = Modifier.fillMaxWidth()
@@ -241,12 +258,15 @@ private fun RhythmBottomBar(navController: NavHostController, currentRoute: Stri
             NavigationBarItem(
                 selected = currentRoute == tab.route,
                 onClick = {
-                    if (currentRoute != tab.route) {
-                        navController.navigate(tab.route) {
-                            popUpTo(Routes.HOME) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                    // Always navigate, even when the tab looks current: a detail
+                    // screen pushed on top counts as a different route, and tapping
+                    // the tab you are already on should still take you to its root
+                    // rather than doing nothing.
+                    onNavigate()
+                    navController.navigate(tab.route) {
+                        popUpTo(Routes.HOME) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
                     }
                 },
                 icon = { Icon(tab.icon, contentDescription = tab.label) },
