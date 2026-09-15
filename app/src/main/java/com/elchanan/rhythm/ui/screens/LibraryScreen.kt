@@ -259,7 +259,7 @@ fun LibraryScreen(
                                 .padding(horizontal = 16.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Artwork(album.albumId, album.name, Modifier.size(52.dp), corner = 8)
+                            Artwork(-1L, album.albumId, album.name, Modifier.size(52.dp), corner = 8)
                             Spacer(Modifier.width(12.dp))
                             Column {
                                 Text(album.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1)

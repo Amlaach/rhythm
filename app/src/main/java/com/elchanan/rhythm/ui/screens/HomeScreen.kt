@@ -383,6 +383,7 @@ private fun QuickPickRow(song: SongEntity, liked: Int, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Artwork(
+            songId = song.id,
             albumId = song.albumId,
             seed = song.artistKey,
             modifier = Modifier.size(52.dp),

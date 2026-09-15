@@ -110,7 +110,7 @@ fun MiniPlayer(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Artwork(song.albumId, song.artistKey, Modifier.size(42.dp), corner = 7)
+            Artwork(song.id, song.albumId, song.artistKey, Modifier.size(42.dp), corner = 7)
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -166,7 +166,7 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
     var whyOpen by remember { mutableStateOf(false) }
 
     val song = state.currentSongId?.let { library.songsById[it] } ?: return
-    val artColors by rememberArtworkColors(song.albumId, song.artistKey)
+    val artColors by rememberArtworkColors(song.id, song.albumId, song.artistKey)
     val songStats = library.stats[song.id]
     val liked = songStats?.liked ?: 0
     val rating = songStats?.rating ?: 0
@@ -254,6 +254,7 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Artwork(
+                        songId = song.id,
                         albumId = song.albumId,
                         seed = song.artistKey,
                         modifier = Modifier
@@ -483,7 +484,7 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
                     .padding(horizontal = 20.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Artwork(song.albumId, song.artistKey, Modifier.size(40.dp), corner = 6)
+                Artwork(song.id, song.albumId, song.artistKey, Modifier.size(40.dp), corner = 6)
                 Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(

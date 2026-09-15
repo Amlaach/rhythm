@@ -11,7 +11,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.palette.graphics.Palette
 import coil.imageLoader
 import coil.request.ImageRequest
-import com.elchanan.rhythm.playback.MediaItems
 import com.elchanan.rhythm.ui.theme.gradientFor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -22,17 +21,17 @@ import kotlinx.coroutines.withContext
  * deterministic gradient when a track has no embedded artwork.
  */
 @Composable
-fun rememberArtworkColors(albumId: Long, seed: String): State<Pair<Color, Color>> {
+fun rememberArtworkColors(songId: Long, albumId: Long, seed: String): State<Pair<Color, Color>> {
     val context = LocalContext.current
     val fallback = gradientFor(seed)
-    val state = remember(albumId, seed) { mutableStateOf(fallback) }
+    val state = remember(songId, albumId, seed) { mutableStateOf(fallback) }
 
-    LaunchedEffect(albumId, seed) {
+    LaunchedEffect(songId, albumId, seed) {
         state.value = fallback
         val extracted = withContext(Dispatchers.IO) {
             runCatching {
                 val request = ImageRequest.Builder(context)
-                    .data(MediaItems.artworkUri(albumId))
+                    .data(SongArt(songId, albumId))
                     .size(192)
                     .allowHardware(false)
                     .build()

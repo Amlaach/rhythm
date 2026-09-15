@@ -97,7 +97,7 @@ fun SongOptionsSheet(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Artwork(song.albumId, song.artistKey, Modifier.size(56.dp), corner = 8)
+                Artwork(song.id, song.albumId, song.artistKey, Modifier.size(56.dp), corner = 8)
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text(song.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)

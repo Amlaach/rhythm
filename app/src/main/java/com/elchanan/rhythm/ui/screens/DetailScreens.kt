@@ -346,6 +346,7 @@ fun AlbumsScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -> Unit
                     }
                 ) {
                     Artwork(
+                        -1L,
                         album.albumId,
                         album.name,
                         Modifier.fillMaxWidth().aspectRatio(1f),

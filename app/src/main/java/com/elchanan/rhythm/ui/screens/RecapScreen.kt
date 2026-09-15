@@ -178,7 +178,7 @@ fun RecapScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -> Unit)
                         modifier = Modifier.width(26.dp),
                         textAlign = TextAlign.Center
                     )
-                    Artwork(song.albumId, song.artistKey, Modifier.size(44.dp), corner = 8)
+                    Artwork(song.id, song.albumId, song.artistKey, Modifier.size(44.dp), corner = 8)
                     Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1)

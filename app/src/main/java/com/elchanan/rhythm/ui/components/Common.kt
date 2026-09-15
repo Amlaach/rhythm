@@ -53,7 +53,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.elchanan.rhythm.data.db.SongEntity
-import com.elchanan.rhythm.playback.MediaItems
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface2
@@ -76,6 +75,7 @@ fun formatDuration(ms: Long): String {
  */
 @Composable
 fun Artwork(
+    songId: Long,
     albumId: Long,
     seed: String,
     modifier: Modifier = Modifier,
@@ -96,7 +96,7 @@ fun Artwork(
                 .size(26.dp)
         )
         AsyncImage(
-            model = MediaItems.artworkUri(albumId),
+            model = SongArt(songId, albumId),
             contentDescription = null,
             modifier = Modifier.fillMaxSize()
         )
@@ -183,6 +183,7 @@ fun SongRow(
             Spacer(Modifier.width(10.dp))
         }
         Artwork(
+            songId = song.id,
             albumId = song.albumId,
             seed = song.artistKey,
             modifier = Modifier.size(48.dp),
@@ -280,6 +281,7 @@ fun SongCard(
             .padding(horizontal = 4.dp, vertical = 4.dp)
     ) {
         Artwork(
+            songId = song.id,
             albumId = song.albumId,
             seed = song.artistKey,
             modifier = Modifier
