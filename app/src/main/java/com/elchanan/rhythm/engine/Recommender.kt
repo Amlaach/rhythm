@@ -553,6 +553,25 @@ class Recommender(
         val sections = ArrayList<FeedSection>(8)
         val notDisliked = songs.filter { (stats[it.id]?.liked ?: 0) != -1 }
 
+        // Speed dial: the handful of tracks actually returned to, first on the
+        // page. Held back until there is real listening behind it - a "most
+        // played" shelf built from one play each is just a shuffle.
+        val mostPlayed = notDisliked
+            .filter { (stats[it.id]?.playCount ?: 0) >= 3 }
+            .sortedByDescending { stats[it.id]?.playCount ?: 0 }
+            .take(12)
+        if (mostPlayed.size >= 4) {
+            sections.add(
+                FeedSection(
+                    id = "speeddial",
+                    title = "חיוג מהיר",
+                    subtitle = "מה שאתה חוזר אליו הכי הרבה",
+                    kind = SectionKind.QUICK_PICKS,
+                    songs = mostPlayed
+                )
+            )
+        }
+
         sections.add(
             FeedSection(
                 id = "quick",
@@ -811,6 +830,73 @@ class Recommender(
                     subtitle = "הקלטות במה שנמצאו בספרייה",
                     kind = SectionKind.SONG_ROW,
                     songs = live.sortedByDescending { totalScore(it) }.take(24)
+                )
+            )
+        }
+
+        // What the user has actually claimed - liked or rated - as opposed to what
+        // merely sits on the device.
+        val yours = notDisliked.filter {
+            val st = stats[it.id]
+            (st?.liked ?: 0) == 1 || (st?.rating ?: 0) > 0
+        }
+        if (yours.size >= 6) {
+            sections.add(
+                FeedSection(
+                    id = "yours",
+                    title = "מהספרייה שלך",
+                    subtitle = "מה שסימנת ודירגת",
+                    kind = SectionKind.SONG_ROW,
+                    songs = yours.sortedByDescending { totalScore(it) }.take(24)
+                )
+            )
+        }
+
+        // The mood the user's own picks cluster into, then more of it. This leans
+        // on measured audio rather than the style tags, which stay empty until
+        // somebody types them in by hand.
+        val engaged = songs.filter {
+            val st = stats[it.id]
+            (st?.liked ?: 0) == 1 || (st?.rating ?: 0) >= 4 || (st?.playCount ?: 0) >= 3
+        }
+        if (engaged.size >= 5) {
+            val favourite = Mood.entries
+                .map { mood -> mood to engaged.count { mood.matches(features[it.id]) } }
+                .filter { it.second >= 3 }
+                .maxByOrNull { it.second }
+                ?.first
+            if (favourite != null) {
+                val more = notDisliked
+                    .filter { favourite.matches(features[it.id]) && it !in engaged }
+                    .sortedByDescending { totalScore(it) }
+                    .take(20)
+                if (more.size >= 6) {
+                    sections.add(
+                        FeedSection(
+                            id = "affinity:${favourite.name}",
+                            title = "נראה שאתה אוהב ${favourite.label}",
+                            subtitle = favourite.subtitle,
+                            kind = SectionKind.SONG_ROW,
+                            songs = more
+                        )
+                    )
+                }
+            }
+        }
+
+        // Long-form audio - shiurim, sets, full concerts - is a different kind of
+        // listen from a three minute single, so it gets its own shelf when any
+        // turns up. Nothing in a library of singles will match, and the section
+        // simply stays hidden until something does.
+        val longForm = notDisliked.filter { it.durationMs >= 15 * 60 * 1000L }
+        if (longForm.size >= 2) {
+            sections.add(
+                FeedSection(
+                    id = "longform",
+                    title = "סרטוני מוזיקה ארוכים",
+                    subtitle = "מעל רבע שעה",
+                    kind = SectionKind.SONG_ROW,
+                    songs = longForm.sortedByDescending { it.durationMs }.take(20)
                 )
             )
         }
