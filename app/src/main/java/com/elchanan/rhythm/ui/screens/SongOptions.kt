@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.Person
@@ -34,6 +35,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -81,6 +83,7 @@ fun SongOptionsSheet(
     var showWhy by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
     var showTags by remember { mutableStateOf(false) }
+    var newPlaylist by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -168,13 +171,17 @@ fun SongOptionsSheet(
                 }
             }
 
+            // Always offered, even with no playlists yet: having to leave for the
+            // library tab to make the first one is the step that stops people
+            // using playlists at all.
+            Text(
+                "הוספה לרשימה",
+                style = MaterialTheme.typography.labelLarge,
+                color = TextSecondary,
+                modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp)
+            )
+            OptionRow(Icons.Filled.Add, "רשימה חדשה", tint = Accent) { newPlaylist = true }
             if (playlists.isNotEmpty()) {
-                Text(
-                    "הוספה לרשימה",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp)
-                )
                 playlists.forEach { info ->
                     OptionRow(Icons.Filled.PlaylistAdd, info.playlist.name) {
                         vm.addToPlaylist(info.playlist.id, song.id)
@@ -183,6 +190,40 @@ fun SongOptionsSheet(
                 }
             }
         }
+    }
+
+    if (newPlaylist) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { newPlaylist = false },
+            containerColor = Surface1,
+            title = { Text("רשימה חדשה") },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    placeholder = { Text("שם הרשימה") }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = name.isNotBlank(),
+                    onClick = {
+                        // Creating with the song attached, so the sheet the user
+                        // opened on a track actually ends with that track filed.
+                        vm.createPlaylist(name.trim(), song)
+                        newPlaylist = false
+                        onDismiss()
+                    }
+                ) { Text("צור והוסף", color = Accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = { newPlaylist = false }) {
+                    Text("ביטול", color = TextSecondary)
+                }
+            }
+        )
     }
 
     if (showWhy) {

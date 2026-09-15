@@ -431,20 +431,22 @@ fun LikeButtons(
     onDislike: () -> Unit,
     size: Int = 24
 ) {
+    // Like is declared first so RTL places it on the right, with dislike to its
+    // left - the order asked for, and the one the rest of the UI reads in.
     Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onDislike) {
-            Icon(
-                imageVector = if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
-                contentDescription = "דיסלייק",
-                tint = if (liked == -1) Accent else TextSecondary,
-                modifier = Modifier.size(size.dp)
-            )
-        }
         IconButton(onClick = onLike) {
             Icon(
                 imageVector = if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
                 contentDescription = "לייק",
                 tint = if (liked == 1) Accent else TextSecondary,
+                modifier = Modifier.size(size.dp)
+            )
+        }
+        IconButton(onClick = onDislike) {
+            Icon(
+                imageVector = if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
+                contentDescription = "דיסלייק",
+                tint = if (liked == -1) Accent else TextSecondary,
                 modifier = Modifier.size(size.dp)
             )
         }

@@ -355,14 +355,7 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                 }
             }
 
-            Column(
-                modifier = Modifier
-                    // On a wide window the details would otherwise stretch edge to
-                    // edge, leaving the title marooned at one side of a very long row.
-                    .widthIn(max = 560.dp)
-                    .align(Alignment.CenterHorizontally)
-                    .padding(horizontal = 24.dp)
-            ) {
+            Column(modifier = Modifier.padding(horizontal = 24.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // Placed first so RTL puts it on the right, alongside the stars
                     // rather than stranded on the opposite edge from them.

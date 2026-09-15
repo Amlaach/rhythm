@@ -69,6 +69,7 @@ import com.elchanan.rhythm.ui.components.EmptyState
 import com.elchanan.rhythm.ui.components.SongRow
 import com.elchanan.rhythm.ui.components.StarRow
 import com.elchanan.rhythm.ui.theme.Accent
+import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.BgElevated
 import com.elchanan.rhythm.ui.theme.Surface1
@@ -296,6 +297,55 @@ fun LibraryScreen(
                             Text("רשימה חדשה", style = MaterialTheme.typography.bodyLarge)
                         }
                     }
+                    // Liked songs as an auto playlist. Deliberately derived from the
+                    // likes rather than stored as its own list: a real playlist would
+                    // drift the moment a like is taken back, and there would then be
+                    // two disagreeing answers to "what did I like".
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    vm.openList(
+                                        "השירים שאהבתי",
+                                        "${library.liked.size} שירים",
+                                        library.liked,
+                                        "auto:liked"
+                                    )
+                                    onOpenDetail()
+                                }
+                                .padding(horizontal = 16.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Brush.linearGradient(listOf(Accent, Accent2))),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Filled.ThumbUp,
+                                    contentDescription = null,
+                                    tint = Color.White
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "השירים שאהבתי",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    "מתעדכן לבד · ${library.liked.size} שירים",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+
                     items(playlists, key = { it.playlist.id }) { info ->
                         Row(
                             modifier = Modifier
