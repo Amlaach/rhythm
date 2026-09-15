@@ -2,7 +2,6 @@ package com.elchanan.rhythm.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -50,10 +49,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.ui.theme.Accent
+import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface2
 import com.elchanan.rhythm.ui.theme.Surface3
@@ -270,13 +271,13 @@ fun SongRow(
 @Composable
 fun SongCard(
     song: SongEntity,
-    width: Int = 148,
+    width: Dp = rememberMetrics().cardWidth,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null
 ) {
     Column(
         modifier = Modifier
-            .width(width.dp)
+            .width(width)
             .clickable(onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 4.dp)
     ) {
@@ -321,7 +322,7 @@ fun MixCard(
     val (c1, c2) = gradientFor(id)
     Column(
         modifier = Modifier
-            .width(168.dp)
+            .width(rememberMetrics().mixCardWidth)
             .padding(horizontal = 4.dp, vertical = 4.dp)
             .clickable(onClick = onClick)
     ) {
@@ -406,23 +407,22 @@ fun Chip(
 ) {
     Box(
         modifier = Modifier
-            .clip(CircleShape)
-            .background(if (selected) Accent.copy(alpha = 0.22f) else Surface2)
-            .border(
-                width = 1.dp,
-                color = if (selected) Accent else Color.Transparent,
-                shape = CircleShape
-            )
+            .clip(ChipShape)
+            .background(if (selected) Accent else Surface2)
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 9.dp)
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (selected) Accent else MaterialTheme.colorScheme.onBackground
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) Bg else MaterialTheme.colorScheme.onBackground,
+            maxLines = 1
         )
     }
 }
+
+/** Softened rectangle rather than a pill - reads as a surface, not a tag. */
+private val ChipShape = RoundedCornerShape(10.dp)
 
 @Composable
 fun LikeButtons(

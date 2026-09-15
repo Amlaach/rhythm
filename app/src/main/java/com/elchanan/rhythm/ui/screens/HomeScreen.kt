@@ -53,6 +53,7 @@ import com.elchanan.rhythm.ui.components.EmptyState
 import com.elchanan.rhythm.ui.components.MixCard
 import com.elchanan.rhythm.ui.components.SectionHeader
 import com.elchanan.rhythm.ui.components.SongCard
+import com.elchanan.rhythm.ui.components.quickPickColumnWidth
 import com.elchanan.rhythm.ui.components.formatDuration
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Accent2
@@ -92,6 +93,12 @@ fun HomeScreen(
             )
         }
 
+        // Pinned under the header rather than scrolling away with the feed, so the
+        // categories stay one tap away wherever you are in the list.
+        if (hasPermission && library.songs.isNotEmpty()) {
+            MoodChipRow(onPick = { mood -> vm.openMood(mood) { onOpenDetail() } })
+        }
+
         when {
             !hasPermission -> EmptyState(
                 title = "צריך גישה לשירים",
@@ -120,25 +127,6 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 item { GreetingCard(library.songs.size, library.artists.count { it.rating > 0 }) }
-
-                // mood chips, only worth showing once some audio was analysed
-                if (analysis.done >= 12) {
-                    item {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(Mood.entries.size) { index ->
-                                val mood = Mood.entries[index]
-                                Chip(
-                                    label = mood.label,
-                                    selected = false,
-                                    onClick = { vm.openMood(mood) { onOpenDetail() } }
-                                )
-                            }
-                        }
-                    }
-                }
 
                 // one nudge at a time, and only while it is still relevant
                 item {
@@ -195,6 +183,32 @@ fun HomeScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * The category strip under the header.
+ *
+ * Every chip is a predicate over the measured audio features, so the row works
+ * off the same analysis the recommender uses. Picking one before the library has
+ * been analysed is not an error - [MainViewModel.openMood] answers with a message
+ * explaining there is not enough measured audio yet, which is a far better
+ * introduction to the feature than hiding it until some threshold is crossed.
+ */
+@Composable
+private fun MoodChipRow(onPick: (Mood) -> Unit) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(Mood.entries.size) { index ->
+            val mood = Mood.entries[index]
+            Chip(
+                label = mood.label,
+                selected = false,
+                onClick = { onPick(mood) }
+            )
         }
     }
 }
@@ -313,7 +327,7 @@ private fun FeedSectionView(
             val columns = section.songs.chunked(4)
             LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
                 items(columns) { column ->
-                    Column(modifier = Modifier.width(330.dp)) {
+                    Column(modifier = Modifier.width(quickPickColumnWidth())) {
                         column.forEach { song ->
                             QuickPickRow(
                                 song = song,

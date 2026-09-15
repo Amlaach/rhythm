@@ -60,6 +60,7 @@ import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.EmptyState
 import com.elchanan.rhythm.ui.components.SongRow
 import com.elchanan.rhythm.ui.components.StarRow
+import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.TextSecondary
@@ -333,7 +334,9 @@ fun AlbumsScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -> Unit
     Column(modifier = Modifier.fillMaxSize().background(Bg)) {
         DetailTopBar(title = "אלבומים", onBack = onBack)
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+            // Two columns on a phone, more as the window widens, without ever
+            // squeezing a cover below a legible size.
+            columns = GridCells.Adaptive(minSize = rememberMetrics().gridCellMin),
             contentPadding = PaddingValues(12.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)

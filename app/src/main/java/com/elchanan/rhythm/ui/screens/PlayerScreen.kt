@@ -2,6 +2,7 @@ package com.elchanan.rhythm.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -70,6 +72,7 @@ import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.Artwork
 import com.elchanan.rhythm.ui.components.LikeButtons
 import com.elchanan.rhythm.ui.components.rememberArtworkColors
+import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.components.StarRow
 import com.elchanan.rhythm.ui.components.formatDuration
 import com.elchanan.rhythm.engine.AudioAnalyzer
@@ -166,6 +169,7 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
     var whyOpen by remember { mutableStateOf(false) }
 
     val song = state.currentSongId?.let { library.songsById[it] } ?: return
+    val metrics = rememberMetrics()
     val artColors by rememberArtworkColors(song.id, song.albumId, song.artistKey)
     val songStats = library.stats[song.id]
     val liked = songStats?.liked ?: 0
@@ -179,6 +183,13 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // The player floats above the browsing UI. Without something to catch
+            // them, taps on its empty areas reach the list underneath and play a
+            // different song.
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { }
             .background(
                 Brush.verticalGradient(
                     listOf(c1.copy(alpha = 0.55f), c2.copy(alpha = 0.25f), Bg, Bg)
@@ -259,6 +270,9 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                         seed = song.artistKey,
                         modifier = Modifier
                             .fillMaxWidth()
+                            // Left unbounded the square cover eats a landscape or
+                            // tablet window whole and pushes the controls off screen.
+                            .widthIn(max = metrics.artworkMax)
                             .aspectRatio(1f)
                             .pointerInput(song.id) {
                                 var drag = 0f

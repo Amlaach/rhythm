@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -111,6 +112,17 @@ fun RhythmRoot(
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     val currentSong = playerState.currentSongId?.let { library.songsById[it] }
+
+    // The expanded player is an overlay rather than a NavHost destination, so the
+    // system back button has to be answered here - otherwise back falls through to
+    // the navigation underneath and the player stays stuck on screen.
+    BackHandler(enabled = playerOpen) { playerOpen = false }
+
+    // Once the queue empties there is nothing to expand to; clearing the flag stops
+    // the player from springing open again by itself when the next song starts.
+    LaunchedEffect(currentSong) {
+        if (currentSong == null) playerOpen = false
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(Bg)) {
         Scaffold(
