@@ -1,0 +1,41 @@
+name: Generate signing key
+
+# One-off helper: the signing key has to be created somewhere with a JDK, and the
+# runner already has one. It is never committed - the job hands back an artifact
+# holding the keystore and its base64, which you then paste into repository
+# secrets. Delete this workflow once the secrets are in place.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  keygen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create keystore
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          STORE_PASS="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
+          KEY_PASS="$STORE_PASS"
+          keytool -genkeypair -v \
+            -keystore out/release.jks \
+            -storetype JKS \
+            -keyalg RSA -keysize 2048 \
+            -validity 10000 \
+            -alias rhythm \
+            -storepass "$STORE_PASS" \
+            -keypass "$KEY_PASS" \
+            -dname "CN=Rhythm, OU=Rhythm, O=Rhythm, L=, S=, C=IL"
+          base64 -w0 out/release.jks > out/KEYSTORE_BASE64.txt
+          printf '%s' "$STORE_PASS" > out/STORE_PASSWORD.txt
+          printf '%s' "$KEY_PASS"   > out/KEY_PASSWORD.txt
+          printf '%s' 'rhythm'      > out/KEY_ALIAS.txt
+          echo "keystore created; values are in the artifact, not in this log" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhythm-signing-key
+          path: out/
+          retention-days: 1
