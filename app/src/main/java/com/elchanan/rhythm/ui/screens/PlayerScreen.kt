@@ -7,8 +7,11 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -30,6 +33,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -87,6 +91,7 @@ import com.elchanan.rhythm.playback.SleepTimer
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.Surface1
+import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
 
 
@@ -350,12 +355,27 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                 }
             }
 
-            Column(modifier = Modifier.padding(horizontal = 24.dp)) {
+            Column(
+                modifier = Modifier
+                    // On a wide window the details would otherwise stretch edge to
+                    // edge, leaving the title marooned at one side of a very long row.
+                    .widthIn(max = 560.dp)
+                    .align(Alignment.CenterHorizontally)
+                    .padding(horizontal = 24.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Placed first so RTL puts it on the right, alongside the stars
+                    // rather than stranded on the opposite edge from them.
+                    LikeButtons(
+                        liked = liked,
+                        onLike = { vm.like(song.id) },
+                        onDislike = { vm.dislike(song.id) }
+                    )
+                    Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             song.title,
-                            style = MaterialTheme.typography.headlineSmall,
+                            style = MaterialTheme.typography.titleLarge,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -366,11 +386,6 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                             maxLines = 1
                         )
                     }
-                    LikeButtons(
-                        liked = liked,
-                        onLike = { vm.like(song.id) },
-                        onDislike = { vm.dislike(song.id) }
-                    )
                 }
 
                 Spacer(Modifier.height(6.dp))
@@ -391,6 +406,11 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
 
                 val duration = if (state.durationMs > 0) state.durationMs else song.durationMs
                 val position = scrubbing?.times(duration)?.toLong() ?: state.positionMs
+                // Time runs one way whatever the language, so the scrubber and the
+                // transport keep the left-to-right reading every media player uses:
+                // the head advances rightwards, elapsed sits under its start, and
+                // "previous" stays on the left of "next".
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 Slider(
                     value = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f,
                     onValueChange = { scrubbing = it },
@@ -433,7 +453,14 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                         )
                     }
                     IconButton(onClick = { vm.player.previous() }) {
-                        Icon(Icons.Filled.SkipPrevious, contentDescription = "הקודם", modifier = Modifier.size(38.dp))
+                        Icon(
+                            Icons.Filled.SkipPrevious,
+                            contentDescription = "הקודם",
+                            // Without an explicit tint these two inherit a colour that
+                            // is nearly the background, so they read as missing.
+                            tint = TextPrimary,
+                            modifier = Modifier.size(40.dp)
+                        )
                     }
                     Box(
                         modifier = Modifier
@@ -451,7 +478,12 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                         )
                     }
                     IconButton(onClick = { vm.player.next() }) {
-                        Icon(Icons.Filled.SkipNext, contentDescription = "הבא", modifier = Modifier.size(38.dp))
+                        Icon(
+                            Icons.Filled.SkipNext,
+                            contentDescription = "הבא",
+                            tint = TextPrimary,
+                            modifier = Modifier.size(40.dp)
+                        )
                     }
                     IconButton(onClick = { vm.player.cycleRepeat() }) {
                         Icon(
@@ -461,6 +493,7 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                             tint = if (state.repeatMode == Player.REPEAT_MODE_OFF) TextSecondary else Accent
                         )
                     }
+                }
                 }
                 Spacer(Modifier.height(16.dp))
             }
