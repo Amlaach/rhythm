@@ -1,0 +1,204 @@
+package com.elchanan.rhythm.playback
+
+import android.content.ComponentName
+import android.content.Context
+import androidx.core.content.ContextCompat
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.elchanan.rhythm.data.db.SongEntity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+data class PlayerUiState(
+    val connected: Boolean = false,
+    val currentSongId: Long? = null,
+    val isPlaying: Boolean = false,
+    val positionMs: Long = 0L,
+    val durationMs: Long = 0L,
+    val bufferedMs: Long = 0L,
+    val queueIds: List<Long> = emptyList(),
+    val queueIndex: Int = 0,
+    val shuffle: Boolean = false,
+    val repeatMode: Int = Player.REPEAT_MODE_OFF
+)
+
+/**
+ * Thin, UI facing wrapper around the MediaController.
+ * Nothing in the UI layer ever touches ExoPlayer directly.
+ */
+class PlayerConnection(
+    private val context: Context,
+    private val scope: CoroutineScope
+) {
+
+    private var controller: MediaController? = null
+
+    private val _state = MutableStateFlow(PlayerUiState())
+    val state: StateFlow<PlayerUiState> = _state.asStateFlow()
+
+    private val listener = object : Player.Listener {
+        override fun onEvents(player: Player, events: Player.Events) = sync()
+    }
+
+    fun connect() {
+        if (controller != null) return
+        val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
+        val future = MediaController.Builder(context, token).buildAsync()
+        future.addListener({
+            try {
+                val c = future.get()
+                controller = c
+                c.addListener(listener)
+                sync()
+                startTicker()
+            } catch (_: Throwable) {
+                // service could not start; the UI stays in the disconnected state
+            }
+        }, ContextCompat.getMainExecutor(context))
+    }
+
+    fun release() {
+        controller?.removeListener(listener)
+        controller?.release()
+        controller = null
+        _state.value = PlayerUiState()
+    }
+
+    private fun startTicker() {
+        scope.launch {
+            while (controller != null) {
+                val c = controller
+                if (c != null && c.isPlaying) {
+                    _state.value = _state.value.copy(
+                        positionMs = c.currentPosition.coerceAtLeast(0L),
+                        bufferedMs = c.bufferedPosition.coerceAtLeast(0L)
+                    )
+                }
+                delay(250)
+            }
+        }
+    }
+
+    private fun sync() {
+        val c = controller ?: return
+        val ids = ArrayList<Long>(c.mediaItemCount)
+        for (i in 0 until c.mediaItemCount) {
+            ids.add(c.getMediaItemAt(i).mediaId.toLongOrNull() ?: -1L)
+        }
+        _state.value = PlayerUiState(
+            connected = true,
+            currentSongId = c.currentMediaItem?.mediaId?.toLongOrNull(),
+            isPlaying = c.isPlaying,
+            positionMs = c.currentPosition.coerceAtLeast(0L),
+            durationMs = c.duration.let { if (it > 0) it else 0L },
+            bufferedMs = c.bufferedPosition.coerceAtLeast(0L),
+            queueIds = ids,
+            queueIndex = c.currentMediaItemIndex.coerceAtLeast(0),
+            shuffle = c.shuffleModeEnabled,
+            repeatMode = c.repeatMode
+        )
+    }
+
+    // -----------------------------------------------------------------------
+
+    private fun items(songs: List<SongEntity>): List<MediaItem> = songs.map { MediaItems.toMediaItem(it) }
+
+    fun play(songs: List<SongEntity>, startIndex: Int = 0) {
+        val c = controller ?: return
+        if (songs.isEmpty()) return
+        c.setMediaItems(items(songs), startIndex.coerceIn(0, songs.lastIndex), 0L)
+        c.prepare()
+        c.play()
+    }
+
+    /** Puts a saved queue back without starting playback. */
+    fun restore(songs: List<SongEntity>, index: Int, positionMs: Long) {
+        val c = controller ?: return
+        if (songs.isEmpty() || c.mediaItemCount > 0) return
+        c.setMediaItems(items(songs), index.coerceIn(0, songs.lastIndex), positionMs.coerceAtLeast(0L))
+        c.prepare()
+    }
+
+    fun playShuffled(songs: List<SongEntity>) {
+        if (songs.isEmpty()) return
+        val shuffled = songs.shuffled()
+        play(shuffled, 0)
+        controller?.shuffleModeEnabled = false
+    }
+
+    fun playNext(song: SongEntity) {
+        val c = controller ?: return
+        if (c.mediaItemCount == 0) {
+            play(listOf(song))
+        } else {
+            c.addMediaItem(c.currentMediaItemIndex + 1, MediaItems.toMediaItem(song))
+        }
+    }
+
+    fun addToQueue(songs: List<SongEntity>) {
+        val c = controller ?: return
+        if (c.mediaItemCount == 0) {
+            play(songs)
+        } else {
+            c.addMediaItems(items(songs))
+        }
+    }
+
+    fun togglePlayPause() {
+        val c = controller ?: return
+        if (c.isPlaying) c.pause() else {
+            if (c.playbackState == Player.STATE_IDLE) c.prepare()
+            c.play()
+        }
+    }
+
+    fun next() = controller?.seekToNextMediaItem() ?: Unit
+    fun previous() {
+        val c = controller ?: return
+        if (c.currentPosition > 5_000L) c.seekTo(0L) else c.seekToPreviousMediaItem()
+    }
+
+    fun seekTo(ms: Long) {
+        controller?.seekTo(ms.coerceAtLeast(0L))
+        _state.value = _state.value.copy(positionMs = ms)
+    }
+
+    fun jumpTo(index: Int) {
+        val c = controller ?: return
+        if (index in 0 until c.mediaItemCount) {
+            c.seekTo(index, 0L)
+            c.play()
+        }
+    }
+
+    fun removeAt(index: Int) {
+        val c = controller ?: return
+        if (index in 0 until c.mediaItemCount) c.removeMediaItem(index)
+    }
+
+    fun toggleShuffle() {
+        val c = controller ?: return
+        c.shuffleModeEnabled = !c.shuffleModeEnabled
+    }
+
+    fun cycleRepeat() {
+        val c = controller ?: return
+        c.repeatMode = when (c.repeatMode) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
+    }
+
+    fun stop() {
+        val c = controller ?: return
+        c.stop()
+        c.clearMediaItems()
+    }
+}

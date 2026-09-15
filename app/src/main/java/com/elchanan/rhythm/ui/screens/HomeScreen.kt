@@ -1,0 +1,415 @@
+package com.elchanan.rhythm.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.elchanan.rhythm.data.db.SongEntity
+import com.elchanan.rhythm.engine.FeedSection
+import com.elchanan.rhythm.engine.Mood
+import com.elchanan.rhythm.engine.SectionKind
+import com.elchanan.rhythm.ui.MainViewModel
+import com.elchanan.rhythm.ui.components.Artwork
+import com.elchanan.rhythm.ui.components.Chip
+import com.elchanan.rhythm.ui.components.EmptyState
+import com.elchanan.rhythm.ui.components.MixCard
+import com.elchanan.rhythm.ui.components.SectionHeader
+import com.elchanan.rhythm.ui.components.SongCard
+import com.elchanan.rhythm.ui.components.formatDuration
+import com.elchanan.rhythm.ui.theme.Accent
+import com.elchanan.rhythm.ui.theme.Accent2
+import com.elchanan.rhythm.ui.theme.Bg
+import com.elchanan.rhythm.ui.theme.Surface1
+import com.elchanan.rhythm.ui.theme.TextSecondary
+import java.util.Calendar
+
+@Composable
+fun HomeScreen(
+    vm: MainViewModel,
+    hasPermission: Boolean,
+    onRequestPermission: () -> Unit,
+    onOpenDetail: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenRatings: () -> Unit = {},
+    onOpenRecap: () -> Unit = {}
+) {
+    val library by vm.library.collectAsStateWithLifecycle()
+    val feed by vm.feed.collectAsStateWithLifecycle()
+    val busy by vm.busy.collectAsStateWithLifecycle()
+    val analysis by vm.analysisProgress.collectAsStateWithLifecycle()
+
+    val statusPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
+    Column(modifier = Modifier.fillMaxSize().background(Bg)) {
+        HomeTopBar(
+            padding = statusPadding,
+            onRefresh = { vm.refreshFeed(reshuffle = true) },
+            onRecap = onOpenRecap,
+            onSettings = onOpenSettings
+        )
+        if (busy) {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth(),
+                color = Accent
+            )
+        }
+
+        when {
+            !hasPermission -> EmptyState(
+                title = "צריך גישה לשירים",
+                body = "האפליקציה קוראת רק את קבצי המוזיקה שכבר נמצאים במכשיר. אין אינטרנט, אין העלאות.",
+                action = {
+                    Button(
+                        onClick = onRequestPermission,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("אישור גישה") }
+                }
+            )
+
+            library.songs.isEmpty() -> EmptyState(
+                title = "לא נמצאו שירים",
+                body = "אפשר לסרוק שוב אחרי שמעתיקים קבצים למכשיר.",
+                action = {
+                    Button(
+                        onClick = { vm.rescan() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("סרוק עכשיו") }
+                }
+            )
+
+            else -> LazyColumn(
+                contentPadding = PaddingValues(bottom = 40.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item { GreetingCard(library.songs.size, library.artists.count { it.rating > 0 }) }
+
+                // mood chips, only worth showing once some audio was analysed
+                if (analysis.done >= 12) {
+                    item {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(Mood.entries.size) { index ->
+                                val mood = Mood.entries[index]
+                                Chip(
+                                    label = mood.label,
+                                    selected = false,
+                                    onClick = { vm.openMood(mood) { onOpenDetail() } }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // one nudge at a time, and only while it is still relevant
+                item {
+                    val unrated = library.artists.count { it.rating == 0 }
+                    when {
+                        analysis.running -> Banner(
+                            icon = Icons.Filled.GraphicEq,
+                            title = "מנתח את הספרייה",
+                            body = "${analysis.done} מתוך ${analysis.total} · ${analysis.currentTitle.orEmpty()}",
+                            action = "עצור",
+                            onClick = { vm.stopAnalysis() }
+                        )
+
+                        analysis.remaining > 0 && analysis.total > 0 -> Banner(
+                            icon = Icons.Filled.GraphicEq,
+                            title = "${analysis.remaining} שירים עוד לא נותחו",
+                            body = "ניתוח הקצב והגוון משפר את הרדיו ואת המיקסים",
+                            action = "נתח",
+                            onClick = { vm.startAnalysis() }
+                        )
+
+                        unrated > 0 && library.artists.count { it.rating > 0 } < 12 -> Banner(
+                            icon = Icons.Filled.Star,
+                            title = "$unrated אמנים עוד לא מדורגים",
+                            body = "כמה דירוגים משנים את הפיד יותר מכל דבר אחר",
+                            action = "דרג",
+                            onClick = onOpenRatings
+                        )
+
+                        else -> Unit
+                    }
+                }
+
+                items(feed, key = { it.id }) { section ->
+                    FeedSectionView(
+                        section = section,
+                        vm = vm,
+                        onOpenDetail = onOpenDetail
+                    )
+                }
+
+                if (feed.isEmpty()) {
+                    item {
+                        EmptyState(
+                            title = "בונה את הפיד",
+                            body = "רגע אחד, מחשב דירוגים.",
+                            action = {
+                                Button(
+                                    onClick = { vm.refreshFeed(true) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                                ) { Text("רענון") }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeTopBar(
+    padding: androidx.compose.ui.unit.Dp,
+    onRefresh: () -> Unit,
+    onRecap: () -> Unit,
+    onSettings: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = padding)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(CircleShape)
+                .background(Brush.linearGradient(listOf(Accent, Accent2)))
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = "Rhythm",
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.weight(1f)
+        )
+        IconButton(onClick = onRefresh) {
+            Icon(Icons.Filled.Autorenew, contentDescription = "רענון", tint = TextSecondary)
+        }
+        IconButton(onClick = onRecap) {
+            Icon(Icons.Filled.BarChart, contentDescription = "הסיכום שלך", tint = TextSecondary)
+        }
+        IconButton(onClick = onSettings) {
+            Icon(Icons.Filled.Settings, contentDescription = "הגדרות", tint = TextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun Banner(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    body: String,
+    action: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+            .background(Surface1)
+            .clickable(onClick = onClick)
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, tint = Accent)
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(
+                body,
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+                maxLines = 2
+            )
+        }
+        Text(action, style = MaterialTheme.typography.labelLarge, color = Accent)
+    }
+}
+
+@Composable
+private fun GreetingCard(songCount: Int, ratedArtists: Int) {
+    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    val greeting = when (hour) {
+        in 5..11 -> "בוקר טוב"
+        in 12..16 -> "צהריים טובים"
+        in 17..21 -> "ערב טוב"
+        else -> "לילה טוב"
+    }
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Text(
+            text = greeting,
+            style = MaterialTheme.typography.displaySmall,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        Text(
+            text = "$songCount שירים במכשיר · $ratedArtists אמנים מדורגים",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary
+        )
+    }
+}
+
+@Composable
+private fun FeedSectionView(
+    section: FeedSection,
+    vm: MainViewModel,
+    onOpenDetail: () -> Unit
+) {
+    val library by vm.library.collectAsStateWithLifecycle()
+
+    when (section.kind) {
+        SectionKind.QUICK_PICKS -> {
+            SectionHeader(
+                title = section.title,
+                subtitle = section.subtitle,
+                actionLabel = "נגן הכל",
+                onAction = { vm.playList(section.songs) }
+            )
+            val columns = section.songs.chunked(4)
+            LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
+                items(columns) { column ->
+                    Column(modifier = Modifier.width(330.dp)) {
+                        column.forEach { song ->
+                            QuickPickRow(
+                                song = song,
+                                liked = library.stats[song.id]?.liked ?: 0,
+                                onClick = {
+                                    val index = section.songs.indexOf(song)
+                                    vm.playList(section.songs, if (index >= 0) index else 0)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        SectionKind.MIX_ROW -> {
+            SectionHeader(title = section.title, subtitle = section.subtitle)
+            LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
+                items(section.mixes, key = { it.id }) { mix ->
+                    MixCard(
+                        id = mix.id,
+                        title = mix.title,
+                        subtitle = mix.subtitle,
+                        count = mix.songs.size,
+                        onClick = {
+                            vm.openMix(mix)
+                            onOpenDetail()
+                        },
+                        onPlay = { vm.playList(mix.songs) }
+                    )
+                }
+            }
+        }
+
+        SectionKind.SONG_ROW -> {
+            SectionHeader(
+                title = section.title,
+                subtitle = section.subtitle,
+                actionLabel = "הכל",
+                onAction = {
+                    vm.openList(section.title, section.subtitle, section.songs, section.id)
+                    onOpenDetail()
+                }
+            )
+            LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
+                items(section.songs, key = { it.id }) { song ->
+                    SongCard(
+                        song = song,
+                        onClick = {
+                            val index = section.songs.indexOf(song)
+                            vm.playList(section.songs, if (index >= 0) index else 0)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickPickRow(song: SongEntity, liked: Int, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Artwork(
+            albumId = song.albumId,
+            seed = song.artistKey,
+            modifier = Modifier.size(52.dp),
+            corner = 8
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = song.title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1
+            )
+            Text(
+                text = "${song.artistName} · ${formatDuration(song.durationMs)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+                maxLines = 1
+            )
+        }
+        if (liked == 1) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(Accent)
+            )
+        }
+    }
+}
