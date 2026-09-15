@@ -160,12 +160,16 @@ fun MiniPlayer(
                 Icon(Icons.Filled.SkipNext, contentDescription = "הבא", tint = MaterialTheme.colorScheme.onBackground)
             }
         }
-        LinearProgressIndicator(
-            progress = { progress.coerceIn(0f, 1f) },
-            modifier = Modifier.fillMaxWidth().height(2.dp),
-            color = Accent,
-            trackColor = Surface1
-        )
+        // Matches the full player: elapsed time grows rightwards regardless of the
+        // language, so the two views never disagree about which way the song runs.
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            LinearProgressIndicator(
+                progress = { progress.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(2.dp),
+                color = Accent,
+                trackColor = Surface1
+            )
+        }
     }
 }
 
@@ -383,6 +387,15 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
 
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Without this the stars sit directly under the artist line and
+                    // read as a rating of the artist, which is a different thing the
+                    // app also offers.
+                    Text(
+                        text = "דירוג השיר",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.width(8.dp))
                     StarRow(rating = rating, onRate = { vm.rateSong(song.id, it) }, size = 20)
                     Spacer(Modifier.width(10.dp))
                     if (feature != null) {
