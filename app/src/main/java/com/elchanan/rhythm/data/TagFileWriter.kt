@@ -26,7 +26,17 @@ class TagFileWriter(private val context: Context) {
 
     data class Item(val songId: Long, val title: String, val artist: String)
 
-    data class Outcome(val written: Int, val failed: Int) {
+    /**
+     * @param recovery on Android 10, the dialog that would grant access to the
+     *   files that were refused. That version has scoped storage but not the
+     *   up-front request the next one added, so permission can only be asked for
+     *   after a write has already been turned down.
+     */
+    data class Outcome(
+        val written: Int,
+        val failed: Int,
+        val recovery: IntentSender? = null
+    ) {
         val ok: Boolean get() = failed == 0
     }
 
@@ -72,13 +82,15 @@ class TagFileWriter(private val context: Context) {
     suspend fun write(items: List<Item>): Outcome = withContext(Dispatchers.IO) {
         var written = 0
         var failed = 0
+        var recovery: IntentSender? = null
         for (item in items) {
             val uri = uriFor(item.songId)
             val done = try {
                 Id3Writer.write(context, uri, item.title, item.artist, null)
-            } catch (e: RecoverableSecurityException) {
-                false
             } catch (e: SecurityException) {
+                // Keep the first offer of a way out; the rest of the files will
+                // almost always be refused for the same reason.
+                if (recovery == null) recovery = recoveryFrom(e)
                 false
             }
             if (done) written++ else failed++
@@ -89,6 +101,20 @@ class TagFileWriter(private val context: Context) {
                 context.contentResolver.notifyChange(it, null)
             }
         }
-        Outcome(written, failed)
+        Outcome(written, failed, recovery)
+    }
+
+    /**
+     * The system's "let this app edit that file" dialog, when the refusal came
+     * with one.
+     *
+     * Isolated behind a version check and its own method so that the class name
+     * is never resolved on a device too old to have it.
+     */
+    private fun recoveryFrom(e: SecurityException): IntentSender? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        return runCatching {
+            (e as? RecoverableSecurityException)?.userAction?.actionIntent?.intentSender
+        }.getOrNull()
     }
 }

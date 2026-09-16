@@ -622,9 +622,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             runPendingWrites()
         } else {
             pendingWrites = emptyList()
+            writeRetried = false
             _message.value = "התיקון נשמר באפליקציה. הקבצים לא שונו."
         }
     }
+
+    /**
+     * Guards the one retry Android 10 is allowed.
+     *
+     * There the permission dialog only appears after a write has been refused,
+     * so the sequence is write, ask, write again. Without this flag a refusal
+     * that keeps repeating would bounce the dialog back forever.
+     */
+    private var writeRetried = false
 
     private fun runPendingWrites() {
         val items = pendingWrites
@@ -633,6 +643,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _message.value = "כותב לקבצים..."
             val outcome = tagFiles.write(items)
+            val recovery = outcome.recovery
+            if (recovery != null && !writeRetried) {
+                writeRetried = true
+                pendingWrites = items
+                _writePermissionRequest.value = recovery
+                return@launch
+            }
+            writeRetried = false
             _message.value = when {
                 outcome.written == 0 -> "לא הצלחתי לכתוב לקבצים. התיקון נשמר באפליקציה."
                 outcome.ok -> "נכתבו ${outcome.written} קבצים"
