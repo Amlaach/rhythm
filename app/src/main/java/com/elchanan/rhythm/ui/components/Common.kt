@@ -101,6 +101,11 @@ fun Artwork(
         AsyncImage(
             model = SongArt(songId, albumId),
             contentDescription = null,
+            // Covers that came from video thumbnails are 16:9. Fitting one into
+            // a square leaves two thick bands of the gradient behind it and the
+            // artwork itself ends up small; cropping to the centre fills the
+            // tile, which is what a cover is meant to do.
+            contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
         )
     }
