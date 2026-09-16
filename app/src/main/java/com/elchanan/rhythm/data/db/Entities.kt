@@ -136,7 +136,15 @@ data class AudioFeatureEntity(
      * loud-to-quiet contrast. Averaged features describe what a song is made of;
      * these describe what it does.
      */
-    val shape: String = ""
+    val shape: String = "",
+    /**
+     * Index into MusicalMode, or -1 when undetermined. Major and minor alone
+     * cannot tell a niggun from a pop ballad; the shtaygerim and the maqam
+     * families can.
+     */
+    val scaleMode: Int = -1,
+    /** How far the winning mode beat the runner up, 0..1. */
+    val scaleConfidence: Float = 0f
 )
 
 @Entity(tableName = "history", indices = [Index("playedAt"), Index("songId")])

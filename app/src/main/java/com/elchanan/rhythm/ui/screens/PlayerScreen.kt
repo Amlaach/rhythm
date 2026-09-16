@@ -401,7 +401,7 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                     if (feature != null) {
                         Text(
                             text = "${feature.bpm.toInt()} BPM · " +
-                                AudioAnalyzer.keyLabel(feature.musicalKey, feature.mode),
+                                AudioAnalyzer.modeLabel(feature),
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary
                         )

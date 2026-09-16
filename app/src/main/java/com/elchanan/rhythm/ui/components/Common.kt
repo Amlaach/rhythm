@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -317,7 +318,8 @@ fun MixCard(
     subtitle: String,
     count: Int,
     onClick: () -> Unit,
-    onPlay: () -> Unit
+    onPlay: () -> Unit,
+    covers: List<Pair<Long, Long>> = emptyList()
 ) {
     val (c1, c2) = gradientFor(id)
     Column(
@@ -333,6 +335,41 @@ fun MixCard(
                 .clip(RoundedCornerShape(14.dp))
                 .background(Brush.linearGradient(listOf(c1, c2)))
         ) {
+            // The covers of what is actually inside, so a mix is recognisable at
+            // a glance rather than being one more coloured rectangle. The
+            // gradient stays underneath for mixes with too few covers to fill
+            // the grid, and the text sits on a scrim so it stays readable over
+            // whatever artwork lands behind it.
+            if (covers.size >= 4) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    for (row in 0 until 2) {
+                        Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                            for (column in 0 until 2) {
+                                val (songId, albumId) = covers[row * 2 + column]
+                                AsyncImage(
+                                    model = SongArt(songId, albumId),
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.weight(1f).fillMaxHeight()
+                                )
+                            }
+                        }
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.Black.copy(alpha = 0.55f),
+                                    Color.Black.copy(alpha = 0.15f),
+                                    Color.Black.copy(alpha = 0.60f)
+                                )
+                            )
+                        )
+                )
+            }
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,

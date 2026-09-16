@@ -290,7 +290,16 @@ object AudioAnalyzer {
         val chromaSum = chromaTotal.sum()
         val chromaNorm =
             if (chromaSum > 1e-9) DoubleArray(12) { chromaTotal[it] / chromaSum } else DoubleArray(12)
-        val (key, mode) = detectKey(chromaNorm)
+        // The modal estimate is the authority on the tonic; major/minor is kept
+        // only so the rest of the app, which still thinks in two modes, keeps
+        // working unchanged.
+        val estimate = ModeDetector.detect(chromaNorm)
+        val key = estimate?.key ?: detectKey(chromaNorm).first
+        val mode = when {
+            estimate == null -> detectKey(chromaNorm).second
+            estimate.mode.brightFamily -> 1
+            else -> 0
+        }
         val rotated = DoubleArray(12) { chromaNorm[(it + max(0, key)) % 12] }
 
         val timbre = DoubleArray(MFCC_COUNT) { c -> windows.sumOf { it.mfccMean[c] } / n }
@@ -352,7 +361,9 @@ object AudioAnalyzer {
             chroma = rotated.joinToString(",") { "%.5f".format(it) },
             timbre = timbre.joinToString(",") { "%.5f".format(it) },
             timbreVar = timbreVar.joinToString(",") { "%.5f".format(it) },
-            shape = shape.joinToString(",") { "%.5f".format(it) }
+            shape = shape.joinToString(",") { "%.5f".format(it) },
+            scaleMode = estimate?.mode?.ordinal ?: -1,
+            scaleConfidence = (estimate?.confidence ?: 0.0).toFloat()
         )
     }
 
@@ -561,6 +572,17 @@ object AudioAnalyzer {
         mode == 1 -> "${KEY_NAMES[key]} מז'ור"
         mode == 0 -> "${KEY_NAMES[key]} מינור"
         else -> KEY_NAMES[key]
+    }
+
+    /**
+     * Prefers the modal name over "major"/"minor" when the estimate was clear.
+     * "D אהבה רבה" tells a listener here far more than "D מינור" does.
+     */
+    fun modeLabel(f: AudioFeatureEntity): String {
+        if (f.musicalKey < 0) return "לא זוהה"
+        val mode = MusicalMode.byOrdinalOrNull(f.scaleMode)
+        if (mode == null || f.scaleConfidence < 0.2f) return keyLabel(f.musicalKey, f.mode)
+        return "${KEY_NAMES[f.musicalKey]} ${mode.label}"
     }
 
     /**

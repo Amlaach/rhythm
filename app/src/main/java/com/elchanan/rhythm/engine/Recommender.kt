@@ -479,7 +479,7 @@ class Recommender(
                 "התאמת סאונד",
                 1.15 * tuning.acousticWeight * (acousticFit ?: 0.0),
                 features[song.id]?.let { f ->
-                    "${f.bpm.toInt()} BPM · ${AudioAnalyzer.keyLabel(f.musicalKey, f.mode)}"
+                    "${f.bpm.toInt()} BPM · ${AudioAnalyzer.modeLabel(f)}"
                 } ?: "השיר עוד לא נותח"
             )
         )
@@ -575,6 +575,29 @@ class Recommender(
 
     private fun tempoDistance(a: Long, b: Long): Double = acoustic?.tempoDistance(a, b) ?: 0.0
 
+    /**
+     * Whether two tracks draw on the same modal world.
+     *
+     * This is the closest thing the app has to a sense of genre without a
+     * trained model: Ahavah Rabbah and Hijaz carry the sound people hear as
+     * Jewish or Middle Eastern, and a plain major scale does not. Only counted
+     * when both estimates were clear enough to trust.
+     */
+    private fun modeFit(a: Long, b: Long): Double {
+        val fa = features[a] ?: return 0.0
+        val fb = features[b] ?: return 0.0
+        if (fa.scaleConfidence < 0.2f || fb.scaleConfidence < 0.2f) return 0.0
+        val ma = MusicalMode.byOrdinalOrNull(fa.scaleMode) ?: return 0.0
+        val mb = MusicalMode.byOrdinalOrNull(fb.scaleMode) ?: return 0.0
+        return when {
+            ma == mb -> 1.0
+            ma in MusicalMode.EASTERN && mb in MusicalMode.EASTERN -> 0.55
+            ma in MusicalMode.LITURGICAL && mb in MusicalMode.LITURGICAL -> 0.5
+            ma.brightFamily == mb.brightFamily -> 0.2
+            else -> -0.25
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Selection with diversity
     // -----------------------------------------------------------------------
@@ -645,7 +668,8 @@ class Recommender(
                     0.9 * acousticSimilarity(current.id, c.id) +
                     0.5 * styleSimilarity(current.id, c.id) -
                     0.7 * tempoDistance(current.id, c.id) +
-                    0.55 * liftFit(current.id, c.id) -
+                    0.55 * liftFit(current.id, c.id) +
+                    0.8 * modeFit(current.id, c.id) -
                     (if (sameRecording(current.id, c.id)) 3.0 else 0.0) +
                     noise(c.id, current.id, 0.35)
                 if (s > bestScore) {

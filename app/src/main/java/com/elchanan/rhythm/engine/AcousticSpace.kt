@@ -184,4 +184,10 @@ class AcousticSpace(features: Collection<AudioFeatureEntity>) {
     }
 
     fun has(songId: Long): Boolean = vectors.containsKey(songId)
+
+    /** Human readable mode, or null when the estimate was not clear enough. */
+    fun modeLabel(f: AudioFeatureEntity): String? {
+        if (f.scaleConfidence < 0.2f) return null
+        return MusicalMode.byOrdinalOrNull(f.scaleMode)?.label
+    }
 }

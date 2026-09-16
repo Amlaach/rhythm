@@ -437,7 +437,8 @@ private fun FeedSectionView(
                             vm.openMix(mix)
                             onOpenDetail()
                         },
-                        onPlay = { vm.playList(mix.songs) }
+                        onPlay = { vm.playList(mix.songs) },
+                        covers = mix.songs.take(4).map { it.id to it.albumId }
                     )
                 }
             }
