@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
@@ -601,13 +602,16 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
     val scope = rememberCoroutineScope()
 
-    // Open on what is playing rather than at the top. In a sixty track queue the
-    // start of the list is the least useful place to land.
+    // Open on what is playing rather than at the top, but only on open. Keying
+    // this to the queue contents meant every deletion yanked the list back to
+    // the playing track, which is what made removing several in a row feel like
+    // the screen was fighting back.
     val listState = rememberLazyListState()
-    LaunchedEffect(state.queueIndex, songs.size) {
-        if (state.queueIndex in songs.indices) {
+    LaunchedEffect(Unit) {
+        val target = state.queueIndex
+        if (target in songs.indices) {
             // +1 for the header row that sits above the entries
-            listState.scrollToItem((state.queueIndex + 1).coerceAtMost(songs.size))
+            listState.scrollToItem(target + 1)
         }
     }
 
@@ -636,14 +640,16 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
             }
         }
 
-        items(songs.size) { index ->
+        // Keyed by song, so a removal moves the rows that remain instead of
+        // leaving swipe offsets and drag state attached to whatever slid into
+        // that position.
+        itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
             if (index == state.queueIndex + 1 && index != autoStart) {
                 QueueHeader("הבא בתור")
             }
             if (index == autoStart) {
                 QueueHeader("המשך אוטומטי")
             }
-            val song = songs[index]
 
             // Swipe aside to drop an entry. Written by hand rather than with the
             // Material box: the version in this toolchain is still experimental
