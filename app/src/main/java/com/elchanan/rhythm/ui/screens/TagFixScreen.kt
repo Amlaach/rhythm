@@ -13,8 +13,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -52,7 +59,19 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
     val changed = proposals.filter { it.changed }
 
     Column(modifier = Modifier.fillMaxSize().background(Bg)) {
-        DetailTopBar(title = "תיקון תגיות", onBack = onBack)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Filled.ArrowBack, contentDescription = "חזור", tint = TextSecondary)
+            }
+            Spacer(Modifier.width(4.dp))
+            Text("תיקון תגיות", style = MaterialTheme.typography.titleLarge)
+        }
 
         LazyColumn(
             contentPadding = PaddingValues(bottom = 40.dp),
