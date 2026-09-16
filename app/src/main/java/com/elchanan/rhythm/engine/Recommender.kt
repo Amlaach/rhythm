@@ -36,11 +36,28 @@ enum class SectionKind { QUICK_PICKS, MIX_ROW, SONG_ROW }
  * shelf that quietly mixes the two is worse than one that misses a few.
  */
 private val LIVE_MARKERS = Regex(
-    """\blive\b|לייב|בהופעה|הופעה חיה|בהופעה חיה""",
+    """\blive\b|לייב|בהופעה|הופעה חיה|בהופעה חיה|במופע""",
     RegexOption.IGNORE_CASE
 )
 
-fun isLiveRecording(title: String): Boolean = LIVE_MARKERS.containsMatchIn(title)
+/**
+ * Venues, which only count as evidence alongside a year.
+ *
+ * "קיסריה" on its own could be a song title; "קיסריה 2025" is a concert. The
+ * pairing is what makes it safe to treat as a live recording without the word
+ * "live" appearing anywhere.
+ */
+private val VENUE_MARKERS = Regex(
+    """קיסריה|היכל מנורה|מנורה מבטחים|היכל התרבות|זאפה|בארבי|אמפי|סולטן""",
+    RegexOption.IGNORE_CASE
+)
+
+private val YEAR_MARKER = Regex("""\b20\d{2}\b""")
+
+fun isLiveRecording(title: String): Boolean {
+    if (LIVE_MARKERS.containsMatchIn(title)) return true
+    return VENUE_MARKERS.containsMatchIn(title) && YEAR_MARKER.containsMatchIn(title)
+}
 
 data class FeedSection(
     val id: String,
@@ -186,6 +203,12 @@ class Recommender(
         song.id to MediaScanner.normalizeKey(
             VERSION_NOISE.replace(song.title, " ") + " " + song.artistKey
         )
+    }
+
+    /** Keeps the first take of each piece and drops the rest, order preserved. */
+    private fun dedupeVersions(list: List<SongEntity>): List<SongEntity> {
+        val seen = HashSet<String>()
+        return list.filter { seen.add(versionKeyById[it.id] ?: it.id.toString()) }
     }
 
     /** True when two tracks look like the same piece rather than two songs. */
@@ -955,20 +978,83 @@ class Recommender(
             )
         }
 
+        // The one artist the listening actually points at, with their strongest
+        // tracks. Deliberately a single artist: a home page carrying three of
+        // these stops being a recommendation and becomes a directory.
+        val engagement = HashMap<String, Double>()
+        for (s in songs) {
+            val st = stats[s.id] ?: continue
+            var w = ln(1.0 + st.playCount)
+            if (st.liked == 1) w += 1.5
+            if (st.liked == -1) w -= 1.5
+            if (st.rating >= 4) w += 1.0
+            engagement.merge(s.artistKey, w) { x, y -> x + y }
+        }
+        val favouriteKey = engagement.entries
+            .filter { it.value >= 3.0 }
+            .maxByOrNull { it.value }
+            ?.key
+        if (favouriteKey != null) {
+            val name = artists[favouriteKey]?.displayName?.takeIf { it.isNotBlank() }
+                ?: songs.firstOrNull { it.artistKey == favouriteKey }?.artistName
+            val best = dedupeVersions(
+                notDisliked
+                    .filter { it.artistKey == favouriteKey }
+                    .sortedByDescending { totalScore(it) }
+            ).take(20)
+            if (name != null && best.size >= 5) {
+                sections.add(
+                    FeedSection(
+                        id = "artist:$favouriteKey",
+                        title = "כי אתה שומע הרבה $name",
+                        subtitle = "הטובים ביותר שלו, לפי מה שנלמד",
+                        kind = SectionKind.SONG_ROW,
+                        songs = best
+                    )
+                )
+            }
+        }
+
         // A stage recording of a song you already own is a genuinely different
         // listen, so the live takes get a shelf of their own rather than being
         // scattered through the others.
-        val live = notDisliked.filter { isLiveRecording(it.title) }
-        if (live.size >= 4) {
+        val live = dedupeVersions(
+            notDisliked.filter { isLiveRecording(it.title) }
+                .sortedByDescending { totalScore(it) }
+        )
+        if (live.size >= 3) {
             sections.add(
                 FeedSection(
                     id = "live",
                     title = "הופעות חיות",
-                    subtitle = "הקלטות במה שנמצאו בספרייה",
+                    subtitle = "הקלטות במה מתוך הספרייה",
                     kind = SectionKind.SONG_ROW,
-                    songs = live.sortedByDescending { totalScore(it) }.take(24)
+                    songs = live.take(24)
                 )
             )
+        }
+
+        // Live takes of tracks already liked in the studio. The connection the
+        // listener most wants and the hardest one to stumble on by browsing.
+        val likedStudio = songs.filter {
+            (stats[it.id]?.liked ?: 0) == 1 && !isLiveRecording(it.title)
+        }
+        if (likedStudio.isNotEmpty()) {
+            val liveOfLiked = notDisliked.filter { candidate ->
+                isLiveRecording(candidate.title) &&
+                    likedStudio.any { it.id != candidate.id && sameRecording(it.id, candidate.id) }
+            }
+            if (liveOfLiked.size >= 3) {
+                sections.add(
+                    FeedSection(
+                        id = "liveofliked",
+                        title = "על הבמה — שירים שאהבת",
+                        subtitle = "גרסאות חיות לשירים שסימנת",
+                        kind = SectionKind.SONG_ROW,
+                        songs = liveOfLiked.sortedByDescending { totalScore(it) }.take(20)
+                    )
+                )
+            }
         }
 
         // What the user has actually claimed - liked or rated - as opposed to what
