@@ -589,6 +589,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val changed = proposals.filter { it.changed }
             repo.saveOverrides(TagFixer.toOverrides(proposals))
             prefs.tagTipSeen = true
+            // The shelves hold a snapshot of the songs taken when the feed was
+            // built, so without this the home screen keeps showing the old
+            // titles while the player shows the corrected ones.
+            refreshFeed()
             _message.value =
                 if (changed.isEmpty()) "אין מה לתקן" else "עודכנו ${changed.size} שירים"
             if (changed.isNotEmpty() && prefs.writeTagsToFiles) startFileWrite(changed)
@@ -651,6 +655,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 )
             )
             prefs.tagTipSeen = true
+            refreshFeed()
             _message.value = "התגית עודכנה"
             if (prefs.writeTagsToFiles) {
                 startFileWrite(
@@ -671,7 +676,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun resetTagFix() {
         viewModelScope.launch {
             repo.clearOverrides()
-            _tagProposals.value = emptyList()
+            refreshFeed()
             _message.value = "התגיות המקוריות שוחזרו"
         }
     }

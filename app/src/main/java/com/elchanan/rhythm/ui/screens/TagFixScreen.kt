@@ -67,10 +67,10 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
     val proposals by vm.tagProposals.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
 
-    LaunchedEffect(library.songs.size) { vm.buildTagProposals() }
-    // The setting can be flipped while this screen is closed, so the preview is
-    // rebuilt on the way in rather than only when the library changes.
-    LaunchedEffect(Unit) { vm.buildTagProposals() }
+    // Keyed on the songs themselves, not their count: a correction changes the
+    // titles without changing how many there are, and keying on the size left
+    // the preview showing proposals that had already been applied.
+    LaunchedEffect(library.songs) { vm.buildTagProposals() }
 
     // Writing into the files needs the system's own permission dialog from
     // Android 11 on, and only an activity can show it.
