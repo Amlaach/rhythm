@@ -56,11 +56,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.ui.ArtistInfo
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.engine.Styles
+import com.elchanan.rhythm.ui.components.Artwork
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.StarRow
 import com.elchanan.rhythm.ui.theme.Accent
@@ -68,7 +70,9 @@ import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.BgElevated
 import com.elchanan.rhythm.ui.theme.Surface1
+import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Surface3
+import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import com.elchanan.rhythm.ui.theme.gradientFor
 import kotlinx.coroutines.launch
@@ -263,13 +267,19 @@ private fun RatingRow(
     onOpen: () -> Unit,
     onLongPress: () -> Unit
 ) {
-    val (c1, c2) = gradientFor(artist.key)
+    val gutter = rememberMetrics().gutter
+    val top = artist.songs.firstOrNull()
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (selected) Accent.copy(alpha = 0.16f) else Color.Transparent)
+            .padding(horizontal = gutter, vertical = 3.dp)
+            .clip(RoundedCornerShape(14.dp))
+            // A card rather than a bare row: an artist list of plain text on a
+            // dark ground had nothing to hold it together, which is why this
+            // screen looked emptier than the rest of the app.
+            .background(if (selected) Accent.copy(alpha = 0.18f) else Surface1)
             .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
-            .padding(horizontal = 16.dp, vertical = 9.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (selectionMode) {
@@ -281,26 +291,35 @@ private fun RatingRow(
             )
             Spacer(Modifier.width(8.dp))
         }
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(Brush.linearGradient(listOf(c1, c2))),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(artist.displayName.take(1), color = Color.White, style = MaterialTheme.typography.titleMedium)
-        }
+        // A real cover beats an initial in a circle. Artwork already falls back
+        // to the deterministic gradient when a track carries no picture.
+        Artwork(
+            songId = top?.id ?: -1L,
+            albumId = top?.albumId ?: -1L,
+            seed = artist.key,
+            modifier = Modifier.size(48.dp),
+            corner = 24
+        )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(artist.displayName, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
             Text(
-                text = if (artist.styles.isBlank()) "${artist.songs.size} שירים · בלי סגנון"
-                else artist.styles,
+                artist.displayName,
+                style = MaterialTheme.typography.bodyLarge,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = buildString {
+                    append("${artist.songs.size} שירים")
+                    if (artist.styles.isNotBlank()) append(" · ${artist.styles}")
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
             StarRow(rating = artist.rating, onRate = onRate, size = 20)
         }
     }
