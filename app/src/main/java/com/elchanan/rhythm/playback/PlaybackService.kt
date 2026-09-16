@@ -66,6 +66,9 @@ class PlaybackService : MediaSessionService() {
     /** per track loudness gains; empty until enough of the library is analysed */
     private var gains: Map<Long, Float> = emptyMap()
 
+    /** system equaliser bound to the player's audio session */
+    private var eq: EqController? = null
+
     /** volume ramp between tracks; 0 in preferences means it never runs */
     private val fadeRunnable = object : Runnable {
         override fun run() {
@@ -100,6 +103,11 @@ class PlaybackService : MediaSessionService() {
 
         player.skipSilenceEnabled = repo.prefs.skipSilence
         refreshGains()
+        // The session id only exists once the audio sink is up, and it changes
+        // whenever playback restarts, so the effect is re-attached rather than
+        // created once.
+        eq = EqController(repo.prefs)
+        attachEqualizer()
 
         mediaSession = MediaSession.Builder(this, player)
             .setCallback(SessionCallback())
@@ -160,6 +168,8 @@ class PlaybackService : MediaSessionService() {
         mediaSession?.release()
         player.release()
         mediaSession = null
+        EqBridge.controller = null
+        eq?.release()
         scope.cancel()
         super.onDestroy()
     }
@@ -246,6 +256,7 @@ class PlaybackService : MediaSessionService() {
             }
             startTracking(mediaItem)
             applyTrackGain()
+            attachEqualizer()
             persistQueue()
             maybeExtendQueue()
             RhythmWidget.refresh(this@PlaybackService, player)
@@ -328,6 +339,11 @@ class PlaybackService : MediaSessionService() {
      */
     private fun applyTrackGain() {
         if (repo.prefs.crossfadeMs <= 0) player.volume = trackGain()
+    }
+
+    private fun attachEqualizer() {
+        runCatching { eq?.attach(player.audioSessionId) }
+        EqBridge.controller = eq
     }
 
     private fun refreshGains() {

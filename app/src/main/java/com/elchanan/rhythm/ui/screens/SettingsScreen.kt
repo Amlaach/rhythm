@@ -58,7 +58,8 @@ import com.elchanan.rhythm.ui.theme.TextSecondary
 fun SettingsScreen(
     vm: MainViewModel,
     onBack: () -> Unit,
-    onOpenTagFix: () -> Unit = {}
+    onOpenTagFix: () -> Unit = {},
+    onOpenEqualizer: () -> Unit = {}
 ) {
     val report by vm.report.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
@@ -179,6 +180,26 @@ fun SettingsScreen(
                             checkedTrackColor = Accent.copy(alpha = 0.4f)
                         )
                     )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("אקולייזר", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "כוונון תדרים לפי המנוע של המערכת, עם המוכנים מראש של המכשיר",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = onOpenEqualizer,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("פתח") }
                 }
             }
 

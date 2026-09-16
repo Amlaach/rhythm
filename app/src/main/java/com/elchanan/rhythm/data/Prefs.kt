@@ -94,6 +94,24 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_TAG_TIP, false)
         set(value) = sp.edit { putBoolean(KEY_TAG_TIP, value) }
 
+    /** System equaliser: on or off. */
+    var eqEnabled: Boolean
+        get() = sp.getBoolean(KEY_EQ_ON, false)
+        set(value) = sp.edit { putBoolean(KEY_EQ_ON, value) }
+
+    /** Index into the device's own presets, or -1 once bands are set by hand. */
+    var eqPreset: Int
+        get() = sp.getInt(KEY_EQ_PRESET, -1)
+        set(value) = sp.edit { putInt(KEY_EQ_PRESET, value) }
+
+    /** Per band gain in millibels. Band count varies by device. */
+    var eqBands: List<Int>
+        get() = sp.getString(KEY_EQ_BANDS, null)
+            ?.split(',')
+            ?.mapNotNull { it.trim().toIntOrNull() }
+            .orEmpty()
+        set(value) = sp.edit { putString(KEY_EQ_BANDS, value.joinToString(",")) }
+
     /** Even out how loud tracks are relative to one another. */
     var normalizeVolume: Boolean
         get() = sp.getBoolean(KEY_NORMALIZE, true)
@@ -143,5 +161,8 @@ class Prefs(context: Context) {
         const val KEY_TAG_TIP = "tag_tip_seen"
         const val KEY_WELCOME = "welcome_seen"
         const val KEY_RATING_TIP = "rating_tip_seen"
+        const val KEY_EQ_ON = "eq_enabled"
+        const val KEY_EQ_PRESET = "eq_preset"
+        const val KEY_EQ_BANDS = "eq_bands"
     }
 }

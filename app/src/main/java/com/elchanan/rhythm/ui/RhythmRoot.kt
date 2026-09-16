@@ -43,6 +43,7 @@ import com.elchanan.rhythm.ui.screens.AlbumsScreen
 import com.elchanan.rhythm.ui.screens.ArtistDetailScreen
 import com.elchanan.rhythm.ui.screens.ArtistRatingsScreen
 import com.elchanan.rhythm.ui.screens.DetailListScreen
+import com.elchanan.rhythm.ui.screens.EqualizerScreen
 import com.elchanan.rhythm.ui.screens.HomeScreen
 import com.elchanan.rhythm.ui.screens.LibraryScreen
 import com.elchanan.rhythm.ui.screens.MiniPlayer
@@ -69,6 +70,7 @@ object Routes {
     const val ALBUMS = "albums"
     const val RECAP = "recap"
     const val TAGS = "tags"
+    const val EQUALIZER = "equalizer"
 }
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
@@ -242,11 +244,15 @@ fun RhythmRoot(
                     SettingsScreen(
                         vm = vm,
                         onBack = { navController.popBackStack() },
-                        onOpenTagFix = { navController.navigate(Routes.TAGS) }
+                        onOpenTagFix = { navController.navigate(Routes.TAGS) },
+                        onOpenEqualizer = { navController.navigate(Routes.EQUALIZER) }
                     )
                 }
                 composable(Routes.TAGS) {
                     TagFixScreen(vm = vm, onBack = { navController.popBackStack() })
+                }
+                composable(Routes.EQUALIZER) {
+                    EqualizerScreen(vm = vm, onBack = { navController.popBackStack() })
                 }
                 composable(Routes.DETAIL) {
                     DetailListScreen(vm = vm, onBack = { navController.popBackStack() })
