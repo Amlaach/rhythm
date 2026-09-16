@@ -80,7 +80,11 @@ fun SongOptionsSheet(
     onOpenArtist: (() -> Unit)? = null,
     onOpenAlbum: (() -> Unit)? = null,
     onOpenDetail: (() -> Unit)? = null,
-    onRemoveFromPlaylist: (() -> Unit)? = null
+    onRemoveFromPlaylist: (() -> Unit)? = null,
+    /** True when opened from the player, about the song already playing. */
+    forCurrentSong: Boolean = false,
+    /** Set by the player so lyrics open its synced panel, not the editor. */
+    onShowLyrics: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val gutter = rememberMetrics().gutter
@@ -150,10 +154,26 @@ fun SongOptionsSheet(
             // them in the menu only made the menu longer, and a long menu is
             // what stands between someone and simply playing a song.
 
-            // Near the top, where it is in every other player. Buried under ten
-            // other rows it may as well not exist - and it is always offered, even
-            // with no playlists yet, since having to leave for the library tab to
-            // make the first one is the step that stops playlists being used.
+            // The four things people actually open this menu for, in the order
+            // they reach for them. Everything below is browsing, not doing.
+            // Queueing the song that is already playing means nothing, so the
+            // player's own menu leaves those two out rather than showing rows
+            // that would do nothing useful.
+            if (!forCurrentSong) {
+                OptionRow(Icons.Filled.SkipNext, "נגן הבא") { vm.playNext(song); onDismiss() }
+                OptionRow(Icons.Filled.QueueMusic, "הוסף לתור") { vm.addToQueue(song); onDismiss() }
+            }
+            if (onOpenDetail != null) {
+                OptionRow(Icons.Filled.AutoAwesome, "צור מיקס מהשיר הזה") {
+                    vm.createMix(song) { onOpenDetail() }
+                    onDismiss()
+                }
+            }
+            OptionRow(Icons.Filled.Radio, "התחל רדיו מהשיר") { vm.startRadio(song); onDismiss() }
+
+            // Always offered, even with no playlists yet: having to leave for the
+            // library tab to make the first one is the step that stops playlists
+            // being used at all.
             Text(
                 "הוספה לרשימה",
                 style = MaterialTheme.typography.labelLarge,
@@ -169,19 +189,17 @@ fun SongOptionsSheet(
             }
             Spacer(Modifier.height(6.dp))
 
-            OptionRow(Icons.Filled.Insights, "למה זה הומלץ לי") { showWhy = true }
-            OptionRow(Icons.Filled.LocalOffer, "תגיות סגנון לשיר") { showTags = true }
-            if (onOpenDetail != null) {
-                OptionRow(Icons.Filled.AutoAwesome, "צור מיקס מהשיר הזה") {
-                    vm.createMix(song) { onOpenDetail() }
+            OptionRow(Icons.Filled.FormatQuote, "מילות השיר") {
+                if (onShowLyrics != null) {
+                    onShowLyrics()
                     onDismiss()
+                } else {
+                    showLyrics = true
                 }
             }
-            OptionRow(Icons.Filled.Radio, "התחל רדיו מהשיר") { vm.startRadio(song); onDismiss() }
-            OptionRow(Icons.Filled.FormatQuote, "מילות השיר") { showLyrics = true }
             OptionRow(Icons.Filled.MusicNote, "אקורדים וקאפו") { showCapo = true }
-            OptionRow(Icons.Filled.SkipNext, "נגן הבא") { vm.playNext(song); onDismiss() }
-            OptionRow(Icons.Filled.QueueMusic, "הוסף לתור") { vm.addToQueue(song); onDismiss() }
+            OptionRow(Icons.Filled.Insights, "למה זה הומלץ לי") { showWhy = true }
+            OptionRow(Icons.Filled.LocalOffer, "תגיות סגנון לשיר") { showTags = true }
 
             if (onOpenArtist != null) {
                 OptionRow(Icons.Filled.Person, "עבור לאמן") { onOpenArtist(); onDismiss() }

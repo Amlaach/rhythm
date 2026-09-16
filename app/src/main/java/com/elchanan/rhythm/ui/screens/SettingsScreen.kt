@@ -81,6 +81,7 @@ fun SettingsScreen(
     var crossfade by remember { mutableFloatStateOf(vm.prefs.crossfadeMs.toFloat()) }
     var skipSilence by remember { mutableStateOf(vm.prefs.skipSilence) }
     var normalizeVolume by remember { mutableStateOf(vm.prefs.normalizeVolume) }
+    var algorithmOpen by remember { mutableStateOf(false) }
     var stripForeign by remember { mutableStateOf(vm.prefs.tagStripForeign) }
     var writeTags by remember { mutableStateOf(vm.prefs.writeTagsToFiles) }
     val analysis by vm.analysisProgress.collectAsStateWithLifecycle()
@@ -114,9 +115,30 @@ fun SettingsScreen(
         }
 
         LazyColumn(contentPadding = PaddingValues(bottom = 60.dp)) {
+            // Five sliders that most people will never touch, sitting above
+            // everything they came here for. Folded away behind one row, so the
+            // top of settings is the things that get used.
             item {
-                SectionHeader(title = "האלגוריתם", subtitle = "הכל מקומי, שום דבר לא יוצא מהמכשיר")
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("כוונון האלגוריתם", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "גילוי, משקל דירוגים וסגנונות, התאמת סאונד. הכל מקומי — " +
+                                "שום דבר לא יוצא מהמכשיר",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = { algorithmOpen = !algorithmOpen },
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text(if (algorithmOpen) "סגור" else "פתח") }
+                }
             }
+            if (algorithmOpen) {
             item {
                 TuningSlider(
                     label = "גילוי מול מוכר",
@@ -161,6 +183,7 @@ fun SettingsScreen(
                     onChange = { repeatGuard = it * 2f },
                     onDone = { vm.updateTuning(repeatGuard = repeatGuard) }
                 )
+            }
             }
             item {
                 Row(

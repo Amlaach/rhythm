@@ -82,7 +82,21 @@ import com.elchanan.rhythm.ui.theme.gradientFor
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-private val TABS = listOf("שירים", "אהובים", "אמנים", "אלבומים", "רשימות", "תיקיות")
+/**
+ * The library tabs, in the order they are shown.
+ *
+ * Named rather than numbered because the display order is a product decision
+ * that changes, and a `when` over positions silently means something different
+ * the moment the list is reordered. The first entry is what the tab opens on.
+ */
+private enum class LibraryTab(val label: String) {
+    PLAYLISTS("פלייליסטים"),
+    FOLDERS("תיקיות"),
+    LIKED("אהובים"),
+    ARTISTS("אמנים"),
+    SONGS("שירים"),
+    ALBUMS("אלבומים")
+}
 
 private enum class SongSort(val label: String) {
     TITLE("שם"),
@@ -166,9 +180,9 @@ fun LibraryScreen(
             contentPadding = PaddingValues(horizontal = gutter),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(TABS.size) { index ->
+            items(LibraryTab.entries.size) { index ->
                 Chip(
-                    label = TABS[index],
+                    label = LibraryTab.entries[index].label,
                     selected = tab == index,
                     onClick = {
                         tab = index
@@ -180,8 +194,8 @@ fun LibraryScreen(
         Spacer(Modifier.height(10.dp))
 
         Box(modifier = Modifier.weight(1f)) {
-            when (tab) {
-                0 -> SongTab(
+            when (LibraryTab.entries[tab]) {
+                LibraryTab.SONGS -> SongTab(
                     songs = sorted(library.songs),
                     vm = vm,
                     selection = selection,
@@ -195,7 +209,7 @@ fun LibraryScreen(
                     onFilter = { filter = it }
                 )
 
-                1 -> {
+                LibraryTab.LIKED -> {
                     val liked = sorted(library.liked)
                     if (library.liked.isEmpty()) {
                         EmptyState(
@@ -219,7 +233,7 @@ fun LibraryScreen(
                     }
                 }
 
-                2 -> LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
+                LibraryTab.ARTISTS -> LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
                     item {
                         Row(
                             modifier = Modifier
@@ -241,7 +255,7 @@ fun LibraryScreen(
                     }
                 }
 
-                3 -> LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
+                LibraryTab.ALBUMS -> LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
                     item {
                         Row(
                             modifier = Modifier
@@ -284,7 +298,7 @@ fun LibraryScreen(
                     }
                 }
 
-                4 -> LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
+                LibraryTab.PLAYLISTS -> LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
                     item {
                         Row(
                             modifier = Modifier
@@ -402,7 +416,7 @@ fun LibraryScreen(
                 // arranged on the device, which is how a lot of people think
                 // about their own music - especially when the tags are a mess
                 // and the folder name is the only reliable label there is.
-                else -> {
+                LibraryTab.FOLDERS -> {
                     val folders = remember(library.songs) {
                         library.songs
                             .groupBy { it.folder }

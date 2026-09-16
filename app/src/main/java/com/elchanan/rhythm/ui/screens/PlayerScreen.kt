@@ -81,6 +81,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
@@ -92,6 +94,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.ui.MainViewModel
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Radio
 import com.elchanan.rhythm.ui.components.Artwork
 import com.elchanan.rhythm.ui.components.LikeButtons
 import com.elchanan.rhythm.ui.components.rememberArtworkColors
@@ -196,6 +200,7 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
     var showLyrics by remember { mutableStateOf(false) }
     var sleepOpen by remember { mutableStateOf(false) }
     var whyOpen by remember { mutableStateOf(false) }
+    var optionsOpen by remember { mutableStateOf(false) }
 
     val song = state.currentSongId?.let { library.songsById[it] } ?: return
     val metrics = rememberMetrics()
@@ -290,18 +295,12 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                 // No "now playing" caption: the cover, the title and the
                 // transport directly below already say it.
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = {
-                    showLyrics = !showLyrics
-                    if (showLyrics) showQueue = false
-                }) {
-                    Icon(
-                        Icons.Filled.FormatQuote,
-                        contentDescription = "מילות השיר",
-                        tint = if (showLyrics) Accent else TextSecondary
-                    )
-                }
-                IconButton(onClick = { whyOpen = true }) {
-                    Icon(Icons.Filled.Insights, contentDescription = "למה זה הומלץ", tint = TextSecondary)
+                // Lyrics and "why this" used to sit here as their own buttons.
+                // They are both occasional, and the header is where the frequent
+                // things belong - so they moved into the menu, which is where
+                // everything else about the song already lives.
+                IconButton(onClick = { optionsOpen = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "עוד", tint = TextSecondary)
                 }
                 IconButton(onClick = { sleepOpen = true }) {
                     Icon(
@@ -377,14 +376,6 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                 // stay: browsing a queue and pausing go together.
                 if (!showQueue) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Placed first so RTL puts it on the right, alongside the stars
-                    // rather than stranded on the opposite edge from them.
-                    LikeButtons(
-                        liked = liked,
-                        onLike = { vm.like(song.id) },
-                        onDislike = { vm.dislike(song.id) }
-                    )
-                    Spacer(Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             song.title,
@@ -397,6 +388,38 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                             style = MaterialTheme.typography.bodyMedium,
                             color = TextSecondary,
                             maxLines = 1
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+                // What you can do to the song that is playing, on one line.
+                // It scrolls sideways rather than wrapping or clipping, so a
+                // narrow phone can still reach the last button.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LikeButtons(
+                        liked = liked,
+                        onLike = { vm.like(song.id) },
+                        onDislike = { vm.dislike(song.id) }
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    IconButton(onClick = { vm.createMix(song, andPlay = true) }) {
+                        Icon(
+                            Icons.Filled.AutoAwesome,
+                            contentDescription = "צור מיקס מהשיר",
+                            tint = TextSecondary
+                        )
+                    }
+                    IconButton(onClick = { vm.startRadio(song) }) {
+                        Icon(
+                            Icons.Filled.Radio,
+                            contentDescription = "התחל רדיו מהשיר",
+                            tint = TextSecondary
                         )
                     }
                 }
@@ -531,6 +554,21 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
 
     if (sleepOpen) SleepDialog(vm = vm, onDismiss = { sleepOpen = false })
     if (whyOpen) WhyDialog(vm = vm, song = song, onDismiss = { whyOpen = false })
+    if (optionsOpen) {
+        SongOptionsSheet(
+            vm = vm,
+            song = song,
+            onDismiss = { optionsOpen = false },
+            forCurrentSong = true,
+            // Keeps the synced, scrolling lyrics panel reachable. The menu's own
+            // lyrics row opens the editor, which is a different thing from
+            // watching the words go by while the song plays.
+            onShowLyrics = {
+                showLyrics = true
+                showQueue = false
+            }
+        )
+    }
 }
 
 @Composable
