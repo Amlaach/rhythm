@@ -64,6 +64,7 @@ import com.elchanan.rhythm.ui.components.quickPickColumnWidth
 import com.elchanan.rhythm.ui.components.formatDuration
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Accent2
+import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextSecondary
@@ -93,7 +94,7 @@ fun HomeScreen(
         if (homeTop > 0) feedState.animateScrollToItem(0)
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(Bg)) {
+    Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         HomeTopBar(
             padding = statusPadding,
             onRefresh = { vm.refreshFeed(reshuffle = true) },

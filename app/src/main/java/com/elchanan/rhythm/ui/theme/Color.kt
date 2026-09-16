@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.theme
 
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
 /**
@@ -9,6 +10,26 @@ import androidx.compose.ui.graphics.Color
  */
 val Bg = Color(0xFF0A0910)
 val BgElevated = Color(0xFF101014)
+
+/**
+ * The app's ground, with a warm wash under the status bar.
+ *
+ * Used instead of a flat fill on every full screen surface. A single colour
+ * behind everything reads as an absence - the eye has nothing to place the
+ * content against - and the small amount of violet at the top gives each screen
+ * a top edge without ever competing with artwork or text.
+ *
+ * It has to be applied by the screens themselves: anything painted over it,
+ * including a Scaffold's own container colour, hides it completely.
+ */
+val AppBackground: Brush = Brush.verticalGradient(
+    colorStops = arrayOf(
+        0.00f to Color(0xFF241528),
+        0.10f to Color(0xFF17101F),
+        0.28f to Color(0xFF0E0B15),
+        0.55f to Color(0xFF0A0910)
+    )
+)
 val Surface1 = Color(0xFF17171D)
 val Surface2 = Color(0xFF23232B)
 val Surface3 = Color(0xFF2E2E38)

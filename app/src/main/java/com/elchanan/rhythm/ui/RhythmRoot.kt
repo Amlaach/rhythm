@@ -52,10 +52,8 @@ import com.elchanan.rhythm.ui.screens.SearchScreen
 import com.elchanan.rhythm.ui.screens.SettingsScreen
 import com.elchanan.rhythm.ui.screens.TagFixScreen
 import com.elchanan.rhythm.ui.screens.WelcomeScreen
-import androidx.compose.ui.graphics.Brush
 import com.elchanan.rhythm.ui.theme.Accent
-import com.elchanan.rhythm.ui.theme.Accent2
-import com.elchanan.rhythm.ui.theme.Bg
+import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.BgElevated
 import com.elchanan.rhythm.ui.theme.TextSecondary
 
@@ -133,19 +131,10 @@ fun RhythmRoot(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Bg)
-            // A single soft wash under the status bar. It gives the top of every
-            // screen somewhere to start instead of beginning at flat black, and
-            // it is faint enough that no artwork or text has to fight it.
-            .background(
-                Brush.verticalGradient(
-                    colorStops = arrayOf(
-                        0.0f to Accent.copy(alpha = 0.10f),
-                        0.22f to Accent2.copy(alpha = 0.04f),
-                        0.45f to Color.Transparent
-                    )
-                )
-            )
+            // The wash lives on the individual screens, which each paint their
+            // own full-size surface; anything drawn here would sit under them
+            // and never be seen.
+            .background(AppBackground)
     ) {
         // Shown before anything else on a first run, and only while permission
         // is already granted - otherwise the permission prompt is the first
@@ -162,7 +151,7 @@ fun RhythmRoot(
         }
 
         Scaffold(
-            containerColor = Bg,
+            containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
                 Column(modifier = Modifier.background(BgElevated)) {

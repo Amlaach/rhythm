@@ -41,6 +41,7 @@ import com.elchanan.rhythm.ui.components.EmptyState
 import com.elchanan.rhythm.ui.components.SectionHeader
 import com.elchanan.rhythm.ui.components.SongRow
 import com.elchanan.rhythm.ui.theme.Accent
+import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextSecondary
@@ -60,7 +61,7 @@ fun SearchScreen(
 
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
-    Column(modifier = Modifier.fillMaxSize().background(Bg)) {
+    Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         TextField(
             value = query,
             onValueChange = { vm.onSearchQuery(it) },

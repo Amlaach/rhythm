@@ -70,6 +70,7 @@ import com.elchanan.rhythm.ui.components.SongRow
 import com.elchanan.rhythm.ui.components.StarRow
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Accent2
+import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.BgElevated
 import com.elchanan.rhythm.ui.theme.Surface1
@@ -146,7 +147,7 @@ fun LibraryScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(Bg)) {
+    Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         Text(
             text = "הספרייה שלי",
             style = MaterialTheme.typography.headlineMedium,

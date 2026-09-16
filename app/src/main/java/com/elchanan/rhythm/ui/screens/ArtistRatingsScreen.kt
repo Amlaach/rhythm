@@ -64,6 +64,7 @@ import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.StarRow
 import com.elchanan.rhythm.ui.theme.Accent
+import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.BgElevated
 import com.elchanan.rhythm.ui.theme.Surface1
@@ -101,7 +102,7 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
         .filter { it.displayName.lowercase(Locale.ROOT).contains(query.lowercase(Locale.ROOT)) }
         .sortedWith(compareByDescending<ArtistInfo> { it.songs.size }.thenBy { it.displayName })
 
-    Column(modifier = Modifier.fillMaxSize().background(Bg)) {
+    Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()

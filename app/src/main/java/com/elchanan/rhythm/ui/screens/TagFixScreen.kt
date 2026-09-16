@@ -44,6 +44,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.EmptyState
 import com.elchanan.rhythm.ui.theme.Accent
+import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextSecondary
@@ -110,7 +111,7 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
         )
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(Bg)) {
+    Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()

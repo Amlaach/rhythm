@@ -62,6 +62,7 @@ import com.elchanan.rhythm.ui.components.SongRow
 import com.elchanan.rhythm.ui.components.StarRow
 import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent
+import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import com.elchanan.rhythm.ui.theme.gradientFor
@@ -96,7 +97,7 @@ fun DetailListScreen(vm: MainViewModel, onBack: () -> Unit) {
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
 
     val data = detail
-    Column(modifier = Modifier.fillMaxSize().background(Bg)) {
+    Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = data?.title.orEmpty(), onBack = onBack)
         if (data == null) {
             EmptyState(title = "אין מה להציג", body = "אפשר לחזור אחורה ולבחור רשימה.")
@@ -184,7 +185,7 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
 
     val info = artist
-    Column(modifier = Modifier.fillMaxSize().background(Bg)) {
+    Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = info?.displayName.orEmpty(), onBack = onBack)
         if (info == null) {
             EmptyState(title = "לא נבחר אמן", body = "אפשר לבחור אמן מהספרייה.")
@@ -331,7 +332,7 @@ private fun ratingHint(rating: Int): String = when (rating) {
 @Composable
 fun AlbumsScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -> Unit) {
     val library by vm.library.collectAsStateWithLifecycle()
-    Column(modifier = Modifier.fillMaxSize().background(Bg)) {
+    Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = "אלבומים", onBack = onBack)
         LazyVerticalGrid(
             // Two columns on a phone, more as the window widens, without ever
