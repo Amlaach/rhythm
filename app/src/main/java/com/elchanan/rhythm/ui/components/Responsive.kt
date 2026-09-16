@@ -38,14 +38,23 @@ fun rememberMetrics(): Metrics {
     val height = config.screenHeightDp
     return remember(width, height) {
         val gutter = when {
+            // Small and older phones report around 320-360dp. At that width the
+            // roomier margin is most of the difference between two cards fitting
+            // and one, so it tightens rather than scaling down the content.
+            width < 380 -> 12
             width < 600 -> 16
             width < 840 -> 24
             else -> 32
         }
         // Aim for roughly two and a half cards in view, so the shelf visibly
         // continues past the edge and invites a scroll.
-        val card = ((width - gutter * 2) / 2.4f).coerceIn(140f, 210f)
-        val mix = ((width - gutter * 2) / 2.1f).coerceIn(165f, 260f)
+        // The lower bounds come down on a narrow screen: clamping a card to
+        // 140dp on a 320dp phone leaves no room for the next one to peek, and a
+        // shelf you cannot tell scrolls is a shelf nobody scrolls.
+        val minCard = if (width < 380) 118f else 140f
+        val minMix = if (width < 380) 140f else 165f
+        val card = ((width - gutter * 2) / 2.4f).coerceIn(minCard, 210f)
+        val mix = ((width - gutter * 2) / 2.1f).coerceIn(minMix, 260f)
 
         // In landscape the limit is the height, not the width: the cover has to
         // leave room for the header, the title, the scrubber and the transport row,
@@ -57,7 +66,11 @@ fun rememberMetrics(): Metrics {
             gutter = gutter.dp,
             cardWidth = card.dp,
             mixCardWidth = mix.dp,
-            gridCellMin = if (width < 600) 150.dp else 180.dp,
+            gridCellMin = when {
+                width < 380 -> 128.dp
+                width < 600 -> 150.dp
+                else -> 180.dp
+            },
             artworkMax = artwork.dp,
             contentMax = 1040.dp,
             isCompact = width < 600

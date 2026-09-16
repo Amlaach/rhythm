@@ -362,16 +362,25 @@ private fun Banner(
     onClick: () -> Unit,
     onDismiss: (() -> Unit)? = null
 ) {
+    // On a narrow phone the margins and the two-line clamp together cut the
+    // explanation off mid-sentence, which is exactly the text that has to be
+    // read for the nudge to mean anything.
+    val compact = rememberMetrics().isCompact
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .padding(horizontal = if (compact) 12.dp else 16.dp, vertical = 4.dp)
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
             // Surface2, not Surface1: against the lifted background the darker
             // card had all but disappeared, taking its text with it.
             .background(Surface2)
             .clickable(onClick = onClick)
-            .padding(start = 8.dp, end = 14.dp, top = 12.dp, bottom = 12.dp),
+            .padding(
+                start = 8.dp,
+                end = if (compact) 10.dp else 14.dp,
+                top = 12.dp,
+                bottom = 12.dp
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(icon, contentDescription = null, tint = Accent)
@@ -386,11 +395,11 @@ private fun Banner(
                 body,
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
-                maxLines = 2,
+                maxLines = if (compact) 3 else 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(if (compact) 4.dp else 8.dp))
         // The action and the dismiss sit outside the weighted column so a long
         // body can never squeeze either of them out of the row.
         Text(

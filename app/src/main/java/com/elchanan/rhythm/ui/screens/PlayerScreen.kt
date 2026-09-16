@@ -101,6 +101,7 @@ import com.elchanan.rhythm.ui.components.formatDuration
 import com.elchanan.rhythm.engine.AudioAnalyzer
 import com.elchanan.rhythm.playback.SleepTimer
 import com.elchanan.rhythm.ui.theme.Accent
+import com.elchanan.rhythm.ui.theme.AccentSoft
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextPrimary
@@ -777,26 +778,32 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
                     val travel = abs(swipe.value)
                     val width = with(LocalDensity.current) { travel.toDp() }
                     val armed = travel > swipeLimit
-                    Row(
-                        modifier = Modifier
-                            .align(
-                                if (swipe.value < 0f) Alignment.CenterStart
-                                else Alignment.CenterEnd
-                            )
-                            .fillMaxHeight()
-                            .width(width)
-                            .background(
-                                Accent.copy(alpha = if (armed) 0.85f else 0.35f)
-                            ),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        if (width > 34.dp) {
-                            Icon(
-                                imageVector = Icons.Filled.Delete,
-                                contentDescription = "הסר מהתור",
-                                tint = Color.White
-                            )
+                    // matchParentSize, not fillMaxHeight: inside a Box that sizes
+                    // itself to its content the height constraint is unbounded,
+                    // so fillMaxHeight does nothing and the band came out thinner
+                    // than the row it belongs to.
+                    Box(modifier = Modifier.matchParentSize()) {
+                        Row(
+                            modifier = Modifier
+                                .align(
+                                    if (swipe.value < 0f) Alignment.CenterStart
+                                    else Alignment.CenterEnd
+                                )
+                                .fillMaxHeight()
+                                .width(width)
+                                // Fully opaque: a translucent band let the title
+                                // show through the thing about to delete it.
+                                .background(if (armed) Accent else AccentSoft),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            if (width > 34.dp) {
+                                Icon(
+                                    imageVector = Icons.Filled.Delete,
+                                    contentDescription = "הסר מהתור",
+                                    tint = Color.White
+                                )
+                            }
                         }
                     }
                 }
