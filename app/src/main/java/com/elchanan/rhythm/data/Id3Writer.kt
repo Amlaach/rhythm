@@ -141,15 +141,24 @@ object Id3Writer {
         }
     }
 
-    /** Encoding 1: UTF-16 with a BOM, which is what carries Hebrew safely. */
+    /**
+     * Encoding 1: UTF-16 with a byte order mark, which is what carries Hebrew
+     * safely through ID3v2.3.
+     *
+     * Little endian, written with an explicit FF FE mark. Kotlin's `UTF_16`
+     * would produce big endian, which the spec allows and Android reads back
+     * correctly - but the point of writing into the file at all is that other
+     * programs read it, and a decoder that ignores the mark and assumes little
+     * endian is common enough to be worth matching.
+     */
     private fun textFrame(id: String, value: String): Frame {
-        val text = value.toByteArray(Charsets.UTF_16)  // includes the BOM
-        val body = ByteArray(1 + text.size + 2)
+        val text = value.toByteArray(Charsets.UTF_16LE)
+        val body = ByteArray(1 + 2 + text.size + 2)
         body[0] = 1
-        System.arraycopy(text, 0, body, 1, text.size)
-        // UTF-16 terminator
-        body[body.size - 2] = 0
-        body[body.size - 1] = 0
+        body[1] = 0xFF.toByte()
+        body[2] = 0xFE.toByte()
+        System.arraycopy(text, 0, body, 3, text.size)
+        // The two trailing bytes are already zero: the UTF-16 terminator.
         return Frame(id, byteArrayOf(0, 0), body)
     }
 
