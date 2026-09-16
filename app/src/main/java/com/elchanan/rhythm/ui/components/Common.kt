@@ -245,7 +245,12 @@ fun SongRow(
             }
         }
         trailing?.invoke()
-        if (onDislike != null && !selectionMode) {
+        // On a narrow phone three icons eat most of the row and the title is left
+        // with a few characters and an ellipsis. Where the overflow menu is there
+        // to carry them, the inline thumbs step aside for the song's own name -
+        // which is what the row exists to show.
+        val roomForThumbs = !rememberMetrics().isCompact || onMore == null
+        if (onDislike != null && !selectionMode && roomForThumbs) {
             IconButton(onClick = onDislike, modifier = Modifier.size(34.dp)) {
                 Icon(
                     imageVector = if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
@@ -255,7 +260,7 @@ fun SongRow(
                 )
             }
         }
-        if (onLike != null && !selectionMode) {
+        if (onLike != null && !selectionMode && roomForThumbs) {
             IconButton(onClick = onLike, modifier = Modifier.size(34.dp)) {
                 Icon(
                     imageVector = if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,

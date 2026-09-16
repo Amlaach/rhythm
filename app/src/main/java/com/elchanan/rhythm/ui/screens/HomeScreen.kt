@@ -365,11 +365,12 @@ private fun Banner(
     // On a narrow phone the margins and the two-line clamp together cut the
     // explanation off mid-sentence, which is exactly the text that has to be
     // read for the nudge to mean anything.
-    val compact = rememberMetrics().isCompact
+    val metrics = rememberMetrics()
+    val compact = metrics.isCompact
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = if (compact) 12.dp else 16.dp, vertical = 4.dp)
+            .padding(horizontal = metrics.gutter, vertical = 4.dp)
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
             // Surface2, not Surface1: against the lifted background the darker
             // card had all but disappeared, taking its text with it.
