@@ -1,6 +1,7 @@
 package com.elchanan.rhythm.engine
 
 import com.elchanan.rhythm.data.db.ArtistEntity
+import com.elchanan.rhythm.data.MediaScanner
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
@@ -59,6 +60,15 @@ data class EngineTuning(
 )
 
 data class TransitionEdge(val weight: Double, val penalty: Double)
+
+/**
+ * Bracketed or trailing wording that marks a version rather than a song:
+ * "(LIVE)", "קיסריה 2025", "הרמיקס הרשמי" and the like.
+ */
+private val VERSION_NOISE = Regex(
+    """[\(\[][^\)\]]*[\)\]]|\b(live|remix|רמיקס|קאבר|cover|אולפן|היכל|קיסריה|מנורה)\b|\b20\d{2}\b""",
+    RegexOption.IGNORE_CASE
+)
 
 data class TasteReport(
     val topStyles: List<Pair<String, Double>>,
@@ -162,6 +172,36 @@ class Recommender(
     }
 
     private val tokensBySong: Map<Long, List<String>> = songs.associate { it.id to tokensFor(it) }
+
+    /**
+     * Groups recordings of the same piece.
+     *
+     * A library built from downloads is full of them - a studio cut, a live take
+     * and a remix all sit there as three unrelated tracks, and a shelf that
+     * offers all three in a row feels broken. The name is the first test and the
+     * harmony the second: chroma is stored rotated to the tonic, so the same
+     * melody matches even when the live version was sung in another key.
+     */
+    private val versionKeyById: Map<Long, String> = songs.associate { song ->
+        song.id to MediaScanner.normalizeKey(
+            VERSION_NOISE.replace(song.title, " ") + " " + song.artistKey
+        )
+    }
+
+    /** True when two tracks look like the same piece rather than two songs. */
+    fun sameRecording(a: Long, b: Long): Boolean {
+        if (a == b) return true
+        val ka = versionKeyById[a]
+        val kb = versionKeyById[b]
+        if (ka != null && ka == kb) return true
+        val harmony = acoustic?.harmonicSimilarity(a, b) ?: return false
+        if (harmony < 0.985) return false
+        // Harmony alone confuses two songs in the same key; the artist has to
+        // match as well before anything is called a duplicate.
+        val sa = songs.firstOrNull { it.id == a } ?: return false
+        val sb = songs.firstOrNull { it.id == b } ?: return false
+        return sa.artistKey == sb.artistKey
+    }
 
     /** how strongly the user's behaviour endorses each song, positive or negative */
     private val behaviour: Map<Long, Double> = songs.associate { it.id to behaviourWeight(it.id) }
@@ -490,6 +530,26 @@ class Recommender(
 
     private fun acousticSimilarity(a: Long, b: Long): Double = acoustic?.similarity(a, b) ?: 0.0
 
+    /**
+     * Direction, which plain similarity cannot express.
+     *
+     * Acoustic distance is symmetric, but listening is not: stepping up in
+     * energy carries a set forward, while dropping off a peak stalls it. Mild
+     * rises are rewarded, steep falls penalised, and level moves left alone.
+     */
+    private fun liftFit(from: Long, to: Long): Double {
+        val a = features[from] ?: return 0.0
+        val b = features[to] ?: return 0.0
+        if (a.energy <= 0f || b.energy <= 0f) return 0.0
+        val step = ((b.energy - a.energy) / a.energy).coerceIn(-1.0f, 1.0f).toDouble()
+        return when {
+            step > 0.35 -> 0.1      // a jump is jarring in its own way
+            step > 0.0 -> 1.0       // a lift forward
+            step > -0.2 -> 0.5      // holding level is fine
+            else -> -0.6            // falling off a peak
+        }
+    }
+
     private fun tempoDistance(a: Long, b: Long): Double = acoustic?.tempoDistance(a, b) ?: 0.0
 
     // -----------------------------------------------------------------------
@@ -515,12 +575,18 @@ class Recommender(
 
         val artistCount = HashMap<String, Int>()
         val albumCount = HashMap<Long, Int>()
+        // One take of a piece per shelf. Offering the studio cut, the live take
+        // and the remix as three separate recommendations is the single most
+        // obvious way a library of downloads looks broken.
+        val versionsUsed = HashSet<String>()
         val out = ArrayList<SongEntity>(count)
         for ((song, _) in ranked) {
             if (out.size >= count) break
             val a = artistCount.getOrDefault(song.artistKey, 0)
             val b = albumCount.getOrDefault(song.albumId, 0)
             if (a >= maxPerArtist || b >= maxPerAlbum) continue
+            val version = versionKeyById[song.id]
+            if (version != null && !versionsUsed.add(version)) continue
             artistCount[song.artistKey] = a + 1
             albumCount[song.albumId] = b + 1
             out.add(song)
@@ -556,6 +622,8 @@ class Recommender(
                     0.9 * acousticSimilarity(current.id, c.id) +
                     0.5 * styleSimilarity(current.id, c.id) -
                     0.7 * tempoDistance(current.id, c.id) +
+                    0.55 * liftFit(current.id, c.id) -
+                    (if (sameRecording(current.id, c.id)) 3.0 else 0.0) +
                     noise(c.id, current.id, 0.35)
                 if (s > bestScore) {
                     bestScore = s

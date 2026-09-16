@@ -129,7 +129,14 @@ data class AudioFeatureEntity(
     /** 12 comma separated MFCC means - the timbre fingerprint */
     val timbre: String,
     /** 12 comma separated MFCC standard deviations */
-    val timbreVar: String
+    val timbreVar: String,
+    /**
+     * How the track moves over its length, as six comma separated numbers:
+     * energy rise, energy spread, brightness rise, onset rise, timbre drift and
+     * loud-to-quiet contrast. Averaged features describe what a song is made of;
+     * these describe what it does.
+     */
+    val shape: String = ""
 )
 
 @Entity(tableName = "history", indices = [Index("playedAt"), Index("songId")])

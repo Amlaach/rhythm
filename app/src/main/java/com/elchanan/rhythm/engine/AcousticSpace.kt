@@ -20,14 +20,24 @@ class AcousticSpace(features: Collection<AudioFeatureEntity>) {
         private const val CORE = 6          // logBpm, energy, brightness, flatness, dynamics, onsetRate
         private const val TIMBRE = 12       // MFCC means
         private const val HARMONY = 12      // key invariant chroma
-        const val DIMS = CORE + TIMBRE + HARMONY
+        private const val SHAPE = 6         // how the track moves over its length
+        const val DIMS = CORE + TIMBRE + HARMONY + SHAPE
 
-        /** Group weights, chosen so no group can drown the others out. */
+        /**
+         * Group weights, chosen so no group can drown the others out.
+         *
+         * Harmony was previously turned almost all the way down, which threw
+         * away the one feature that says two recordings are the same piece:
+         * MFCC describes the production, chroma describes the notes, and the
+         * two carry complementary information. It now counts for about as much
+         * as timbre.
+         */
         private val WEIGHTS = DoubleArray(DIMS) { i ->
             when {
                 i < CORE -> 1.0
                 i < CORE + TIMBRE -> 0.45
-                else -> 0.20
+                i < CORE + TIMBRE + HARMONY -> 0.50
+                else -> 0.55
             }
         }
         private val WEIGHT_SUM = WEIGHTS.sum()
@@ -83,7 +93,36 @@ class AcousticSpace(features: Collection<AudioFeatureEntity>) {
 
         val chroma = AudioAnalyzer.parseVector(f.chroma, HARMONY)
         for (i in 0 until HARMONY) out[CORE + TIMBRE + i] = chroma[i]
+
+        val shape = AudioAnalyzer.parseVector(f.shape, SHAPE)
+        for (i in 0 until SHAPE) out[CORE + TIMBRE + HARMONY + i] = shape[i]
         return out
+    }
+
+    /** Key invariant chroma only: the notes, ignoring how they were recorded. */
+    private val chromaById: Map<Long, DoubleArray> =
+        features.associate { it.songId to AudioAnalyzer.parseVector(it.chroma, HARMONY) }
+
+    /**
+     * Cosine similarity of the two chroma profiles, 0..1.
+     *
+     * Chroma is stored already rotated to the tonic, so a live take in a
+     * different key still lines up with the studio cut. This is the standard
+     * starting point for spotting that two recordings are the same piece.
+     */
+    fun harmonicSimilarity(a: Long, b: Long): Double {
+        val va = chromaById[a] ?: return 0.0
+        val vb = chromaById[b] ?: return 0.0
+        var dot = 0.0
+        var na = 0.0
+        var nb = 0.0
+        for (i in va.indices) {
+            dot += va[i] * vb[i]
+            na += va[i] * va[i]
+            nb += vb[i] * vb[i]
+        }
+        if (na < 1e-12 || nb < 1e-12) return 0.0
+        return (dot / (sqrt(na) * sqrt(nb))).coerceIn(0.0, 1.0)
     }
 
     /**

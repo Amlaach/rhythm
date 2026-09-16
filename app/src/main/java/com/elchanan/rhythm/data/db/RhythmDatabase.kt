@@ -21,7 +21,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaylistItemEntity::class,
         TagOverrideEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class RhythmDatabase : RoomDatabase() {
@@ -58,6 +58,16 @@ abstract class RhythmDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v4 -> v5 records how a track moves over its length. Existing rows keep
+         * an empty shape and are simply re-analysed in the background.
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE audio_features ADD COLUMN shape TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE song_stats ADD COLUMN rating INTEGER NOT NULL DEFAULT 0")
@@ -83,7 +93,7 @@ abstract class RhythmDatabase : RoomDatabase() {
                 context.applicationContext,
                 RhythmDatabase::class.java,
                 "rhythm.db"
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .build()
                 .also { instance = it }

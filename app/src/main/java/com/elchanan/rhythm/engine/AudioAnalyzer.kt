@@ -33,7 +33,10 @@ object AudioAnalyzer {
     private const val HOP = 512
     private const val MEL_BANDS = 26
     private const val MFCC_COUNT = 12
-    private const val EXCERPT_SECONDS = 30
+
+    /** Three probes at these points of the track, ten seconds each. */
+    private val PROBE_POINTS = doubleArrayOf(0.18, 0.48, 0.78)
+    private const val PROBE_SECONDS = 10
     private const val DECODE_TIMEOUT_US = 8_000L
 
     // Krumhansl-Schmuckler key profiles
@@ -51,24 +54,39 @@ object AudioAnalyzer {
      * stays unanalysed instead of stopping the whole pass.
      */
     fun analyze(context: Context, song: SongEntity): AudioFeatureEntity? {
-        val startUs = pickStart(song.durationMs)
-        val decoded = runCatching {
-            decodeMono(context, MediaItems.songUri(song.id), startUs, EXCERPT_SECONDS)
-        }.getOrNull() ?: return null
+        val uri = MediaItems.songUri(song.id)
+        val windows = ArrayList<WindowStats>(PROBE_POINTS.size)
 
-        val (raw, sampleRate) = decoded
-        if (raw.size < WINDOW * 8) return null
+        for (fraction in PROBE_POINTS) {
+            val startUs = probeStart(song.durationMs, fraction)
+            val decoded = runCatching {
+                decodeMono(context, uri, startUs, PROBE_SECONDS)
+            }.getOrNull() ?: continue
+            val (raw, sampleRate) = decoded
+            if (raw.size < WINDOW * 8) continue
+            val (samples, sr) = decimate(raw, sampleRate, TARGET_SAMPLE_RATE)
+            val stats = runCatching { windowStats(samples, sr) }.getOrNull() ?: continue
+            windows.add(stats)
+        }
 
-        val (samples, sr) = decimate(raw, sampleRate, TARGET_SAMPLE_RATE)
-        return runCatching { featuresOf(song.id, samples, sr) }.getOrNull()
+        if (windows.isEmpty()) return null
+        return runCatching { merge(song.id, windows) }.getOrNull()
     }
 
-    /** Start a quarter of the way in, so intros and silence are skipped. */
-    private fun pickStart(durationMs: Long): Long {
-        if (durationMs <= EXCERPT_SECONDS * 1000L) return 0L
-        val startMs = (durationMs * 0.25).toLong()
-        val maxStart = durationMs - EXCERPT_SECONDS * 1000L
-        return min(startMs, max(0L, maxStart)) * 1000L
+    /**
+     * Where to sample the track.
+     *
+     * One excerpt from a single point describes that point, not the song: a long
+     * intro, a key change or a quiet bridge all read as the whole piece. Three
+     * shorter probes spread across the track cover far more of it for the same
+     * total decode time, and disagreement between them is itself a useful
+     * measure of how varied the song is.
+     */
+    private fun probeStart(durationMs: Long, fraction: Double): Long {
+        if (durationMs <= PROBE_SECONDS * 1000L) return 0L
+        val maxStart = durationMs - PROBE_SECONDS * 1000L
+        val wanted = (durationMs * fraction).toLong()
+        return min(wanted, max(0L, maxStart)) * 1000L
     }
 
     // -----------------------------------------------------------------------
@@ -241,7 +259,104 @@ object AudioAnalyzer {
     // feature extraction
     // -----------------------------------------------------------------------
 
-    private fun featuresOf(songId: Long, samples: FloatArray, sampleRate: Int): AudioFeatureEntity {
+    /** Everything one probe can say on its own, before the probes are combined. */
+    private class WindowStats(
+        val energy: Double,
+        val brightness: Double,
+        val flatness: Double,
+        val dynamics: Double,
+        val bpm: Double,
+        val bpmConfidence: Double,
+        val onsetRate: Double,
+        /** unnormalised, so probes can be summed before normalising */
+        val chroma: DoubleArray,
+        val mfccMean: DoubleArray,
+        val mfccVar: DoubleArray
+    )
+
+    /**
+     * Combines the probes, and records how much they disagreed.
+     *
+     * The disagreement is the point. Averaged features describe what a track is
+     * made of but say nothing about how it moves, so a piece that builds from a
+     * whisper to a full choir and one that holds the same level throughout can
+     * average out identically. The shape vector carries that difference.
+     */
+    private fun merge(songId: Long, windows: List<WindowStats>): AudioFeatureEntity {
+        val n = windows.size
+
+        val chromaTotal = DoubleArray(12)
+        for (w in windows) for (i in 0 until 12) chromaTotal[i] += w.chroma[i]
+        val chromaSum = chromaTotal.sum()
+        val chromaNorm =
+            if (chromaSum > 1e-9) DoubleArray(12) { chromaTotal[it] / chromaSum } else DoubleArray(12)
+        val (key, mode) = detectKey(chromaNorm)
+        val rotated = DoubleArray(12) { chromaNorm[(it + max(0, key)) % 12] }
+
+        val timbre = DoubleArray(MFCC_COUNT) { c -> windows.sumOf { it.mfccMean[c] } / n }
+        val timbreVar = DoubleArray(MFCC_COUNT) { c -> windows.sumOf { it.mfccVar[c] } / n }
+
+        // tempo comes from the single most confident probe rather than an
+        // average: a wrong estimate averaged with a right one is just wrong.
+        val bestTempo = windows.maxByOrNull { it.bpmConfidence } ?: windows.first()
+
+        val energies = windows.map { it.energy }
+        val meanEnergy = energies.average()
+        val energySpread =
+            if (meanEnergy > 1e-9) (Dsp.stdDev(energies.toDoubleArray()) / meanEnergy) else 0.0
+        val energyRise = if (n >= 2 && meanEnergy > 1e-9) {
+            (energies.last() - energies.first()) / meanEnergy
+        } else 0.0
+
+        val brightnesses = windows.map { it.brightness }
+        val brightRise = if (n >= 2) brightnesses.last() - brightnesses.first() else 0.0
+
+        val onsets = windows.map { it.onsetRate }
+        val meanOnset = onsets.average()
+        val onsetRise = if (n >= 2 && meanOnset > 1e-9) {
+            (onsets.last() - onsets.first()) / meanOnset
+        } else 0.0
+
+        // how far the timbre travels between probes, averaged over the hops
+        var drift = 0.0
+        for (i in 1 until n) {
+            var acc = 0.0
+            for (c in 0 until MFCC_COUNT) {
+                val d = windows[i].mfccMean[c] - windows[i - 1].mfccMean[c]
+                acc += d * d
+            }
+            drift += sqrt(acc)
+        }
+        if (n > 1) drift /= (n - 1)
+
+        val contrast = if (meanEnergy > 1e-9) {
+            (energies.max() - energies.min()) / meanEnergy
+        } else 0.0
+
+        val shape = doubleArrayOf(
+            energyRise, energySpread, brightRise, onsetRise, drift, contrast
+        )
+
+        return AudioFeatureEntity(
+            songId = songId,
+            analyzedAt = System.currentTimeMillis(),
+            bpm = bestTempo.bpm.toFloat(),
+            bpmConfidence = bestTempo.bpmConfidence.toFloat(),
+            musicalKey = key,
+            mode = mode,
+            energy = meanEnergy.toFloat(),
+            brightness = brightnesses.average().toFloat(),
+            flatness = windows.map { it.flatness }.average().toFloat(),
+            dynamics = windows.map { it.dynamics }.average().toFloat(),
+            onsetRate = meanOnset.toFloat(),
+            chroma = rotated.joinToString(",") { "%.5f".format(it) },
+            timbre = timbre.joinToString(",") { "%.5f".format(it) },
+            timbreVar = timbreVar.joinToString(",") { "%.5f".format(it) },
+            shape = shape.joinToString(",") { "%.5f".format(it) }
+        )
+    }
+
+    private fun windowStats(samples: FloatArray, sampleRate: Int): WindowStats {
         val fft = Fft(WINDOW)
         val window = Dsp.hannWindow(WINDOW)
         val bank = Dsp.melFilterBank(MEL_BANDS, WINDOW, sampleRate)
@@ -328,12 +443,6 @@ object AudioAnalyzer {
         val meanRms = Dsp.mean(rms)
         val dynamics = if (meanRms > 1e-9) (Dsp.stdDev(rms) / meanRms).coerceIn(0.0, 4.0) else 0.0
 
-        // chroma, normalised, then rotated so index 0 is the detected tonic
-        val chromaSum = chroma.sum()
-        val chromaNorm = if (chromaSum > 1e-9) DoubleArray(12) { chroma[it] / chromaSum } else DoubleArray(12)
-        val (key, mode) = detectKey(chromaNorm)
-        val rotated = DoubleArray(12) { chromaNorm[(it + max(0, key)) % 12] }
-
         // tempo from the onset envelope
         val frameRate = sampleRate.toDouble() / HOP
         val onset = Dsp.rectifyAgainstLocalMean(flux, 8)
@@ -346,21 +455,17 @@ object AudioAnalyzer {
             sqrt(max(0.0, mfccSquares[it] / frameCount - mean * mean))
         }
 
-        return AudioFeatureEntity(
-            songId = songId,
-            analyzedAt = System.currentTimeMillis(),
-            bpm = bpm.toFloat(),
-            bpmConfidence = confidence.toFloat(),
-            musicalKey = key,
-            mode = mode,
-            energy = meanRms.toFloat(),
-            brightness = Dsp.mean(centroid).toFloat(),
-            flatness = Dsp.mean(flatness).toFloat(),
-            dynamics = dynamics.toFloat(),
-            onsetRate = onsetRate.toFloat(),
-            chroma = rotated.joinToString(",") { "%.5f".format(it) },
-            timbre = timbre.joinToString(",") { "%.5f".format(it) },
-            timbreVar = timbreVar.joinToString(",") { "%.5f".format(it) }
+        return WindowStats(
+            energy = meanRms,
+            brightness = Dsp.mean(centroid),
+            flatness = Dsp.mean(flatness),
+            dynamics = dynamics,
+            bpm = bpm,
+            bpmConfidence = confidence,
+            onsetRate = onsetRate,
+            chroma = chroma,
+            mfccMean = timbre,
+            mfccVar = timbreVar
         )
     }
 
