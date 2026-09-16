@@ -230,9 +230,12 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
             // and while the artwork filled the window that never showed. Now that it
             // does not, the browsing UI would read straight through the sheet.
             .background(Bg)
+            // A hint of the cover, not a wash of it. At full strength a single
+            // teal or amber sleeve repainted the entire sheet, and closing the
+            // player left the eye expecting the colour to still be there.
             .background(
                 Brush.verticalGradient(
-                    listOf(c1.copy(alpha = 0.55f), c2.copy(alpha = 0.25f), Bg, Bg)
+                    listOf(c1.copy(alpha = 0.22f), c2.copy(alpha = 0.10f), Bg, Bg)
                 )
             )
     ) {
@@ -672,7 +675,11 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
             ) {
                 Box(
                     modifier = Modifier
-                        .offset { IntOffset(swipe.value.roundToInt(), 0) }
+                        // The row deliberately does not travel. Sliding it and
+                        // also opening the band on the same edge left a gap the
+                        // width of the swipe on the far side, with that row's
+                        // menu pushed off screen. The band alone carries the
+                        // gesture now.
                         .pointerInput(song.id, index) {
                             detectHorizontalDragGestures(
                                 onDragEnd = {

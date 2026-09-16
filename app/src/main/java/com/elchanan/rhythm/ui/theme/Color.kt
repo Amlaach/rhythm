@@ -24,9 +24,9 @@ val BgElevated = Color(0xFF101014)
  */
 val AppBackground: Brush = Brush.verticalGradient(
     colorStops = arrayOf(
-        0.00f to Color(0xFF241528),
-        0.10f to Color(0xFF17101F),
-        0.28f to Color(0xFF0E0B15),
+        0.00f to Color(0xFF16121F),
+        0.12f to Color(0xFF110E19),
+        0.30f to Color(0xFF0C0A13),
         0.55f to Color(0xFF0A0910)
     )
 )
