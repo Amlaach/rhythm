@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -483,7 +484,13 @@ fun LikeButtons(
                 imageVector = if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
                 contentDescription = "דיסלייק",
                 tint = if (liked == -1) Accent else TextSecondary,
-                modifier = Modifier.size(size.dp)
+                // The two glyphs are not vertical mirrors of each other: the
+                // thumb sits high in one and low in the other, so centring them
+                // in equal boxes leaves them visibly out of line. A small nudge
+                // lines up what the eye actually reads as the middle.
+                modifier = Modifier
+                    .offset(y = 3.dp)
+                    .size(size.dp)
             )
         }
     }
