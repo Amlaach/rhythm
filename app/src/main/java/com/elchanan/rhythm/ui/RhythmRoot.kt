@@ -50,6 +50,7 @@ import com.elchanan.rhythm.ui.screens.PlayerScreen
 import com.elchanan.rhythm.ui.screens.RecapScreen
 import com.elchanan.rhythm.ui.screens.SearchScreen
 import com.elchanan.rhythm.ui.screens.SettingsScreen
+import com.elchanan.rhythm.ui.screens.TagFixScreen
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.BgElevated
@@ -65,6 +66,7 @@ object Routes {
     const val ARTIST = "artist"
     const val ALBUMS = "albums"
     const val RECAP = "recap"
+    const val TAGS = "tags"
 }
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
@@ -204,7 +206,14 @@ fun RhythmRoot(
                     )
                 }
                 composable(Routes.SETTINGS) {
-                    SettingsScreen(vm = vm, onBack = { navController.popBackStack() })
+                    SettingsScreen(
+                        vm = vm,
+                        onBack = { navController.popBackStack() },
+                        onOpenTagFix = { navController.navigate(Routes.TAGS) }
+                    )
+                }
+                composable(Routes.TAGS) {
+                    TagFixScreen(vm = vm, onBack = { navController.popBackStack() })
                 }
                 composable(Routes.DETAIL) {
                     DetailListScreen(vm = vm, onBack = { navController.popBackStack() })

@@ -13,6 +13,7 @@ import com.elchanan.rhythm.data.db.PlaylistItemEntity
 import com.elchanan.rhythm.data.db.RhythmDatabase
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
+import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.data.db.TransitionEntity
 import com.elchanan.rhythm.engine.AcousticSpace
 import com.elchanan.rhythm.engine.TransitionEdge
@@ -43,10 +44,12 @@ class MusicRepository(
 
     suspend fun rescan(): Int = withContext(Dispatchers.IO) {
         val excluded = prefs.excludedFolders.map { it.lowercase() }
+        val overrides = dao.allOverrides().associateBy { it.songId }
         val found = MediaScanner.scan(context, prefs.minDurationSec)
             .filter { song ->
                 excluded.none { pattern -> song.folder.lowercase().contains(pattern) }
             }
+            .map { song -> applyOverride(song, overrides[song.id]) }
         dao.clearSongs()
         found.chunked(400).forEach { dao.insertSongs(it) }
         // make sure every artist that exists on the device has a profile row,
@@ -194,6 +197,27 @@ class MusicRepository(
 
     suspend fun putFeature(feature: AudioFeatureEntity) =
         withContext(Dispatchers.IO) { dao.putFeature(feature) }
+
+    // -----------------------------------------------------------------------
+    // tag corrections
+    // -----------------------------------------------------------------------
+
+    suspend fun overrides(): List<TagOverrideEntity> =
+        withContext(Dispatchers.IO) { dao.allOverrides() }
+
+    /**
+     * Saves corrections and rebuilds the library so artist keys, album grouping
+     * and every derived screen pick them up in one pass.
+     */
+    suspend fun saveOverrides(rows: List<TagOverrideEntity>) = withContext(Dispatchers.IO) {
+        dao.putOverrides(rows)
+        rescan()
+    }
+
+    suspend fun clearOverrides() = withContext(Dispatchers.IO) {
+        dao.clearOverrides()
+        rescan()
+    }
 
     suspend fun analyzedCount(): Int = withContext(Dispatchers.IO) { dao.featureCount() }
 

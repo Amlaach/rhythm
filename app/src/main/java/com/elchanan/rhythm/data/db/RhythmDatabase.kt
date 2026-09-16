@@ -18,9 +18,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LyricsEntity::class,
         HistoryEntity::class,
         PlaylistEntity::class,
-        PlaylistItemEntity::class
+        PlaylistItemEntity::class,
+        TagOverrideEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class RhythmDatabase : RoomDatabase() {
@@ -41,6 +42,18 @@ abstract class RhythmDatabase : RoomDatabase() {
                     "CREATE TABLE IF NOT EXISTS lyrics (" +
                         "songId INTEGER NOT NULL, text TEXT NOT NULL, synced TEXT NOT NULL, " +
                         "source TEXT NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(songId))"
+                )
+            }
+        }
+
+        /** v3 -> v4 adds the tag corrections table. Nothing else moves. */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS tag_overrides (" +
+                        "songId INTEGER NOT NULL, title TEXT NOT NULL DEFAULT '', " +
+                        "artistName TEXT NOT NULL DEFAULT '', albumName TEXT NOT NULL DEFAULT '', " +
+                        "PRIMARY KEY(songId))"
                 )
             }
         }
@@ -70,7 +83,7 @@ abstract class RhythmDatabase : RoomDatabase() {
                 context.applicationContext,
                 RhythmDatabase::class.java,
                 "rhythm.db"
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .fallbackToDestructiveMigration()
                 .build()
                 .also { instance = it }

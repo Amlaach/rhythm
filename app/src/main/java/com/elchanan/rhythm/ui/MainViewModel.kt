@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.elchanan.rhythm.RhythmApp
 import com.elchanan.rhythm.data.MediaScanner
+import com.elchanan.rhythm.data.TagFixer
 import com.elchanan.rhythm.data.MusicRepository
 import com.elchanan.rhythm.data.AnalysisManager
 import com.elchanan.rhythm.data.db.ArtistEntity
@@ -528,6 +529,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // -----------------------------------------------------------------------
     // moods, recap and bulk editing
     // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // tag corrections
+    // -----------------------------------------------------------------------
+
+    private val _tagProposals = MutableStateFlow<List<TagFixer.Proposal>>(emptyList())
+    val tagProposals: StateFlow<List<TagFixer.Proposal>> = _tagProposals.asStateFlow()
+
+    fun buildTagProposals() {
+        _tagProposals.value = TagFixer.propose(library.value.songs)
+    }
+
+    fun applyTagFix(proposals: List<TagFixer.Proposal>) {
+        viewModelScope.launch {
+            val changed = proposals.count { it.changed }
+            repo.saveOverrides(TagFixer.toOverrides(proposals))
+            prefs.tagTipSeen = true
+            _message.value = if (changed == 0) "אין מה לתקן" else "עודכנו $changed שירים"
+        }
+    }
+
+    fun resetTagFix() {
+        viewModelScope.launch {
+            repo.clearOverrides()
+            _tagProposals.value = emptyList()
+            _message.value = "התגיות המקוריות שוחזרו"
+        }
+    }
+
+    fun dismissTagTip() {
+        prefs.tagTipSeen = true
+    }
 
     fun openMood(mood: Mood, onReady: () -> Unit) {
         val features = featuresById.value

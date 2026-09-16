@@ -54,7 +54,11 @@ import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextSecondary
 
 @Composable
-fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
+fun SettingsScreen(
+    vm: MainViewModel,
+    onBack: () -> Unit,
+    onOpenTagFix: () -> Unit = {}
+) {
     val report by vm.report.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
@@ -174,6 +178,27 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                             checkedTrackColor = Accent.copy(alpha = 0.4f)
                         )
                     )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("תיקון תגיות", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "מפריד את שם האמן משם השיר ומנקה שמות ערוץ. בלי זה כל השירים " +
+                                "שהורדו מהאינטרנט נראים כמו אמן אחד",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = onOpenTagFix,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("פתח") }
                 }
             }
 

@@ -79,6 +79,11 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_CROSSFADE, 0)
         set(value) = sp.edit { putInt(KEY_CROSSFADE, value.coerceIn(0, 12_000)) }
 
+    /** Whether the one-off pointer to the tag repair tool has been shown. */
+    var tagTipSeen: Boolean
+        get() = sp.getBoolean(KEY_TAG_TIP, false)
+        set(value) = sp.edit { putBoolean(KEY_TAG_TIP, value) }
+
     /** Even out how loud tracks are relative to one another. */
     var normalizeVolume: Boolean
         get() = sp.getBoolean(KEY_NORMALIZE, true)
@@ -125,5 +130,6 @@ class Prefs(context: Context) {
         const val KEY_CROSSFADE = "crossfade_ms"
         const val KEY_SKIP_SILENCE = "skip_silence"
         const val KEY_NORMALIZE = "normalize_volume"
+        const val KEY_TAG_TIP = "tag_tip_seen"
     }
 }

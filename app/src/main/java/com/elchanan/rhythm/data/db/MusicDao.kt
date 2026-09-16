@@ -97,6 +97,17 @@ interface MusicDao {
     @Query("DELETE FROM transitions")
     suspend fun clearTransitions()
 
+    // ---------- tag overrides ----------
+
+    @Query("SELECT * FROM tag_overrides")
+    suspend fun allOverrides(): List<TagOverrideEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putOverrides(rows: List<TagOverrideEntity>)
+
+    @Query("DELETE FROM tag_overrides")
+    suspend fun clearOverrides()
+
     // ---------- audio features ----------
 
     @Query("SELECT * FROM audio_features")

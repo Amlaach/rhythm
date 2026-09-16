@@ -142,6 +142,22 @@ data class HistoryEntity(
 )
 
 /**
+ * A correction to what a file's own tags claim.
+ *
+ * Deliberately kept beside the library rather than written back into the mp3.
+ * Editing tags in place needs storage permission that modern Android grants
+ * only per file, and a write that fails halfway damages the only copy of the
+ * music. A blank field means "keep whatever the file said".
+ */
+@Entity(tableName = "tag_overrides")
+data class TagOverrideEntity(
+    @PrimaryKey val songId: Long,
+    val title: String = "",
+    val artistName: String = "",
+    val albumName: String = ""
+)
+
+/**
  * Lyrics for one song. [synced] holds LRC content when timestamps are known,
  * [text] always holds the plain fallback.
  */

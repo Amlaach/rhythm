@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -131,6 +132,22 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 item { GreetingCard(library.songs.size, library.artists.count { it.rating > 0 }) }
+
+                // One-off pointer to the tag repair tool. Shown ahead of the other
+                // nudges because a library filed under a single artist makes every
+                // one of them meaningless.
+                if (!vm.prefs.tagTipSeen && library.artists.size <= 2 && library.songs.size >= 8) {
+                    item {
+                        Banner(
+                            icon = Icons.Filled.Sell,
+                            title = "כל השירים רשומים על אמן אחד",
+                            body = "התגיות בקבצים שהורדו מהאינטרנט לרוב שגויות. " +
+                                "בהגדרות יש תיקון אוטומטי שמפריד את שם האמן משם השיר",
+                            action = "להגדרות",
+                            onClick = { vm.dismissTagTip(); onOpenSettings() }
+                        )
+                    }
+                }
 
                 // one nudge at a time, and only while it is still relevant
                 item {
