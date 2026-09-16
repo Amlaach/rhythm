@@ -55,6 +55,7 @@ import com.elchanan.rhythm.ui.screens.WelcomeScreen
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.BgElevated
+import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
 
 object Routes {
@@ -152,6 +153,10 @@ fun RhythmRoot(
 
         Scaffold(
             containerColor = Color.Transparent,
+            // Transparent leaves Scaffold unable to derive a content colour, so
+            // every child that does not name one falls back to near black. It
+            // has to be stated here or the whole app goes unreadable.
+            contentColor = TextPrimary,
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
                 Column(modifier = Modifier.background(BgElevated)) {

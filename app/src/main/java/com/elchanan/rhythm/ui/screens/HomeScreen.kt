@@ -68,6 +68,8 @@ import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.Surface1
+import com.elchanan.rhythm.ui.theme.Surface2
+import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import java.util.Calendar
 
@@ -366,27 +368,43 @@ private fun Banner(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
-            .background(Surface1)
+            // Surface2, not Surface1: against the lifted background the darker
+            // card had all but disappeared, taking its text with it.
+            .background(Surface2)
             .clickable(onClick = onClick)
-            .padding(14.dp),
+            .padding(start = 8.dp, end = 14.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(icon, contentDescription = null, tint = Accent)
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                color = TextPrimary
+            )
             Text(
                 body,
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
-                maxLines = 2
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
         }
-        Text(action, style = MaterialTheme.typography.labelLarge, color = Accent)
-        // A nudge with no way out stops being a nudge. Dismissing is remembered,
+        Spacer(Modifier.width(8.dp))
+        // The action and the dismiss sit outside the weighted column so a long
+        // body can never squeeze either of them out of the row.
+        Text(
+            action,
+            style = MaterialTheme.typography.labelLarge,
+            color = Accent,
+            maxLines = 1
+        )
+        // A nudge with no way out stops being a nudge. The choice is remembered,
         // so a suggestion that has been turned down stays turned down.
         if (onDismiss != null) {
-            IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+            Spacer(Modifier.width(4.dp))
+            IconButton(onClick = onDismiss, modifier = Modifier.size(30.dp)) {
                 Icon(
                     Icons.Filled.Close,
                     contentDescription = "סגור",
