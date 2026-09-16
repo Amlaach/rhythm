@@ -19,9 +19,9 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
- * On device audio analysis. Decodes a 30 second excerpt from the middle of a
- * file, runs a short time Fourier transform over it and reduces the result to
- * a small set of numbers that describe how the track actually sounds.
+ * On device audio analysis. Decodes short excerpts spread across a file, runs a
+ * short time Fourier transform over them and reduces the result to a small set
+ * of numbers that describe how the track actually sounds.
  *
  * Nothing leaves the phone and nothing is looked up anywhere - this is the
  * offline substitute for the acoustic metadata a streaming service would have.
@@ -34,9 +34,20 @@ object AudioAnalyzer {
     private const val MEL_BANDS = 26
     private const val MFCC_COUNT = 12
 
-    /** Three probes at these points of the track, ten seconds each. */
-    private val PROBE_POINTS = doubleArrayOf(0.18, 0.48, 0.78)
-    private const val PROBE_SECONDS = 10
+    /**
+     * Eight probes at these points of the track, four seconds each.
+     *
+     * Thirty-two seconds in total, which is what three ten second probes cost,
+     * spread over eight places instead of three. The limit on this estimate was
+     * never the number of frames - three probes already gave around thirteen
+     * hundred - it was coverage. A key change, a long ornamented passage or a
+     * bridge that sits outside the mode all read as the whole piece when only
+     * three windows are asked, and more frames from those same three windows
+     * cannot fix that. Spreading the same budget wider can.
+     */
+    private val PROBE_POINTS =
+        doubleArrayOf(0.10, 0.21, 0.32, 0.43, 0.54, 0.65, 0.76, 0.87)
+    private const val PROBE_SECONDS = 4
     private const val DECODE_TIMEOUT_US = 8_000L
 
     // Krumhansl-Schmuckler key profiles
@@ -77,10 +88,14 @@ object AudioAnalyzer {
      * Where to sample the track.
      *
      * One excerpt from a single point describes that point, not the song: a long
-     * intro, a key change or a quiet bridge all read as the whole piece. Three
+     * intro, a key change or a quiet bridge all read as the whole piece. Several
      * shorter probes spread across the track cover far more of it for the same
      * total decode time, and disagreement between them is itself a useful
      * measure of how varied the song is.
+     *
+     * The points stop short of both ends. An intro often has no tonal content at
+     * all and an outro is usually fading, so a probe at either would measure the
+     * production rather than the music.
      */
     private fun probeStart(durationMs: Long, fraction: Double): Long {
         if (durationMs <= PROBE_SECONDS * 1000L) return 0L

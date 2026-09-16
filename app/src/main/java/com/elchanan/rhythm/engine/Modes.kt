@@ -20,7 +20,7 @@ package com.elchanan.rhythm.engine
 enum class MusicalMode(
     val label: String,
     /** Semitones above the tonic that belong to the scale. */
-    private val degrees: IntArray,
+    val degrees: IntArray,
     /** Degrees that carry the mode's identity and deserve extra weight. */
     private val signature: IntArray,
     /** True for the modes that read as "major" to the rest of the app. */
@@ -65,6 +65,17 @@ enum class MusicalMode(
         if (7 in degrees) p[7] = 5.00
         for (d in signature) p[d] = 4.55
     }
+
+    /**
+     * Whether the triad built on the tonic is a major one.
+     *
+     * Not the same question as [brightFamily], which is about how the mode
+     * feels. Ahavah Rabbah sounds anything but bright, yet its tonic chord is
+     * major - the augmented second sits above a major third. A guitarist told
+     * to play "Am" there would be fingering the wrong chord, so the chord views
+     * ask this and the recommender asks the other.
+     */
+    val tonicIsMajor: Boolean get() = degrees.size > 2 && degrees[2] == 4
 
     /**
      * Scale degrees in quarter tones, 24 to the octave.

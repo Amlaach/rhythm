@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistRemove
@@ -51,7 +52,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.data.db.SongEntity
+import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.engine.AudioAnalyzer
+import com.elchanan.rhythm.engine.Capo
+import com.elchanan.rhythm.engine.MusicalMode
 import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.Artwork
@@ -85,6 +89,7 @@ fun SongOptionsSheet(
     var showWhy by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
     var showTags by remember { mutableStateOf(false) }
+    var showCapo by remember { mutableStateOf(false) }
     var newPlaylist by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
@@ -177,6 +182,7 @@ fun SongOptionsSheet(
             }
             OptionRow(Icons.Filled.Radio, "התחל רדיו מהשיר") { vm.startRadio(song); onDismiss() }
             OptionRow(Icons.Filled.FormatQuote, "מילות השיר") { showLyrics = true }
+            OptionRow(Icons.Filled.MusicNote, "אקורדים וקאפו") { showCapo = true }
             OptionRow(Icons.Filled.SkipNext, "נגן הבא") { vm.playNext(song); onDismiss() }
             OptionRow(Icons.Filled.QueueMusic, "הוסף לתור") { vm.addToQueue(song); onDismiss() }
 
@@ -241,6 +247,143 @@ fun SongOptionsSheet(
             onApply = { vm.setSongStyles(song.id, Styles.join(it)) }
         )
     }
+    if (showCapo) {
+        CapoDialog(feature = features[song.id], onDismiss = { showCapo = false })
+    }
+}
+
+/**
+ * Capo positions for the song's key, and the chords that key contains.
+ *
+ * The detected key is a starting point, not a verdict - it can be wrong, and a
+ * guitarist will hear that within one bar. So it is labelled as detected, and
+ * changing it is a single tap rather than something buried in a setting.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CapoDialog(feature: AudioFeatureEntity?, onDismiss: () -> Unit) {
+    val detectedKey = feature?.musicalKey ?: -1
+    val detectedMode = MusicalMode.byOrdinalOrNull(feature?.scaleMode ?: -1)
+    // tonicIsMajor, not brightFamily: this decides which chord gets fingered.
+    val detectedBright = detectedMode?.tonicIsMajor ?: (feature?.mode == 1)
+
+    var key by remember(detectedKey) { mutableStateOf(detectedKey) }
+    var bright by remember(detectedBright) { mutableStateOf(detectedBright) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("אקורדים וקאפו") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                if (key !in 0..11) {
+                    Text(
+                        "השיר עדיין לא נותח, אז אין סולם להתבסס עליו. " +
+                            "אפשר לבחור סולם ידנית:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                } else {
+                    Text(
+                        "הסולם שזוהה: ${Capo.keyName(key, bright)}" +
+                            (detectedMode?.takeIf { it.ordinal > 1 }?.let { " · ${it.label}" } ?: ""),
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        "זיהוי אוטומטי מתוך הצליל — אם זה נשמע לא נכון, שנה למטה.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    for (pc in 0..11) {
+                        Chip(
+                            label = Capo.NAMES[pc],
+                            selected = pc == key,
+                            onClick = { key = pc }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Chip(label = "מז'ורי", selected = bright, onClick = { bright = true })
+                    Chip(label = "מינורי", selected = !bright, onClick = { bright = false })
+                }
+
+                if (key in 0..11) {
+                    Spacer(Modifier.height(16.dp))
+                    Text("קאפו", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "בסריג המסומן, נגן את הצורות של הסולם שמימין",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Capo.options(key, bright).forEach { option ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (option.fret == 0) "בלי קאפו" else "סריג ${option.fret}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (option.open) Accent else TextSecondary
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                text = Capo.keyName(option.playKey, bright) +
+                                    if (option.open) "  ✓" else "",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (option.open) Accent else TextSecondary
+                            )
+                        }
+                    }
+                    Text(
+                        "✓ = אקורדים פתוחים, בלי בָּארֶה",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary
+                    )
+
+                    val chords = detectedMode?.let { Capo.scaleChords(key, it) }
+                        ?: Capo.scaleChords(
+                            key,
+                            if (bright) MusicalMode.MAJOR else MusicalMode.MINOR
+                        )
+                    if (chords.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text("האקורדים של הסולם", style = MaterialTheme.typography.titleSmall)
+                        // Said plainly, because it is the difference between a
+                        // shortlist and a transcription: nothing here listened to
+                        // the recording.
+                        Text(
+                            "אלה האקורדים שקיימים בסולם — לא האקורדים שהשיר מנגן. " +
+                                "האפליקציה לא מזהה אקורדים מתוך ההקלטה.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            chords.joinToString("   "),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Accent
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("סגור", color = Accent) }
+        }
+    )
 }
 
 /** Shows the actual score terms the ranker used for this track. */
