@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.offset
@@ -38,6 +39,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DismissValue
+import androidx.compose.material3.SwipeToDismiss
+import androidx.compose.material3.rememberDismissState
+import androidx.compose.runtime.mutableFloatStateOf
+import com.elchanan.rhythm.playback.QueueMeta
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.FormatQuote
@@ -271,13 +280,9 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                 IconButton(onClick = onCollapse) {
                     Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "סגור")
                 }
-                Text(
-                    text = "מתנגן עכשיו",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = TextSecondary,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.weight(1f)
-                )
+                // No "now playing" caption: the cover, the title and the
+                // transport directly below already say it.
+                Spacer(Modifier.weight(1f))
                 IconButton(onClick = {
                     showLyrics = !showLyrics
                     if (showLyrics) showQueue = false
@@ -582,10 +587,33 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
         (from until songs.size).firstOrNull { songs[it].id in autoIds } ?: -1
     }
 
+    val source by QueueMeta.source.collectAsStateWithLifecycle()
+    var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
+
+    // Where a drag currently sits, as a queue index, while the finger is down.
+    var dragFrom by remember { mutableStateOf(-1) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    val rowHeight = with(LocalDensity.current) { 54.dp.toPx() }
+
     LazyColumn(
         modifier = modifier.fillMaxHeight(),
         contentPadding = PaddingValues(bottom = 16.dp)
     ) {
+        item {
+            Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp)) {
+                Text(
+                    text = "התור",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    text = source?.let { "מתוך $it" } ?: "${songs.size} שירים",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+        }
+
         items(songs.size) { index ->
             if (index == state.queueIndex + 1 && index != autoStart) {
                 QueueHeader("הבא בתור")
@@ -594,31 +622,115 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
                 QueueHeader("המשך אוטומטי")
             }
             val song = songs[index]
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { vm.player.jumpTo(index) }
-                    .padding(horizontal = 20.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Artwork(song.id, song.albumId, song.artistKey, Modifier.size(40.dp), corner = 6)
-                Spacer(Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        song.title,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (index == state.queueIndex) Accent else MaterialTheme.colorScheme.onBackground,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        song.artistName,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                        maxLines = 1
-                    )
+
+            // Swiping a queue entry aside to drop it is the gesture people
+            // already expect here, and it beats hunting for a menu item.
+            val dismissState = rememberDismissState(
+                confirmValueChange = { value ->
+                    if (value != DismissValue.Default) {
+                        vm.player.removeAt(index)
+                        true
+                    } else false
                 }
-            }
+            )
+
+            SwipeToDismiss(
+                state = dismissState,
+                background = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp)
+                            .background(Accent.copy(alpha = 0.25f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "הסר מהתור",
+                            tint = Accent
+                        )
+                    }
+                },
+                dismissContent = {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Bg)
+                            .clickable { vm.player.jumpTo(index) }
+                            .padding(horizontal = 20.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // The handle, not the whole row: dragging anywhere would
+                        // fight the list's own scrolling.
+                        Icon(
+                            imageVector = Icons.Filled.DragHandle,
+                            contentDescription = "גרור לסידור",
+                            tint = TextSecondary,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .pointerInput(index, songs.size) {
+                                    detectDragGestures(
+                                        onDragStart = {
+                                            dragFrom = index
+                                            dragOffset = 0f
+                                        },
+                                        onDragEnd = {
+                                            val steps = (dragOffset / rowHeight).roundToInt()
+                                            val target = (dragFrom + steps)
+                                                .coerceIn(0, songs.lastIndex)
+                                            if (dragFrom >= 0 && target != dragFrom) {
+                                                vm.player.moveItem(dragFrom, target)
+                                            }
+                                            dragFrom = -1
+                                            dragOffset = 0f
+                                        },
+                                        onDragCancel = {
+                                            dragFrom = -1
+                                            dragOffset = 0f
+                                        }
+                                    ) { change, amount ->
+                                        change.consume()
+                                        dragOffset += amount.y
+                                    }
+                                }
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Artwork(song.id, song.albumId, song.artistKey, Modifier.size(40.dp), corner = 6)
+                        Spacer(Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                song.title,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (index == state.queueIndex) Accent
+                                else MaterialTheme.colorScheme.onBackground,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                song.artistName,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                maxLines = 1
+                            )
+                        }
+                        IconButton(onClick = { sheetSong = song }) {
+                            Icon(
+                                Icons.Filled.MoreVert,
+                                contentDescription = "אפשרויות",
+                                tint = TextSecondary
+                            )
+                        }
+                    }
+                }
+            )
         }
+    }
+
+    sheetSong?.let { song ->
+        SongOptionsSheet(
+            vm = vm,
+            song = song,
+            onDismiss = { sheetSong = null }
+        )
     }
 }

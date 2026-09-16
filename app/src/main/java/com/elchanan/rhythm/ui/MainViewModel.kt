@@ -288,9 +288,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // playback
     // -----------------------------------------------------------------------
 
-    fun playList(songs: List<SongEntity>, index: Int = 0) {
+    fun playList(songs: List<SongEntity>, index: Int = 0, source: String? = null) {
         if (songs.isEmpty()) return
         QueueMeta.reset()
+        QueueMeta.setSource(source ?: _detail.value?.title)
         player.play(songs, index)
     }
 

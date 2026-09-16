@@ -182,6 +182,14 @@ class PlayerConnection(
         if (index in 0 until c.mediaItemCount) c.removeMediaItem(index)
     }
 
+    /** Reorders the queue in place; whatever is playing keeps playing. */
+    fun moveItem(from: Int, to: Int) {
+        val c = controller ?: return
+        val count = c.mediaItemCount
+        if (from == to || from !in 0 until count || to !in 0 until count) return
+        c.moveMediaItem(from, to)
+    }
+
     fun toggleShuffle() {
         val c = controller ?: return
         c.shuffleModeEnabled = !c.shuffleModeEnabled
