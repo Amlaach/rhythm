@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.zIndex
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +41,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -650,19 +652,18 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
             val swipe = remember(song.id) { Animatable(0f) }
             val swipeLimit = with(LocalDensity.current) { 110.dp.toPx() }
 
-            Box(modifier = Modifier.fillMaxWidth()) {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(Accent.copy(alpha = 0.22f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = "הסר מהתור",
-                        tint = Accent
-                    )
-                }
+            val dragging = dragFrom == index
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // The row follows the finger while it is being reordered.
+                    // Without this the list looked frozen until the drop, and the
+                    // track then jumped somewhere with no sense of cause.
+                    .offset { IntOffset(0, if (dragging) dragOffset.roundToInt() else 0) }
+                    .zIndex(if (dragging) 1f else 0f)
+                    .background(if (dragging) Surface1 else Color.Transparent)
+            ) {
                 Box(
                     modifier = Modifier
                         .offset { IntOffset(swipe.value.roundToInt(), 0) }
@@ -751,6 +752,37 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
                                 Icons.Filled.MoreVert,
                                 contentDescription = "אפשרויות",
                                 tint = TextSecondary
+                            )
+                        }
+                    }
+                }
+
+                // The delete band grows from whichever edge the row is heading
+                // for, so the gesture points at its own consequence instead of
+                // revealing a colour behind the track it just left.
+                if (swipe.value != 0f) {
+                    val travel = abs(swipe.value)
+                    val width = with(LocalDensity.current) { travel.toDp() }
+                    val armed = travel > swipeLimit
+                    Row(
+                        modifier = Modifier
+                            .align(
+                                if (swipe.value < 0f) Alignment.CenterStart
+                                else Alignment.CenterEnd
+                            )
+                            .fillMaxHeight()
+                            .width(width)
+                            .background(
+                                Accent.copy(alpha = if (armed) 0.85f else 0.35f)
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        if (width > 34.dp) {
+                            Icon(
+                                imageVector = Icons.Filled.Delete,
+                                contentDescription = "הסר מהתור",
+                                tint = Color.White
                             )
                         }
                     }
