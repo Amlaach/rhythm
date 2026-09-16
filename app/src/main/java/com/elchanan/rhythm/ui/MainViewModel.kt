@@ -578,25 +578,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Whether each home nudge should still be shown.
+     *
+     * Held as state rather than read straight from preferences: Compose can only
+     * recompose against something it has observed, and a preference read gives
+     * it nothing to watch - the dismiss button worked and the banner simply
+     * stayed on screen.
+     */
+    private val _tagTipVisible = MutableStateFlow(!repo.prefs.tagTipSeen)
+    val tagTipVisible: StateFlow<Boolean> = _tagTipVisible.asStateFlow()
+
+    private val _ratingTipVisible = MutableStateFlow(!repo.prefs.ratingTipSeen)
+    val ratingTipVisible: StateFlow<Boolean> = _ratingTipVisible.asStateFlow()
+
     fun dismissTagTip() {
         prefs.tagTipSeen = true
-        _nudgeSignal.value = _nudgeSignal.value + 1
+        _tagTipVisible.value = false
     }
 
     fun dismissRatingTip() {
         prefs.ratingTipSeen = true
-        _nudgeSignal.value = _nudgeSignal.value + 1
+        _ratingTipVisible.value = false
     }
-
-    /**
-     * Bumped whenever a nudge is dismissed.
-     *
-     * The flags live in preferences, which Compose cannot observe, so without a
-     * signal to recompose against the banner would stay on screen until the
-     * next unrelated redraw.
-     */
-    private val _nudgeSignal = MutableStateFlow(0)
-    val nudgeSignal: StateFlow<Int> = _nudgeSignal.asStateFlow()
 
     /**
      * Bumped when the home tab is tapped while home is already showing.

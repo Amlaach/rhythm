@@ -88,9 +88,8 @@ fun HomeScreen(
     val busy by vm.busy.collectAsStateWithLifecycle()
     val analysis by vm.analysisProgress.collectAsStateWithLifecycle()
 
-    // Dismissals live in preferences, which Compose cannot observe on its own.
-    @Suppress("UNUSED_VARIABLE")
-    val nudges by vm.nudgeSignal.collectAsStateWithLifecycle()
+    val tagTipVisible by vm.tagTipVisible.collectAsStateWithLifecycle()
+    val ratingTipVisible by vm.ratingTipVisible.collectAsStateWithLifecycle()
 
     val statusPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
@@ -154,7 +153,7 @@ fun HomeScreen(
                 // One-off pointer to the tag repair tool. Shown ahead of the other
                 // nudges because a library filed under a single artist makes every
                 // one of them meaningless.
-                if (!vm.prefs.tagTipSeen && library.artists.size <= 2 && library.songs.size >= 8) {
+                if (tagTipVisible && library.artists.size <= 2 && library.songs.size >= 8) {
                     item {
                         Banner(
                             icon = Icons.Filled.Sell,
@@ -188,7 +187,7 @@ fun HomeScreen(
                             onClick = { vm.startAnalysis() }
                         )
 
-                        !vm.prefs.ratingTipSeen && unrated > 0 &&
+                        ratingTipVisible && unrated > 0 &&
                             library.artists.count { it.rating > 0 } < 12 -> Banner(
                             icon = Icons.Filled.Star,
                             title = "$unrated אמנים עוד לא מדורגים",
