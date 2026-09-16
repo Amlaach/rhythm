@@ -1,12 +1,15 @@
 package com.elchanan.rhythm.data
 
+import android.Manifest
 import android.app.RecoverableSecurityException
 import android.content.ContentUris
 import android.content.Context
 import android.content.IntentSender
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -29,6 +32,20 @@ class TagFileWriter(private val context: Context) {
 
     fun uriFor(songId: Long): Uri =
         ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, songId)
+
+    /**
+     * Whether the old storage permission still has to be asked for.
+     *
+     * Before Android 11 there is no per file dialog - writing is covered by the
+     * same broad permission as reading, and the app only ever asked for the read
+     * half of it.
+     */
+    fun needsLegacyPermission(): Boolean =
+        Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) != PackageManager.PERMISSION_GRANTED
 
     /**
      * The dialog to show before writing, or null when none is needed - which is

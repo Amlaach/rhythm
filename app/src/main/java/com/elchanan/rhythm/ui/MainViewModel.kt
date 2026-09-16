@@ -580,6 +580,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _writePermissionRequest = MutableStateFlow<IntentSender?>(null)
     val writePermissionRequest: StateFlow<IntentSender?> = _writePermissionRequest.asStateFlow()
 
+    /** The older, broader storage permission, for devices below Android 11. */
+    private val _legacyPermissionRequest = MutableStateFlow(false)
+    val legacyPermissionRequest: StateFlow<Boolean> = _legacyPermissionRequest.asStateFlow()
+
     fun applyTagFix(proposals: List<TagFixer.Proposal>) {
         viewModelScope.launch {
             val changed = proposals.filter { it.changed }
@@ -596,17 +600,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             TagFileWriter.Item(it.songId, it.newTitle, it.newArtist)
         }
         val request = tagFiles.permissionRequest(pendingWrites)
-        if (request == null) {
-            // Older Android: the storage permission already covers this.
-            runPendingWrites()
-        } else {
-            _writePermissionRequest.value = request
+        when {
+            // Android 11 and up: the system asks about these exact files.
+            request != null -> _writePermissionRequest.value = request
+            // Below that, one broad permission covers writing, and the app has
+            // only ever asked for the reading half of it.
+            tagFiles.needsLegacyPermission() -> _legacyPermissionRequest.value = true
+            else -> runPendingWrites()
         }
     }
 
     /** Called once the system dialog has been answered. */
     fun onWritePermissionResult(granted: Boolean) {
         _writePermissionRequest.value = null
+        _legacyPermissionRequest.value = false
         if (granted) {
             runPendingWrites()
         } else {

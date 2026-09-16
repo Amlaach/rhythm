@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import android.Manifest
 import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -83,6 +84,18 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
     LaunchedEffect(permissionRequest) {
         permissionRequest?.let {
             writeLauncher.launch(IntentSenderRequest.Builder(it).build())
+        }
+    }
+
+    // Below Android 11 there is no per file dialog, just the old storage
+    // permission, which the app has never had a reason to ask for until now.
+    val legacyRequest by vm.legacyPermissionRequest.collectAsStateWithLifecycle()
+    val legacyLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> vm.onWritePermissionResult(granted) }
+    LaunchedEffect(legacyRequest) {
+        if (legacyRequest) {
+            legacyLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
     }
 
