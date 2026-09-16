@@ -79,6 +79,11 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_CROSSFADE, 0)
         set(value) = sp.edit { putInt(KEY_CROSSFADE, value.coerceIn(0, 12_000)) }
 
+    /** Whether the first-run explanation has been dismissed. */
+    var welcomeSeen: Boolean
+        get() = sp.getBoolean(KEY_WELCOME, false)
+        set(value) = sp.edit { putBoolean(KEY_WELCOME, value) }
+
     /** Whether the one-off pointer to the tag repair tool has been shown. */
     var tagTipSeen: Boolean
         get() = sp.getBoolean(KEY_TAG_TIP, false)
@@ -131,5 +136,6 @@ class Prefs(context: Context) {
         const val KEY_SKIP_SILENCE = "skip_silence"
         const val KEY_NORMALIZE = "normalize_volume"
         const val KEY_TAG_TIP = "tag_tip_seen"
+        const val KEY_WELCOME = "welcome_seen"
     }
 }

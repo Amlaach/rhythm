@@ -51,6 +51,7 @@ import com.elchanan.rhythm.ui.screens.RecapScreen
 import com.elchanan.rhythm.ui.screens.SearchScreen
 import com.elchanan.rhythm.ui.screens.SettingsScreen
 import com.elchanan.rhythm.ui.screens.TagFixScreen
+import com.elchanan.rhythm.ui.screens.WelcomeScreen
 import androidx.compose.ui.graphics.Brush
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Accent2
@@ -89,6 +90,7 @@ fun RhythmRoot(
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
     var playerOpen by remember { mutableStateOf(false) }
+    var welcomeDone by remember { mutableStateOf(vm.prefs.welcomeSeen) }
 
     val message by vm.message.collectAsStateWithLifecycle()
     val playerState by vm.player.state.collectAsStateWithLifecycle()
@@ -145,6 +147,20 @@ fun RhythmRoot(
                 )
             )
     ) {
+        // Shown before anything else on a first run, and only while permission
+        // is already granted - otherwise the permission prompt is the first
+        // thing that matters and two explanations at once help nobody.
+        if (!welcomeDone && hasPermission) {
+            WelcomeScreen(
+                songCount = library.songs.size,
+                onStart = {
+                    vm.prefs.welcomeSeen = true
+                    welcomeDone = true
+                }
+            )
+            return@Box
+        }
+
         Scaffold(
             containerColor = Bg,
             snackbarHost = { SnackbarHost(snackbarHostState) },
