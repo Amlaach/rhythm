@@ -144,7 +144,13 @@ data class AudioFeatureEntity(
      */
     val scaleMode: Int = -1,
     /** How far the winning mode beat the runner up, 0..1. */
-    val scaleConfidence: Float = 0f
+    val scaleConfidence: Float = 0f,
+    /**
+     * 24 comma separated values: the same chroma at quarter tone resolution,
+     * rotated to the tonic. Twelve bins round a neutral third to its nearest
+     * semitone, which erases the very interval that identifies Rast or Bayati.
+     */
+    val chroma24: String = ""
 )
 
 @Entity(tableName = "history", indices = [Index("playedAt"), Index("songId")])

@@ -270,6 +270,8 @@ object AudioAnalyzer {
         val onsetRate: Double,
         /** unnormalised, so probes can be summed before normalising */
         val chroma: DoubleArray,
+        /** the same at quarter tone resolution, for the maqam family */
+        val chroma24: DoubleArray,
         val mfccMean: DoubleArray,
         val mfccVar: DoubleArray
     )
@@ -290,10 +292,17 @@ object AudioAnalyzer {
         val chromaSum = chromaTotal.sum()
         val chromaNorm =
             if (chromaSum > 1e-9) DoubleArray(12) { chromaTotal[it] / chromaSum } else DoubleArray(12)
+        val quarterTotal = DoubleArray(24)
+        for (w in windows) for (i in 0 until 24) quarterTotal[i] += w.chroma24[i]
+        val quarterSum = quarterTotal.sum()
+        val quarterNorm =
+            if (quarterSum > 1e-9) DoubleArray(24) { quarterTotal[it] / quarterSum }
+            else DoubleArray(24)
+
         // The modal estimate is the authority on the tonic; major/minor is kept
         // only so the rest of the app, which still thinks in two modes, keeps
         // working unchanged.
-        val estimate = ModeDetector.detect(chromaNorm)
+        val estimate = ModeDetector.detect(chromaNorm, quarterNorm)
         val key = estimate?.key ?: detectKey(chromaNorm).first
         val mode = when {
             estimate == null -> detectKey(chromaNorm).second
@@ -301,6 +310,7 @@ object AudioAnalyzer {
             else -> 0
         }
         val rotated = DoubleArray(12) { chromaNorm[(it + max(0, key)) % 12] }
+        val rotated24 = DoubleArray(24) { quarterNorm[(it + max(0, key) * 2) % 24] }
 
         val timbre = DoubleArray(MFCC_COUNT) { c -> windows.sumOf { it.mfccMean[c] } / n }
         val timbreVar = DoubleArray(MFCC_COUNT) { c -> windows.sumOf { it.mfccVar[c] } / n }
@@ -363,7 +373,8 @@ object AudioAnalyzer {
             timbreVar = timbreVar.joinToString(",") { "%.5f".format(it) },
             shape = shape.joinToString(",") { "%.5f".format(it) },
             scaleMode = estimate?.mode?.ordinal ?: -1,
-            scaleConfidence = (estimate?.confidence ?: 0.0).toFloat()
+            scaleConfidence = (estimate?.confidence ?: 0.0).toFloat(),
+            chroma24 = rotated24.joinToString(",") { "%.5f".format(it) }
         )
     }
 
@@ -397,6 +408,20 @@ object AudioAnalyzer {
             }
         }
 
+        // The same thing at quarter tone resolution. Twelve bins cannot express
+        // the neutral second and third that define Rast and Bayati - the pitch
+        // simply rounds to its nearest semitone and the mode disappears. Twenty
+        // four bins keep it.
+        val binQuarterClass = IntArray(bins) { k ->
+            val hz = k.toDouble() * sampleRate / WINDOW
+            if (hz < 55.0 || hz > 5000.0) -1
+            else {
+                val quarters = 138.0 + 24.0 * log2(hz / 440.0)
+                ((quarters.roundToInt() % 24) + 24) % 24
+            }
+        }
+        val chroma24 = DoubleArray(24)
+
         for (frame in 0 until frameCount) {
             val offset = frame * HOP
             for (i in 0 until WINDOW) {
@@ -418,6 +443,8 @@ object AudioAnalyzer {
                 weighted += m * k
                 val pc = binPitchClass[k]
                 if (pc >= 0) chroma[pc] += m
+                val qc = binQuarterClass[k]
+                if (qc >= 0) chroma24[qc] += m
             }
             centroid[frame] = if (magSum > 1e-9) (weighted / magSum) / bins else 0.0
             flatness[frame] = if (magSum > 1e-9) {
@@ -475,6 +502,7 @@ object AudioAnalyzer {
             bpmConfidence = confidence,
             onsetRate = onsetRate,
             chroma = chroma,
+            chroma24 = chroma24,
             mfccMean = timbre,
             mfccVar = timbreVar
         )

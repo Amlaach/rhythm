@@ -42,7 +42,16 @@ enum class MusicalMode(
     NAHAWAND("נהוונד", intArrayOf(0, 2, 3, 5, 7, 8, 11), intArrayOf(3, 11), false),
 
     /** Phrygian. Flat second with a minor third, distinct from Ahavah Rabbah. */
-    KURD("כורד", intArrayOf(0, 1, 3, 5, 7, 8, 10), intArrayOf(1, 3), false);
+    KURD("כורד", intArrayOf(0, 1, 3, 5, 7, 8, 10), intArrayOf(1, 3), false),
+
+    /**
+     * Rast. Neutral third and seventh - the notes that sit between the keys of
+     * a piano - so it only exists in the quarter tone profiles below.
+     */
+    RAST("ראסט", intArrayOf(0, 2, 4, 5, 7, 9, 11), intArrayOf(4, 11), true),
+
+    /** Bayati. Neutral second over a minor tetrachord. Quarter tone only. */
+    BAYATI("בּיאתי", intArrayOf(0, 1, 3, 5, 7, 8, 10), intArrayOf(1, 3), false);
 
     /**
      * Krumhansl style weights: the tonic and fifth anchor the fit, the degrees
@@ -57,12 +66,43 @@ enum class MusicalMode(
         for (d in signature) p[d] = 4.55
     }
 
+    /**
+     * Scale degrees in quarter tones, 24 to the octave.
+     *
+     * For the twelve tone modes these are just the semitone degrees doubled.
+     * Rast and Bayati are the reason the table exists at all: their neutral
+     * intervals - 7 and 21 for Rast, 3 for Bayati - fall between the semitones
+     * and cannot be written any other way.
+     */
+    val quarterDegrees: IntArray = when (name) {
+        "RAST" -> intArrayOf(0, 4, 7, 10, 14, 18, 21)
+        "BAYATI" -> intArrayOf(0, 3, 6, 10, 14, 16, 20)
+        else -> degrees.map { it * 2 }.toIntArray()
+    }
+
+    private val quarterSignature: IntArray = when (name) {
+        "RAST" -> intArrayOf(7, 21)
+        "BAYATI" -> intArrayOf(3, 6)
+        else -> signature.map { it * 2 }.toIntArray()
+    }
+
+    /** The 24 bin counterpart of [profile]. */
+    val quarterProfile: DoubleArray = DoubleArray(24) { 2.10 }.also { p ->
+        for (d in quarterDegrees) p[d] = 3.30
+        p[0] = 6.35
+        if (14 in quarterDegrees) p[14] = 5.00
+        for (d in quarterSignature) p[d] = 4.55
+    }
+
     companion object {
         /** Ashkenazi liturgical modes, for grouping and for the taste report. */
         val LITURGICAL = setOf(AHAVAH_RABBAH, MI_SHEBERACH, ADONAI_MALACH)
 
         /** Modes that sound Middle Eastern to a listener. */
-        val EASTERN = setOf(AHAVAH_RABBAH, NAHAWAND, KURD, MI_SHEBERACH)
+        val EASTERN = setOf(AHAVAH_RABBAH, NAHAWAND, KURD, MI_SHEBERACH, RAST, BAYATI)
+
+        /** The two that only a quarter tone profile can find. */
+        val NEUTRAL = setOf(RAST, BAYATI)
 
         fun byOrdinalOrNull(index: Int): MusicalMode? = entries.getOrNull(index)
     }
@@ -81,22 +121,38 @@ object ModeDetector {
      * correlation: a piece that fits Ahavah Rabbah at 0.82 and minor at 0.81 has
      * not really been identified, and the caller needs to know that.
      */
-    fun detect(chroma: DoubleArray): ModeEstimate? {
+    fun detect(chroma: DoubleArray, chroma24: DoubleArray? = null): ModeEstimate? {
+        // Prefer the quarter tone profile when one was measured: it can express
+        // everything the twelve bin version can, plus the neutral intervals.
+        val fine = chroma24?.takeIf { it.size >= 24 && it.sum() > 1e-9 }
+        if (fine != null) return detectIn(fine, 24) { it.quarterProfile }
         if (chroma.size < 12 || chroma.sum() < 1e-9) return null
+        return detectIn(chroma, 12) { it.profile }
+    }
 
+    private inline fun detectIn(
+        chroma: DoubleArray,
+        steps: Int,
+        profileOf: (MusicalMode) -> DoubleArray
+    ): ModeEstimate? {
         var bestScore = -2.0
         var runnerUp = -2.0
-        var bestKey = 0
+        var bestStep = 0
         var bestMode = MusicalMode.MAJOR
 
-        for (rotation in 0 until 12) {
-            val rotated = DoubleArray(12) { chroma[(it + rotation) % 12] }
+        for (rotation in 0 until steps) {
+            val rotated = DoubleArray(steps) { chroma[(it + rotation) % steps] }
             for (mode in MusicalMode.entries) {
-                val score = correlate(rotated, mode.profile)
+                // A neutral mode read off a twelve bin profile is meaningless,
+                // and a semitone rotation of a quarter tone chroma is a tonic
+                // that lies between two keys - neither is a real answer.
+                if (steps == 12 && mode in MusicalMode.NEUTRAL) continue
+                if (steps == 24 && rotation % 2 != 0 && mode !in MusicalMode.NEUTRAL) continue
+                val score = correlate(rotated, profileOf(mode))
                 if (score > bestScore) {
                     runnerUp = bestScore
                     bestScore = score
-                    bestKey = rotation
+                    bestStep = rotation
                     bestMode = mode
                 } else if (score > runnerUp) {
                     runnerUp = score
@@ -106,7 +162,9 @@ object ModeDetector {
 
         if (bestScore <= -1.5) return null
         val margin = (bestScore - runnerUp).coerceAtLeast(0.0)
-        return ModeEstimate(bestKey, bestMode, (margin * 6.0).coerceIn(0.0, 1.0))
+        // The key is always reported in semitones, whatever resolution found it.
+        val key = if (steps == 24) (bestStep / 2) % 12 else bestStep
+        return ModeEstimate(key, bestMode, (margin * 6.0).coerceIn(0.0, 1.0))
     }
 
     private fun correlate(a: DoubleArray, b: DoubleArray): Double {
