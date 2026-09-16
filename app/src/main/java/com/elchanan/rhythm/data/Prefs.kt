@@ -79,6 +79,11 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_CROSSFADE, 0)
         set(value) = sp.edit { putInt(KEY_CROSSFADE, value.coerceIn(0, 12_000)) }
 
+    /** Whether the "rate some artists" nudge has been turned down. */
+    var ratingTipSeen: Boolean
+        get() = sp.getBoolean(KEY_RATING_TIP, false)
+        set(value) = sp.edit { putBoolean(KEY_RATING_TIP, value) }
+
     /** Whether the first-run explanation has been dismissed. */
     var welcomeSeen: Boolean
         get() = sp.getBoolean(KEY_WELCOME, false)
@@ -137,5 +142,6 @@ class Prefs(context: Context) {
         const val KEY_NORMALIZE = "normalize_volume"
         const val KEY_TAG_TIP = "tag_tip_seen"
         const val KEY_WELCOME = "welcome_seen"
+        const val KEY_RATING_TIP = "rating_tip_seen"
     }
 }

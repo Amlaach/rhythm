@@ -580,7 +580,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dismissTagTip() {
         prefs.tagTipSeen = true
+        _nudgeSignal.value = _nudgeSignal.value + 1
     }
+
+    fun dismissRatingTip() {
+        prefs.ratingTipSeen = true
+        _nudgeSignal.value = _nudgeSignal.value + 1
+    }
+
+    /**
+     * Bumped whenever a nudge is dismissed.
+     *
+     * The flags live in preferences, which Compose cannot observe, so without a
+     * signal to recompose against the banner would stay on screen until the
+     * next unrelated redraw.
+     */
+    private val _nudgeSignal = MutableStateFlow(0)
+    val nudgeSignal: StateFlow<Int> = _nudgeSignal.asStateFlow()
 
     /**
      * Bumped when the home tab is tapped while home is already showing.

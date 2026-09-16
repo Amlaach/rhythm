@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Star
@@ -84,6 +85,10 @@ fun HomeScreen(
     val feed by vm.feed.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val analysis by vm.analysisProgress.collectAsStateWithLifecycle()
+
+    // Dismissals live in preferences, which Compose cannot observe on its own.
+    @Suppress("UNUSED_VARIABLE")
+    val nudges by vm.nudgeSignal.collectAsStateWithLifecycle()
 
     val statusPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
@@ -155,7 +160,8 @@ fun HomeScreen(
                             body = "התגיות בקבצים שהורדו מהאינטרנט לרוב שגויות. " +
                                 "בהגדרות יש תיקון אוטומטי שמפריד את שם האמן משם השיר",
                             action = "להגדרות",
-                            onClick = { vm.dismissTagTip(); onOpenSettings() }
+                            onClick = { vm.dismissTagTip(); onOpenSettings() },
+                            onDismiss = { vm.dismissTagTip() }
                         )
                     }
                 }
@@ -180,12 +186,14 @@ fun HomeScreen(
                             onClick = { vm.startAnalysis() }
                         )
 
-                        unrated > 0 && library.artists.count { it.rating > 0 } < 12 -> Banner(
+                        !vm.prefs.ratingTipSeen && unrated > 0 &&
+                            library.artists.count { it.rating > 0 } < 12 -> Banner(
                             icon = Icons.Filled.Star,
                             title = "$unrated אמנים עוד לא מדורגים",
                             body = "כמה דירוגים משנים את הפיד יותר מכל דבר אחר",
                             action = "דרג",
-                            onClick = onOpenRatings
+                            onClick = onOpenRatings,
+                            onDismiss = { vm.dismissRatingTip() }
                         )
 
                         else -> Unit
@@ -350,7 +358,8 @@ private fun Banner(
     title: String,
     body: String,
     action: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDismiss: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
@@ -374,6 +383,18 @@ private fun Banner(
             )
         }
         Text(action, style = MaterialTheme.typography.labelLarge, color = Accent)
+        // A nudge with no way out stops being a nudge. Dismissing is remembered,
+        // so a suggestion that has been turned down stays turned down.
+        if (onDismiss != null) {
+            IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "סגור",
+                    tint = TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
     }
 }
 
