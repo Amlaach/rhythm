@@ -42,10 +42,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.DismissValue
-import androidx.compose.material3.SwipeToDismiss
-import androidx.compose.material3.rememberDismissState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
+import kotlin.math.abs
 import com.elchanan.rhythm.playback.QueueMeta
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
@@ -365,6 +365,10 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
             }
 
             Column(modifier = Modifier.padding(horizontal = 24.dp)) {
+                // With the queue open everything except the transport steps
+                // aside, so the list gets nearly the whole sheet. The controls
+                // stay: browsing a queue and pausing go together.
+                if (!showQueue) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // Placed first so RTL puts it on the right, alongside the stars
                     // rather than stranded on the opposite edge from them.
@@ -418,6 +422,8 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
 
                 Spacer(Modifier.height(6.dp))
 
+                }
+
                 val duration = if (state.durationMs > 0) state.durationMs else song.durationMs
                 val position = scrubbing?.times(duration)?.toLong() ?: state.positionMs
                 // Time runs one way whatever the language, so the scrubber and the
@@ -425,6 +431,7 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                 // the head advances rightwards, elapsed sits under its start, and
                 // "previous" stays on the left of "next".
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                if (!showQueue) {
                 Slider(
                     value = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f,
                     onValueChange = { scrubbing = it },
@@ -450,6 +457,7 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                         style = MaterialTheme.typography.labelSmall,
                         color = TextSecondary
                     )
+                }
                 }
 
                 Spacer(Modifier.height(10.dp))
@@ -589,6 +597,17 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
 
     val source by QueueMeta.source.collectAsStateWithLifecycle()
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
+    val scope = rememberCoroutineScope()
+
+    // Open on what is playing rather than at the top. In a sixty track queue the
+    // start of the list is the least useful place to land.
+    val listState = rememberLazyListState()
+    LaunchedEffect(state.queueIndex, songs.size) {
+        if (state.queueIndex in songs.indices) {
+            // +1 for the header row that sits above the entries
+            listState.scrollToItem((state.queueIndex + 1).coerceAtMost(songs.size))
+        }
+    }
 
     // Where a drag currently sits, as a queue index, while the finger is down.
     var dragFrom by remember { mutableStateOf(-1) }
@@ -596,6 +615,7 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
     val rowHeight = with(LocalDensity.current) { 54.dp.toPx() }
 
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxHeight(),
         contentPadding = PaddingValues(bottom = 16.dp)
     ) {
@@ -623,35 +643,48 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
             }
             val song = songs[index]
 
-            // Swiping a queue entry aside to drop it is the gesture people
-            // already expect here, and it beats hunting for a menu item.
-            val dismissState = rememberDismissState(
-                confirmValueChange = { value ->
-                    if (value != DismissValue.Default) {
-                        vm.player.removeAt(index)
-                        true
-                    } else false
-                }
-            )
+            // Swipe aside to drop an entry. Written by hand rather than with the
+            // Material box: the version in this toolchain is still experimental
+            // and its names move between releases, and this is a handful of
+            // lines against a stable API.
+            val swipe = remember(song.id) { Animatable(0f) }
+            val swipeLimit = with(LocalDensity.current) { 110.dp.toPx() }
 
-            SwipeToDismiss(
-                state = dismissState,
-                background = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(54.dp)
-                            .background(Accent.copy(alpha = 0.25f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Filled.Close,
-                            contentDescription = "הסר מהתור",
-                            tint = Accent
-                        )
-                    }
-                },
-                dismissContent = {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Accent.copy(alpha = 0.22f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "הסר מהתור",
+                        tint = Accent
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(swipe.value.roundToInt(), 0) }
+                        .pointerInput(song.id, index) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    scope.launch {
+                                        if (abs(swipe.value) > swipeLimit) {
+                                            vm.player.removeAt(index)
+                                            swipe.snapTo(0f)
+                                        } else {
+                                            swipe.animateTo(0f)
+                                        }
+                                    }
+                                },
+                                onDragCancel = { scope.launch { swipe.animateTo(0f) } }
+                            ) { change, amount ->
+                                change.consume()
+                                scope.launch { swipe.snapTo(swipe.value + amount) }
+                            }
+                        }
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -722,7 +755,7 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
                         }
                     }
                 }
-            )
+            }
         }
     }
 
