@@ -94,6 +94,30 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_TAG_TIP, false)
         set(value) = sp.edit { putBoolean(KEY_TAG_TIP, value) }
 
+    /**
+     * Also strip Latin script leftovers from song names - producer credits, an
+     * English gloss, whatever the video page's heading left behind.
+     *
+     * On by default: it only affects what the repair screen proposes, and every
+     * proposal is shown before anything is applied.
+     */
+    var tagStripForeign: Boolean
+        get() = sp.getBoolean(KEY_STRIP_FOREIGN, true)
+        set(value) = sp.edit { putBoolean(KEY_STRIP_FOREIGN, value) }
+
+    /**
+     * Write corrections into the mp3 files themselves rather than only into the
+     * app's own database.
+     *
+     * Off, and it stays off unless the user goes looking for it. Everything else
+     * the app does is reversible from inside the app; this one reaches out and
+     * edits files that other programs own, on a machine where the music may be
+     * the only copy. The default has to be the one that changes nothing.
+     */
+    var writeTagsToFiles: Boolean
+        get() = sp.getBoolean(KEY_WRITE_TAGS, false)
+        set(value) = sp.edit { putBoolean(KEY_WRITE_TAGS, value) }
+
     /** System equaliser: on or off. */
     var eqEnabled: Boolean
         get() = sp.getBoolean(KEY_EQ_ON, false)
@@ -159,6 +183,8 @@ class Prefs(context: Context) {
         const val KEY_SKIP_SILENCE = "skip_silence"
         const val KEY_NORMALIZE = "normalize_volume"
         const val KEY_TAG_TIP = "tag_tip_seen"
+        const val KEY_STRIP_FOREIGN = "tag_strip_foreign"
+        const val KEY_WRITE_TAGS = "tag_write_to_files"
         const val KEY_WELCOME = "welcome_seen"
         const val KEY_RATING_TIP = "rating_tip_seen"
         const val KEY_EQ_ON = "eq_enabled"

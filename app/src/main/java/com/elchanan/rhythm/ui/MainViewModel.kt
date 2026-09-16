@@ -1,10 +1,12 @@
 package com.elchanan.rhythm.ui
 
 import android.app.Application
+import android.content.IntentSender
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.elchanan.rhythm.RhythmApp
 import com.elchanan.rhythm.data.MediaScanner
+import com.elchanan.rhythm.data.TagFileWriter
 import com.elchanan.rhythm.data.TagFixer
 import com.elchanan.rhythm.data.MusicRepository
 import com.elchanan.rhythm.data.AnalysisManager
@@ -554,16 +556,77 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _tagProposals = MutableStateFlow<List<TagFixer.Proposal>>(emptyList())
     val tagProposals: StateFlow<List<TagFixer.Proposal>> = _tagProposals.asStateFlow()
 
+    private val tagFiles = TagFileWriter(getApplication())
+
     fun buildTagProposals() {
-        _tagProposals.value = TagFixer.propose(library.value.songs)
+        _tagProposals.value =
+            TagFixer.propose(library.value.songs, dropForeign = prefs.tagStripForeign)
     }
+
+    /** Re-proposes with the new setting so the preview updates as it is flipped. */
+    fun setTagStripForeign(enabled: Boolean) {
+        prefs.tagStripForeign = enabled
+        buildTagProposals()
+    }
+
+    /**
+     * Files waiting on the system's permission dialog.
+     *
+     * The corrections are already saved in the app at this point; this is only
+     * about the optional second step of pushing them into the files.
+     */
+    private var pendingWrites: List<TagFileWriter.Item> = emptyList()
+
+    private val _writePermissionRequest = MutableStateFlow<IntentSender?>(null)
+    val writePermissionRequest: StateFlow<IntentSender?> = _writePermissionRequest.asStateFlow()
 
     fun applyTagFix(proposals: List<TagFixer.Proposal>) {
         viewModelScope.launch {
-            val changed = proposals.count { it.changed }
+            val changed = proposals.filter { it.changed }
             repo.saveOverrides(TagFixer.toOverrides(proposals))
             prefs.tagTipSeen = true
-            _message.value = if (changed == 0) "אין מה לתקן" else "עודכנו $changed שירים"
+            _message.value =
+                if (changed.isEmpty()) "אין מה לתקן" else "עודכנו ${changed.size} שירים"
+            if (changed.isNotEmpty() && prefs.writeTagsToFiles) startFileWrite(changed)
+        }
+    }
+
+    private fun startFileWrite(changed: List<TagFixer.Proposal>) {
+        pendingWrites = changed.map {
+            TagFileWriter.Item(it.songId, it.newTitle, it.newArtist)
+        }
+        val request = tagFiles.permissionRequest(pendingWrites)
+        if (request == null) {
+            // Older Android: the storage permission already covers this.
+            runPendingWrites()
+        } else {
+            _writePermissionRequest.value = request
+        }
+    }
+
+    /** Called once the system dialog has been answered. */
+    fun onWritePermissionResult(granted: Boolean) {
+        _writePermissionRequest.value = null
+        if (granted) {
+            runPendingWrites()
+        } else {
+            pendingWrites = emptyList()
+            _message.value = "התיקון נשמר באפליקציה. הקבצים לא שונו."
+        }
+    }
+
+    private fun runPendingWrites() {
+        val items = pendingWrites
+        pendingWrites = emptyList()
+        if (items.isEmpty()) return
+        viewModelScope.launch {
+            _message.value = "כותב לקבצים..."
+            val outcome = tagFiles.write(items)
+            _message.value = when {
+                outcome.written == 0 -> "לא הצלחתי לכתוב לקבצים. התיקון נשמר באפליקציה."
+                outcome.ok -> "נכתבו ${outcome.written} קבצים"
+                else -> "נכתבו ${outcome.written}, נכשלו ${outcome.failed}"
+            }
         }
     }
 
@@ -582,6 +645,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             )
             prefs.tagTipSeen = true
             _message.value = "התגית עודכנה"
+            if (prefs.writeTagsToFiles) {
+                startFileWrite(
+                    listOf(
+                        TagFixer.Proposal(
+                            songId = songId,
+                            oldTitle = "",
+                            oldArtist = "",
+                            newTitle = title.trim(),
+                            newArtist = artist.trim()
+                        )
+                    )
+                )
+            }
         }
     }
 

@@ -77,6 +77,8 @@ fun SettingsScreen(
     var crossfade by remember { mutableFloatStateOf(vm.prefs.crossfadeMs.toFloat()) }
     var skipSilence by remember { mutableStateOf(vm.prefs.skipSilence) }
     var normalizeVolume by remember { mutableStateOf(vm.prefs.normalizeVolume) }
+    var stripForeign by remember { mutableStateOf(vm.prefs.tagStripForeign) }
+    var writeTags by remember { mutableStateOf(vm.prefs.writeTagsToFiles) }
     val analysis by vm.analysisProgress.collectAsStateWithLifecycle()
     val lyricsFolder by vm.lyricsFolder.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -221,6 +223,64 @@ fun SettingsScreen(
                         onClick = onOpenTagFix,
                         colors = ButtonDefaults.buttonColors(containerColor = Accent)
                     ) { Text("פתח") }
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("הסרת טקסט באנגלית", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "מוריד משם השיר את מה שנוסף באנגלית — קרדיטים של מפיקים, " +
+                                "שם אנגלי בסוגריים ושאריות מכותרת הסרטון. " +
+                                "סימון של הופעה חיה נשמר",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Switch(
+                        checked = stripForeign,
+                        onCheckedChange = {
+                            stripForeign = it
+                            vm.setTagStripForeign(it)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Accent,
+                            checkedTrackColor = Accent.copy(alpha = 0.4f)
+                        )
+                    )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("כתיבת התיקון לקבצים", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "כבוי: התיקונים נשמרים באפליקציה בלבד והקבצים במחשב לא משתנים. " +
+                                "בהפעלה, כל תיקון ייכתב גם לתוך קובץ ה־MP3 עצמו, כך שגם נגנים " +
+                                "אחרים יראו אותו. העטיפה והשאר נשמרים",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Switch(
+                        checked = writeTags,
+                        onCheckedChange = {
+                            writeTags = it
+                            vm.prefs.writeTagsToFiles = it
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Accent,
+                            checkedTrackColor = Accent.copy(alpha = 0.4f)
+                        )
+                    )
                 }
             }
 

@@ -1,5 +1,9 @@
 package com.elchanan.rhythm.ui.screens
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -63,6 +67,24 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
     val library by vm.library.collectAsStateWithLifecycle()
 
     LaunchedEffect(library.songs.size) { vm.buildTagProposals() }
+    // The setting can be flipped while this screen is closed, so the preview is
+    // rebuilt on the way in rather than only when the library changes.
+    LaunchedEffect(Unit) { vm.buildTagProposals() }
+
+    // Writing into the files needs the system's own permission dialog from
+    // Android 11 on, and only an activity can show it.
+    val writesToFiles = vm.prefs.writeTagsToFiles
+    val permissionRequest by vm.writePermissionRequest.collectAsStateWithLifecycle()
+    val writeLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        vm.onWritePermissionResult(result.resultCode == Activity.RESULT_OK)
+    }
+    LaunchedEffect(permissionRequest) {
+        permissionRequest?.let {
+            writeLauncher.launch(IntentSenderRequest.Builder(it).build())
+        }
+    }
 
     val changed = proposals.filter { it.changed }
     var filter by remember { mutableStateOf("") }
@@ -141,10 +163,16 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
                     )
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "התיקון נשמר באפליקציה בלבד ולא נוגע בקבצים עצמם, אז אין שום סיכון " +
-                            "שמשהו ייהרס. אפשר לבטל בכל רגע.",
+                        if (writesToFiles) {
+                            "לפי ההגדרות, התיקון ייכתב גם לתוך קבצי ה־MP3 עצמם. " +
+                                "העטיפה ושאר התגיות נשמרות, אבל שינוי בקובץ אי אפשר לבטל " +
+                                "מתוך האפליקציה. כדי לתקן רק כאן, כבה את ההגדרה."
+                        } else {
+                            "התיקון נשמר באפליקציה בלבד ולא נוגע בקבצים עצמם, אז אין שום סיכון " +
+                                "שמשהו ייהרס. אפשר לבטל בכל רגע."
+                        },
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
+                        color = if (writesToFiles) Accent else TextSecondary
                     )
                     Spacer(Modifier.height(14.dp))
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
