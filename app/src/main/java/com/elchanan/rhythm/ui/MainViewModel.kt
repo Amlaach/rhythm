@@ -16,6 +16,7 @@ import com.elchanan.rhythm.data.db.LyricsEntity
 import com.elchanan.rhythm.data.db.PlaylistEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
+import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.Mix
 import com.elchanan.rhythm.engine.Mood
@@ -548,6 +549,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             repo.saveOverrides(TagFixer.toOverrides(proposals))
             prefs.tagTipSeen = true
             _message.value = if (changed == 0) "אין מה לתקן" else "עודכנו $changed שירים"
+        }
+    }
+
+    /** Saves one hand typed correction. Blank fields fall back to the file. */
+    fun saveTagOverride(songId: Long, title: String, artist: String) {
+        viewModelScope.launch {
+            repo.saveOverrides(
+                listOf(
+                    TagOverrideEntity(
+                        songId = songId,
+                        title = title.trim(),
+                        artistName = artist.trim(),
+                        albumName = ""
+                    )
+                )
+            )
+            prefs.tagTipSeen = true
+            _message.value = "התגית עודכנה"
         }
     }
 

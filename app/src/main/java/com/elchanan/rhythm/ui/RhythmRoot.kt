@@ -51,7 +51,9 @@ import com.elchanan.rhythm.ui.screens.RecapScreen
 import com.elchanan.rhythm.ui.screens.SearchScreen
 import com.elchanan.rhythm.ui.screens.SettingsScreen
 import com.elchanan.rhythm.ui.screens.TagFixScreen
+import androidx.compose.ui.graphics.Brush
 import com.elchanan.rhythm.ui.theme.Accent
+import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.BgElevated
 import com.elchanan.rhythm.ui.theme.TextSecondary
@@ -126,7 +128,23 @@ fun RhythmRoot(
         if (currentSong == null) playerOpen = false
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Bg)) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Bg)
+            // A single soft wash under the status bar. It gives the top of every
+            // screen somewhere to start instead of beginning at flat black, and
+            // it is faint enough that no artwork or text has to fight it.
+            .background(
+                Brush.verticalGradient(
+                    colorStops = arrayOf(
+                        0.0f to Accent.copy(alpha = 0.10f),
+                        0.22f to Accent2.copy(alpha = 0.04f),
+                        0.45f to Color.Transparent
+                    )
+                )
+            )
+    ) {
         Scaffold(
             containerColor = Bg,
             snackbarHost = { SnackbarHost(snackbarHostState) },

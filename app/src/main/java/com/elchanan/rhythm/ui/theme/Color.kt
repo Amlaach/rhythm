@@ -2,7 +2,12 @@ package com.elchanan.rhythm.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Bg = Color(0xFF050507)
+/**
+ * Not quite black. A flat near-black ground makes every surface above it read
+ * as a hole rather than a layer. A few points of blue and violet keep the
+ * screen feeling lit without ever becoming a colour of its own.
+ */
+val Bg = Color(0xFF0A0910)
 val BgElevated = Color(0xFF101014)
 val Surface1 = Color(0xFF17171D)
 val Surface2 = Color(0xFF23232B)

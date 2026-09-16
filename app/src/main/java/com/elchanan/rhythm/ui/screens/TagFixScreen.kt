@@ -26,9 +26,16 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.elchanan.rhythm.data.db.SongEntity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,6 +64,51 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
     LaunchedEffect(library.songs.size) { vm.buildTagProposals() }
 
     val changed = proposals.filter { it.changed }
+    var filter by remember { mutableStateOf("") }
+    var editing by remember { mutableStateOf<SongEntity?>(null) }
+
+    // Hand editing, for the files the pattern cannot help with: a title with no
+    // separator, a guest artist the split got wrong, a name spelled two ways.
+    editing?.let { song ->
+        var title by remember(song.id) { mutableStateOf(song.title) }
+        var artist by remember(song.id) { mutableStateOf(song.artistName) }
+        AlertDialog(
+            onDismissRequest = { editing = null },
+            containerColor = Surface1,
+            title = { Text("עריכת תגיות") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        singleLine = true,
+                        label = { Text("שם השיר") }
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = artist,
+                        onValueChange = { artist = it },
+                        singleLine = true,
+                        label = { Text("שם האמן") }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = title.isNotBlank() && artist.isNotBlank(),
+                    onClick = {
+                        vm.saveTagOverride(song.id, title, artist)
+                        editing = null
+                    }
+                ) { Text("שמור", color = Accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = { editing = null }) {
+                    Text("ביטול", color = TextSecondary)
+                }
+            }
+        )
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(Bg)) {
         Row(
@@ -108,45 +160,57 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
                 }
             }
 
-            if (changed.isEmpty()) {
-                item {
-                    EmptyState(
-                        title = "אין מה לתקן",
-                        body = "שמות השירים והאמנים כבר נראים תקינים, או שהתיקון כבר הוחל."
-                    )
-                }
+            item {
+                OutlinedTextField(
+                    value = filter,
+                    onValueChange = { filter = it },
+                    singleLine = true,
+                    placeholder = { Text("חפש שיר לעריכה") },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
             }
 
-            items(changed, key = { it.songId }) { p ->
+            val shown = library.songs.filter {
+                filter.isBlank() ||
+                    it.title.contains(filter, true) ||
+                    it.artistName.contains(filter, true)
+            }
+            val proposalById = changed.associateBy { it.songId }
+
+            items(shown, key = { it.id }) { song ->
+                val proposal = proposalById[song.id]
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(Surface1)
+                        .clickable { editing = song }
                         .padding(12.dp)
                 ) {
                     Text(
-                        p.oldTitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        p.newTitle,
+                        song.title,
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onBackground,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        p.newArtist,
+                        song.artistName,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Accent,
+                        color = TextSecondary,
                         maxLines = 1
                     )
+                    if (proposal != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "מוצע: ${proposal.newTitle} · ${proposal.newArtist}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Accent,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
