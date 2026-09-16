@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="rhythm_background">#FF050507</color>
-    <color name="ic_launcher_background">#FF12111A</color>
+    <color name="rhythm_background">#FF0A0910</color>
+    <!-- Matched to the app's own ground so icon and app share one black. -->
+    <color name="ic_launcher_background">#FF0A0910</color>
 </resources>
