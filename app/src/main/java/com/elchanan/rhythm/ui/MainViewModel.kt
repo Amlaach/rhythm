@@ -33,7 +33,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 data class AlbumInfo(
@@ -126,7 +129,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 artists = artistInfos,
                 albums = albums
             )
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LibraryState())
+        }
+            // Grouping, sorting and rebuilding every artist and album happens on
+            // each rating, like or play count change. viewModelScope collects on
+            // the main thread, so without this it all lands there.
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LibraryState())
 
     val playlists: StateFlow<List<PlaylistInfo>> =
         combine(repo.playlists, repo.playlistItems, repo.songs) { lists, items, songs ->
@@ -248,8 +256,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (reshuffle) repo.prefs.feedSeed = repo.prefs.feedSeed + 1
             val e = runCatching { repo.buildRecommender() }.getOrNull() ?: return@launch
             engine = e
-            _feed.value = e.buildFeed()
-            _report.value = e.tasteReport()
+            // Building the feed is the heaviest thing the app does - a dozen
+            // shelves, every song scored and ordered, and a greedy sequencer for
+            // the mixes. Only the recommender snapshot was being taken off the
+            // main thread; the rest ran on it, so anything that refreshed the
+            // feed - rating an artist, for one - froze the whole interface and
+            // taps simply went nowhere.
+            val built = withContext(Dispatchers.Default) { e.buildFeed() to e.tasteReport() }
+            _feed.value = built.first
+            _report.value = built.second
             if (_searchQuery.value.isNotBlank()) doSearch(_searchQuery.value)
         }
     }

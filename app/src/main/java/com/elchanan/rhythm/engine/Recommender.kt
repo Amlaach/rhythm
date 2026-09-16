@@ -211,7 +211,15 @@ class Recommender(
         return list.filter { seen.add(versionKeyById[it.id] ?: it.id.toString()) }
     }
 
-    /** True when two tracks look like the same piece rather than two songs. */
+    private val artistKeyById: Map<Long, String> = songs.associate { it.id to it.artistKey }
+
+    /**
+     * True when two tracks look like the same piece rather than two songs.
+     *
+     * Looked up rather than searched: this is called from inside the sequencer's
+     * quadratic loop, and the two linear scans it used to do made ordering a
+     * queue cubic in the size of the library.
+     */
     fun sameRecording(a: Long, b: Long): Boolean {
         if (a == b) return true
         val ka = versionKeyById[a]
@@ -221,9 +229,9 @@ class Recommender(
         if (harmony < 0.985) return false
         // Harmony alone confuses two songs in the same key; the artist has to
         // match as well before anything is called a duplicate.
-        val sa = songs.firstOrNull { it.id == a } ?: return false
-        val sb = songs.firstOrNull { it.id == b } ?: return false
-        return sa.artistKey == sb.artistKey
+        val sa = artistKeyById[a] ?: return false
+        val sb = artistKeyById[b] ?: return false
+        return sa == sb
     }
 
     /** how strongly the user's behaviour endorses each song, positive or negative */
