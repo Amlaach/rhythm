@@ -69,8 +69,14 @@ object TagFixer {
      * version of the same song, both in the title the user reads and in the live
      * shelf on the home screen. Stripping it would merge two different
      * recordings into one name and leave that shelf empty.
+     *
+     * A guest credit is kept for the same reason: "(feat. X)" says who is on the
+     * recording, which is part of what the song is, unlike "(Official Video)".
      */
-    private val WORTH_KEEPING = Regex("""\blive\b|\bunplugged\b|\b(19|20)\d\d\b""", RegexOption.IGNORE_CASE)
+    private val WORTH_KEEPING = Regex(
+        """\blive\b|\bunplugged\b|\bfeat\b|\bft\b|\b(19|20)\d\d\b""",
+        RegexOption.IGNORE_CASE
+    )
 
     /** Any bracketed aside, wherever it sits in the title. */
     private val BRACKETED = Regex("""\s*[\(\[]([^\)\]]*)[\)\]]""")
