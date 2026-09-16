@@ -59,6 +59,7 @@ import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.EmptyState
 import com.elchanan.rhythm.ui.components.MixCard
+import com.elchanan.rhythm.ui.components.RhythmMark
 import com.elchanan.rhythm.ui.components.SectionHeader
 import com.elchanan.rhythm.ui.components.SongCard
 import com.elchanan.rhythm.ui.components.quickPickColumnWidth
@@ -328,12 +329,7 @@ private fun HomeTopBar(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(30.dp)
-                .clip(CircleShape)
-                .background(Brush.linearGradient(listOf(Accent, Accent2)))
-        )
+        RhythmMark(size = 30.dp)
         Spacer(Modifier.width(10.dp))
         Text(
             text = "Rhythm",
