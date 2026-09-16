@@ -479,7 +479,7 @@ class Recommender(
                 "התאמת סאונד",
                 1.15 * tuning.acousticWeight * (acousticFit ?: 0.0),
                 features[song.id]?.let { f ->
-                    "${f.bpm.toInt()} BPM · ${AudioAnalyzer.modeLabel(f)}"
+                    "${f.bpm.toInt()} BPM · ${AudioAnalyzer.keyLabel(f.musicalKey, f.mode)}"
                 } ?: "השיר עוד לא נותח"
             )
         )

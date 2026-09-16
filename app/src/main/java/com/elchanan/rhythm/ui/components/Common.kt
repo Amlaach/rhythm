@@ -340,53 +340,52 @@ fun MixCard(
             // gradient stays underneath for mixes with too few covers to fill
             // the grid, and the text sits on a scrim so it stays readable over
             // whatever artwork lands behind it.
-            if (covers.size >= 4) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    for (row in 0 until 2) {
-                        Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                            for (column in 0 until 2) {
-                                val (songId, albumId) = covers[row * 2 + column]
-                                AsyncImage(
-                                    model = SongArt(songId, albumId),
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.weight(1f).fillMaxHeight()
-                                )
+            Column(modifier = Modifier.fillMaxSize()) {
+                // The collage identifies the mix; the strip under it names it.
+                // Laying the title over the artwork looked good on one cover and
+                // became unreadable on the next, and the kind of mix is the part
+                // a listener actually needs to read.
+                Box(modifier = Modifier.fillMaxWidth().weight(0.62f)) {
+                    if (covers.size >= 4) {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            for (row in 0 until 2) {
+                                Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                                    for (column in 0 until 2) {
+                                        val (songId, albumId) = covers[row * 2 + column]
+                                        AsyncImage(
+                                            model = SongArt(songId, albumId),
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.weight(1f).fillMaxHeight()
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
-                Box(
+                Column(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color.Black.copy(alpha = 0.55f),
-                                    Color.Black.copy(alpha = 0.15f),
-                                    Color.Black.copy(alpha = 0.60f)
-                                )
-                            )
-                        )
-                )
+                        .fillMaxWidth()
+                        .weight(0.38f)
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color.White,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "$count שירים",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.85f),
+                        maxLines = 1
+                    )
+                }
             }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                maxLines = 3,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(12.dp)
-            )
-            Text(
-                text = "$count שירים",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.85f),
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(12.dp)
-            )
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)

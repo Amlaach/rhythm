@@ -112,7 +112,7 @@ fun SongOptionsSheet(
                     )
                     features[song.id]?.let { f ->
                         Text(
-                            text = "${f.bpm.toInt()} BPM · ${AudioAnalyzer.modeLabel(f)}",
+                            text = "${f.bpm.toInt()} BPM · ${AudioAnalyzer.keyLabel(f.musicalKey, f.mode)}",
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary
                         )

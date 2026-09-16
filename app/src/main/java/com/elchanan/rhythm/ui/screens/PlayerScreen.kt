@@ -400,8 +400,11 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                     Spacer(Modifier.width(10.dp))
                     if (feature != null) {
                         Text(
+                            // Key only. The modal estimate drives the engine but
+                            // reads as jargon on screen - "אהבה רבה" beside a pop
+                            // track means nothing to someone just playing music.
                             text = "${feature.bpm.toInt()} BPM · " +
-                                AudioAnalyzer.modeLabel(feature),
+                                AudioAnalyzer.keyLabel(feature.musicalKey, feature.mode),
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary
                         )
