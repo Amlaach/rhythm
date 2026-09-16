@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Autorenew
@@ -84,6 +86,13 @@ fun HomeScreen(
 
     val statusPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
+    // Tapping home while already home scrolls the feed back to the top.
+    val feedState = rememberLazyListState()
+    val homeTop by vm.homeTopSignal.collectAsStateWithLifecycle()
+    LaunchedEffect(homeTop) {
+        if (homeTop > 0) feedState.animateScrollToItem(0)
+    }
+
     Column(modifier = Modifier.fillMaxSize().background(Bg)) {
         HomeTopBar(
             padding = statusPadding,
@@ -128,6 +137,7 @@ fun HomeScreen(
             )
 
             else -> LazyColumn(
+                state = feedState,
                 contentPadding = PaddingValues(bottom = 40.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {

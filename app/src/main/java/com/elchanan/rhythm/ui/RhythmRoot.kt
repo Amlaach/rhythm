@@ -150,7 +150,12 @@ fun RhythmRoot(
                     RhythmBottomBar(
                         navController = navController,
                         currentRoute = currentRoute,
-                        onNavigate = { playerOpen = false }
+                        onNavigate = { route ->
+                            playerOpen = false
+                            if (route == Routes.HOME && currentRoute == Routes.HOME) {
+                                vm.requestHomeTop()
+                            }
+                        }
                     )
                 }
             }
@@ -257,7 +262,7 @@ fun RhythmRoot(
 private fun RhythmBottomBar(
     navController: NavHostController,
     currentRoute: String?,
-    onNavigate: () -> Unit
+    onNavigate: (String) -> Unit
 ) {
     NavigationBar(
         containerColor = Color.Transparent,
@@ -271,7 +276,7 @@ private fun RhythmBottomBar(
                     // screen pushed on top counts as a different route, and tapping
                     // the tab you are already on should still take you to its root
                     // rather than doing nothing.
-                    onNavigate()
+                    onNavigate(tab.route)
                     navController.navigate(tab.route) {
                         popUpTo(Routes.HOME) { saveState = true }
                         launchSingleTop = true

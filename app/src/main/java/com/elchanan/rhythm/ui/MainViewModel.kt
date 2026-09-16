@@ -563,6 +563,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         prefs.tagTipSeen = true
     }
 
+    /**
+     * Bumped when the home tab is tapped while home is already showing.
+     *
+     * Navigation has nothing to do there, so without this the tap looks dead -
+     * which reads as "the home button does not work" even though it did exactly
+     * what it was asked. Scrolling back to the top is what the tap was for.
+     */
+    private val _homeTopSignal = MutableStateFlow(0)
+    val homeTopSignal: StateFlow<Int> = _homeTopSignal.asStateFlow()
+
+    fun requestHomeTop() {
+        _homeTopSignal.value = _homeTopSignal.value + 1
+    }
+
     fun openMood(mood: Mood, onReady: () -> Unit) {
         val features = featuresById.value
         val list = Mood.filter(library.value.songs, features, mood)
