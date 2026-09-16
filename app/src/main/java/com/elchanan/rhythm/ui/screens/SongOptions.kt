@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +50,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.data.db.SongEntity
@@ -301,16 +305,22 @@ private fun CapoDialog(feature: AudioFeatureEntity?, onDismiss: () -> Unit) {
                 }
 
                 Spacer(Modifier.height(12.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    for (pc in 0..11) {
-                        Chip(
-                            label = Capo.NAMES[pc],
-                            selected = pc == key,
-                            onClick = { key = pc }
-                        )
+                // Note names are Latin, and a bare "G#" dropped into a Hebrew
+                // paragraph comes out as "#G" - the sharp jumps to the wrong
+                // side. Laying the whole row out left to right fixes the
+                // spelling and puts the chromatic scale in rising order too.
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for (pc in 0..11) {
+                            Chip(
+                                label = Capo.NAMES[pc],
+                                selected = pc == key,
+                                onClick = { key = pc }
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -342,7 +352,9 @@ private fun CapoDialog(feature: AudioFeatureEntity?, onDismiss: () -> Unit) {
                             Text(
                                 text = Capo.keyName(option.playKey, bright) +
                                     if (option.open) "  ✓" else "",
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    textDirection = TextDirection.Ltr
+                                ),
                                 color = if (option.open) Accent else TextSecondary
                             )
                         }
@@ -373,7 +385,9 @@ private fun CapoDialog(feature: AudioFeatureEntity?, onDismiss: () -> Unit) {
                         Spacer(Modifier.height(6.dp))
                         Text(
                             chords.joinToString("   "),
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                textDirection = TextDirection.Ltr
+                            ),
                             color = Accent
                         )
                     }
