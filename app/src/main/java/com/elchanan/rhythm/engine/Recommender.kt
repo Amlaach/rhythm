@@ -107,6 +107,60 @@ class Recommender(
     private val hourBucket: Int = bucketOf(now)
     private val maxPlays: Int = stats.values.maxOfOrNull { it.playCount } ?: 0
 
+    /**
+     * How restless the listening has been lately, 0..1.
+     *
+     * A fixed discovery dial cannot answer the one question that matters in the
+     * moment: is the feed landing or not. Heavy skipping says the safe picks are
+     * not working, and the useful response is to widen the net rather than keep
+     * offering more of the same. Held at zero until there is enough history for
+     * the ratio to mean anything.
+     */
+    private val restlessness: Double = run {
+        val plays = stats.values.sumOf { it.playCount }
+        val skips = stats.values.sumOf { it.skipCount }
+        val attempts = plays + skips
+        if (attempts < 10) 0.0 else (skips.toDouble() / attempts).coerceIn(0.0, 1.0)
+    }
+
+    /** The user's dial, widened when the recent picks are being skipped. */
+    private val effectiveDiscovery: Double =
+        (tuning.discovery + 0.5 * restlessness).coerceIn(0.0, 1.0)
+
+    /**
+     * The acoustic centre of the last three quarters of an hour, or null when too
+     * little has just played to say.
+     *
+     * Taste drifts within a sitting - the same listener wants something different
+     * at midnight than at noon - so ranking purely against a long-run profile
+     * ignores the most informative evidence there is: what is playing right now.
+     */
+    private val sessionCentre: DoubleArray? = run {
+        val cutoff = now - 45 * 60 * 1000L
+        val recent = stats.values
+            .filter { it.lastPlayedAt >= cutoff }
+            .sortedByDescending { it.lastPlayedAt }
+            .take(5)
+            .mapNotNull { features[it.songId] }
+            .filter { it.energy > 0f }
+        if (recent.size < 3) null else doubleArrayOf(
+            recent.map { it.bpm.toDouble() }.average(),
+            recent.map { it.energy.toDouble() }.average(),
+            recent.map { it.brightness.toDouble() }.average()
+        )
+    }
+
+    /** 1 when a track sits right on the session's centre, negative when far off. */
+    private fun sessionFit(songId: Long): Double {
+        val centre = sessionCentre ?: return 0.0
+        val f = features[songId] ?: return 0.0
+        if (f.energy <= 0f) return 0.0
+        val bpmGap = if (f.bpm > 0f && centre[0] > 0.0) abs(f.bpm - centre[0]) / 55.0 else 1.0
+        val energyGap = abs(f.energy - centre[1]) / 0.25
+        val brightGap = abs(f.brightness - centre[2]) / 0.2
+        return (1.0 - (bpmGap + energyGap + brightGap) / 3.0).coerceIn(-1.0, 1.0)
+    }
+
     private val tokensBySong: Map<Long, List<String>> = songs.associate { it.id to tokensFor(it) }
 
     /** how strongly the user's behaviour endorses each song, positive or negative */
@@ -306,10 +360,25 @@ class Recommender(
         val attempts = plays + skips
         if (attempts >= 3) score -= 1.25 * (skips.toDouble() / attempts)
 
+        // How much of the track actually gets heard. A skip count alone is blunt:
+        // it cannot tell a song abandoned after four seconds from one left at the
+        // last chorus. Both numbers below were already being recorded and neither
+        // was ever read.
+        if (plays >= 2) {
+            val finished = (st?.completeCount ?: 0).toDouble() / plays
+            score += 0.9 * (finished - 0.5)
+        }
+        if (attempts >= 2 && song.durationMs > 0) {
+            val expected = song.durationMs.toDouble() * attempts
+            val heard = ((st?.listenedMs ?: 0L).toDouble() / expected).coerceIn(0.0, 1.0)
+            score += 0.7 * (heard - 0.5)
+        }
+
         score += 0.75 * timeFit(st)
+        score += 0.6 * sessionFit(song.id)
         score -= 2.6 * tuning.repeatGuard * exp(-hoursSince(st?.lastPlayedAt ?: 0L) / 9.0)
         score += 0.35 * exp(-daysSince(song.dateAddedSec * 1000L) / 21.0)
-        if (plays == 0) score += 1.1 * tuning.discovery
+        if (plays == 0) score += 1.1 * effectiveDiscovery
 
         return score
     }
@@ -391,7 +460,7 @@ class Recommender(
             )
         )
         if (plays == 0) {
-            out.add(ScoreTerm("גילוי", 1.1 * tuning.discovery, "עוד לא הושמע"))
+            out.add(ScoreTerm("גילוי", 1.1 * effectiveDiscovery, "עוד לא הושמע"))
         }
         return out.sortedByDescending { abs(it.value) }
     }
@@ -436,7 +505,7 @@ class Recommender(
         extra: ((SongEntity) -> Double)? = null
     ): List<SongEntity> {
         if (candidates.isEmpty() || count <= 0) return emptyList()
-        val jitter = 0.22 + 0.85 * tuning.discovery
+        val jitter = 0.22 + 0.85 * effectiveDiscovery
         val ranked = candidates.map { song ->
             var s = baseScores[song.id] ?: 0.0
             if (extra != null) s += extra(song)
@@ -859,15 +928,16 @@ class Recommender(
             val st = stats[it.id]
             (st?.liked ?: 0) == 1 || (st?.rating ?: 0) >= 4 || (st?.playCount ?: 0) >= 3
         }
-        if (engaged.size >= 5) {
+        val moodModel = MoodModel(features.values)
+        if (engaged.size >= 5 && moodModel.ready) {
             val favourite = Mood.entries
-                .map { mood -> mood to engaged.count { mood.matches(features[it.id]) } }
+                .map { mood -> mood to engaged.count { moodModel.matches(mood, features[it.id]) } }
                 .filter { it.second >= 3 }
                 .maxByOrNull { it.second }
                 ?.first
             if (favourite != null) {
                 val more = notDisliked
-                    .filter { favourite.matches(features[it.id]) && it !in engaged }
+                    .filter { moodModel.matches(favourite, features[it.id]) && it !in engaged }
                     .sortedByDescending { totalScore(it) }
                     .take(20)
                 if (more.size >= 6) {

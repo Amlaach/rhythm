@@ -70,6 +70,7 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     var foldersOpen by remember { mutableStateOf(false) }
     var crossfade by remember { mutableFloatStateOf(vm.prefs.crossfadeMs.toFloat()) }
     var skipSilence by remember { mutableStateOf(vm.prefs.skipSilence) }
+    var normalizeVolume by remember { mutableStateOf(vm.prefs.normalizeVolume) }
     val analysis by vm.analysisProgress.collectAsStateWithLifecycle()
     val lyricsFolder by vm.lyricsFolder.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -167,6 +168,34 @@ fun SettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                         onCheckedChange = {
                             autoRadio = it
                             vm.updateTuning(autoRadio = it)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Accent,
+                            checkedTrackColor = Accent.copy(alpha = 0.4f)
+                        )
+                    )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("איזון עוצמה בין שירים", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "מנמיך את השירים החזקים במיוחד כדי שלא תצטרך לגעת בעוצמה בכל מעבר. " +
+                                "דורש שהשירים ינותחו קודם",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Switch(
+                        checked = normalizeVolume,
+                        onCheckedChange = {
+                            normalizeVolume = it
+                            vm.prefs.normalizeVolume = it
                         },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Accent,

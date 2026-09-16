@@ -79,6 +79,11 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_CROSSFADE, 0)
         set(value) = sp.edit { putInt(KEY_CROSSFADE, value.coerceIn(0, 12_000)) }
 
+    /** Even out how loud tracks are relative to one another. */
+    var normalizeVolume: Boolean
+        get() = sp.getBoolean(KEY_NORMALIZE, true)
+        set(value) = sp.edit { putBoolean(KEY_NORMALIZE, value) }
+
     /** ExoPlayer's built in silence skipper - kills dead air inside and around tracks. */
     var skipSilence: Boolean
         get() = sp.getBoolean(KEY_SKIP_SILENCE, false)
@@ -119,5 +124,6 @@ class Prefs(context: Context) {
         const val KEY_LYRICS_FOLDER = "lyrics_folder"
         const val KEY_CROSSFADE = "crossfade_ms"
         const val KEY_SKIP_SILENCE = "skip_silence"
+        const val KEY_NORMALIZE = "normalize_volume"
     }
 }

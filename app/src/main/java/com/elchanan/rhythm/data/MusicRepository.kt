@@ -197,6 +197,26 @@ class MusicRepository(
 
     suspend fun analyzedCount(): Int = withContext(Dispatchers.IO) { dao.featureCount() }
 
+    /**
+     * Per track playback gain in 0..1, keyed by song id.
+     *
+     * A stand-in for ReplayGain built from the mean RMS the analyser already
+     * measures. Two honest limitations: RMS is a rougher proxy for perceived
+     * loudness than EBU R128, and Media3 accepts no volume above 1, so the only
+     * available move is pulling loud tracks down rather than lifting quiet ones.
+     * The reference therefore sits high on purpose - most of the library plays
+     * untouched and only the outliers above it are tamed, which evens the
+     * collection out without making the whole thing quieter.
+     */
+    suspend fun loudnessGains(): Map<Long, Float> = withContext(Dispatchers.IO) {
+        val measured = dao.allFeatures().filter { it.energy > 0f }
+        if (measured.size < 8) return@withContext emptyMap()
+        val sorted = measured.map { it.energy }.sorted()
+        val index = ((sorted.size - 1) * 0.65).toInt().coerceIn(0, sorted.size - 1)
+        val reference = sorted[index]
+        measured.associate { f -> f.songId to (reference / f.energy).coerceIn(0.45f, 1f) }
+    }
+
     suspend fun songCount(): Int = withContext(Dispatchers.IO) { dao.songCount() }
 
     suspend fun clearFeatures() = withContext(Dispatchers.IO) { dao.clearFeatures() }

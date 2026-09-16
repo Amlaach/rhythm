@@ -63,6 +63,9 @@ class PlaybackService : MediaSessionService() {
 
     private val handler = Handler(Looper.getMainLooper())
 
+    /** per track loudness gains; empty until enough of the library is analysed */
+    private var gains: Map<Long, Float> = emptyMap()
+
     /** volume ramp between tracks; 0 in preferences means it never runs */
     private val fadeRunnable = object : Runnable {
         override fun run() {
@@ -96,6 +99,7 @@ class PlaybackService : MediaSessionService() {
         player.addListener(listener)
 
         player.skipSilenceEnabled = repo.prefs.skipSilence
+        refreshGains()
 
         mediaSession = MediaSession.Builder(this, player)
             .setCallback(SessionCallback())
@@ -241,6 +245,7 @@ class PlaybackService : MediaSessionService() {
                 player.pause()
             }
             startTracking(mediaItem)
+            applyTrackGain()
             persistQueue()
             maybeExtendQueue()
             RhythmWidget.refresh(this@PlaybackService, player)
@@ -283,7 +288,7 @@ class PlaybackService : MediaSessionService() {
         if (!fadeRunning) return
         fadeRunning = false
         handler.removeCallbacks(fadeRunnable)
-        player.volume = 1f
+        player.volume = trackGain()
     }
 
     /**
@@ -294,7 +299,7 @@ class PlaybackService : MediaSessionService() {
     private fun applyFadeVolume() {
         val fade = repo.prefs.crossfadeMs
         if (fade <= 0) {
-            player.volume = 1f
+            player.volume = trackGain()
             return
         }
         val duration = player.duration
@@ -307,7 +312,29 @@ class PlaybackService : MediaSessionService() {
         if (position in 0..fade) {
             volume = minOf(volume, position.toFloat() / fade)
         }
-        player.volume = volume.coerceIn(0.02f, 1f)
+        player.volume = (volume * trackGain()).coerceIn(0.02f, 1f)
+    }
+
+    /** The loudness correction for whatever is playing, or 1 when off or unknown. */
+    private fun trackGain(): Float {
+        if (!repo.prefs.normalizeVolume) return 1f
+        val id = player.currentMediaItem?.mediaId?.toLongOrNull() ?: return 1f
+        return gains[id] ?: 1f
+    }
+
+    /**
+     * The ramp loop only runs when crossfade is enabled, so with it off nothing
+     * would ever apply a gain. Setting it on each transition covers that case.
+     */
+    private fun applyTrackGain() {
+        if (repo.prefs.crossfadeMs <= 0) player.volume = trackGain()
+    }
+
+    private fun refreshGains() {
+        scope.launch {
+            gains = runCatching { repo.loudnessGains() }.getOrDefault(emptyMap())
+            applyTrackGain()
+        }
     }
 
     private fun absorb() {
