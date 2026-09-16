@@ -93,6 +93,7 @@ fun HomeScreen(
     val ratingTipVisible by vm.ratingTipVisible.collectAsStateWithLifecycle()
 
     val statusPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
 
     // Tapping home while already home scrolls the feed back to the top.
     val feedState = rememberLazyListState()
@@ -206,7 +207,8 @@ fun HomeScreen(
                     FeedSectionView(
                         section = section,
                         vm = vm,
-                        onOpenDetail = onOpenDetail
+                        onOpenDetail = onOpenDetail,
+                        onMore = { sheetSong = it }
                     )
                 }
 
@@ -246,6 +248,15 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    sheetSong?.let { song ->
+        SongOptionsSheet(
+            vm = vm,
+            song = song,
+            onDismiss = { sheetSong = null },
+            onOpenDetail = onOpenDetail
+        )
     }
 }
 
@@ -453,7 +464,8 @@ private fun GreetingCard(songCount: Int, ratedArtists: Int) {
 private fun FeedSectionView(
     section: FeedSection,
     vm: MainViewModel,
-    onOpenDetail: () -> Unit
+    onOpenDetail: () -> Unit,
+    onMore: (SongEntity) -> Unit
 ) {
     val library by vm.library.collectAsStateWithLifecycle()
     val gutter = rememberMetrics().gutter
@@ -477,7 +489,8 @@ private fun FeedSectionView(
                                 onClick = {
                                     val index = section.songs.indexOf(song)
                                     vm.playList(section.songs, if (index >= 0) index else 0)
-                                }
+                                },
+                                onMore = { onMore(song) }
                             )
                         }
                     }
@@ -522,7 +535,8 @@ private fun FeedSectionView(
                         onClick = {
                             val index = section.songs.indexOf(song)
                             vm.playList(section.songs, if (index >= 0) index else 0)
-                        }
+                        },
+                        onMore = { onMore(song) }
                     )
                 }
             }
@@ -531,7 +545,12 @@ private fun FeedSectionView(
 }
 
 @Composable
-private fun QuickPickRow(song: SongEntity, liked: Int, onClick: () -> Unit) {
+private fun QuickPickRow(
+    song: SongEntity,
+    liked: Int,
+    onClick: () -> Unit,
+    onMore: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -567,6 +586,14 @@ private fun QuickPickRow(song: SongEntity, liked: Int, onClick: () -> Unit) {
                     .size(6.dp)
                     .clip(CircleShape)
                     .background(Accent)
+            )
+        }
+        IconButton(onClick = onMore, modifier = Modifier.size(34.dp)) {
+            Icon(
+                Icons.Filled.MoreVert,
+                contentDescription = "עוד",
+                tint = TextSecondary,
+                modifier = Modifier.size(20.dp)
             )
         }
     }

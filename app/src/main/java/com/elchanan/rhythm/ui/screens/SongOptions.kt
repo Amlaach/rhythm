@@ -145,17 +145,10 @@ fun SongOptionsSheet(
             }
             Spacer(Modifier.height(6.dp))
 
-            OptionRow(
-                icon = Icons.Filled.ThumbUp,
-                label = if (liked == 1) "בטל לייק" else "לייק",
-                tint = if (liked == 1) Accent else null
-            ) { vm.like(song.id); onDismiss() }
-
-            OptionRow(
-                icon = Icons.Filled.ThumbDown,
-                label = if (liked == -1) "בטל דיסלייק" else "דיסלייק — פחות כאלה",
-                tint = if (liked == -1) Accent else null
-            ) { vm.dislike(song.id); onDismiss() }
+            // Like and dislike are deliberately not here. They sit on the row
+            // itself and on the player, one tap away in both places; repeating
+            // them in the menu only made the menu longer, and a long menu is
+            // what stands between someone and simply playing a song.
 
             // Near the top, where it is in every other player. Buried under ten
             // other rows it may as well not exist - and it is always offered, even

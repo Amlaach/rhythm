@@ -246,10 +246,11 @@ fun SongRow(
         }
         trailing?.invoke()
         // On a narrow phone three icons eat most of the row and the title is left
-        // with a few characters and an ellipsis. Where the overflow menu is there
-        // to carry them, the inline thumbs step aside for the song's own name -
-        // which is what the row exists to show.
-        val roomForThumbs = !rememberMetrics().isCompact || onMore == null
+        // with a few characters and an ellipsis. Dislike is the rarer of the two
+        // and steps aside there; like stays, because it is the one thing people
+        // do to a song without opening anything, and it is no longer duplicated
+        // in the overflow menu.
+        val roomForThumbs = !rememberMetrics().isCompact
         if (onDislike != null && !selectionMode && roomForThumbs) {
             IconButton(onClick = onDislike, modifier = Modifier.size(34.dp)) {
                 Icon(
@@ -260,7 +261,7 @@ fun SongRow(
                 )
             }
         }
-        if (onLike != null && !selectionMode && roomForThumbs) {
+        if (onLike != null && !selectionMode) {
             IconButton(onClick = onLike, modifier = Modifier.size(34.dp)) {
                 Icon(
                     imageVector = if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
@@ -289,7 +290,8 @@ fun SongCard(
     song: SongEntity,
     width: Dp = rememberMetrics().cardWidth,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null,
+    onMore: (() -> Unit)? = null
 ) {
     Column(
         modifier = Modifier
@@ -307,21 +309,39 @@ fun SongCard(
             corner = 12
         )
         Spacer(Modifier.height(8.dp))
-        Text(
-            text = song.title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            text = song.artistName,
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        if (onLongClick != null) Spacer(Modifier.height(0.dp))
+        Row(verticalAlignment = Alignment.Top) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = song.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = song.artistName,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            // Offset up and in, so the menu sits against the title rather than
+            // pushing the card wider than the cover above it.
+            if (onMore != null) {
+                IconButton(
+                    onClick = onMore,
+                    modifier = Modifier.size(28.dp).offset(y = (-2).dp)
+                ) {
+                    Icon(
+                        Icons.Filled.MoreVert,
+                        contentDescription = "עוד",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
     }
 }
 

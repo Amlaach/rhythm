@@ -1,6 +1,8 @@
 package com.elchanan.rhythm.playback
 
+import android.app.PendingIntent
 import android.content.Intent
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -14,6 +16,7 @@ import androidx.media3.session.SessionResult
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.elchanan.rhythm.MainActivity
 import com.elchanan.rhythm.RhythmApp
 import com.elchanan.rhythm.R
 import com.elchanan.rhythm.data.MusicRepository
@@ -110,6 +113,7 @@ class PlaybackService : MediaSessionService() {
         attachEqualizer()
 
         mediaSession = MediaSession.Builder(this, player)
+            .setSessionActivity(openAppIntent())
             .setCallback(SessionCallback())
             .build()
         mediaSession?.setCustomLayout(customLayout())
@@ -126,6 +130,27 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+
+    /**
+     * What the notification opens when it is tapped.
+     *
+     * Without a session activity the notification has no content intent at all,
+     * so tapping the body of it does nothing - which is the first gesture
+     * anybody tries. The activity is singleTask, so this brings the running
+     * instance forward instead of stacking a second copy of the player on top
+     * of itself.
+     */
+    private fun openAppIntent(): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        var flags = PendingIntent.FLAG_UPDATE_CURRENT
+        // Immutable pending intents only exist from Android 6.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            flags = flags or PendingIntent.FLAG_IMMUTABLE
+        }
+        return PendingIntent.getActivity(this, 0, intent, flags)
+    }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val p = mediaSession?.player
@@ -271,6 +296,10 @@ class PlaybackService : MediaSessionService() {
                 persistQueue()
                 stopFadeLoop()
             }
+            // The widget draws its play button from this exact flag, and it was
+            // only ever redrawn when the track changed - so pausing left it
+            // showing a pause icon over a stopped player until the next song.
+            RhythmWidget.refresh(this@PlaybackService, player)
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {

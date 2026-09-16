@@ -15,7 +15,11 @@ android {
 
     defaultConfig {
         applicationId = "com.elchanan.rhythm"
-        minSdk = 26
+        // Android 5.0. This is the real floor, not a preference: Compose and
+        // Media3 both stop at 21, so nothing older can run this app whatever we
+        // do. Everything above that line is reachable, and old phones are
+        // exactly where a local player with no streaming still earns its place.
+        minSdk = 21
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
