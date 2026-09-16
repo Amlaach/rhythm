@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.SectionHeader
+import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
@@ -64,6 +65,9 @@ fun SettingsScreen(
     val report by vm.report.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
+    // Every row on this screen shares the page margin, so a narrow phone gets
+    // its content back instead of spending it on empty edges.
+    val gutter = rememberMetrics().gutter
 
     var discovery by remember { mutableFloatStateOf(vm.prefs.discovery) }
     var artistWeight by remember { mutableFloatStateOf(vm.prefs.artistWeight) }
@@ -160,7 +164,7 @@ fun SettingsScreen(
             }
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -187,7 +191,7 @@ fun SettingsScreen(
 
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -207,7 +211,7 @@ fun SettingsScreen(
 
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -228,7 +232,7 @@ fun SettingsScreen(
 
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -257,7 +261,7 @@ fun SettingsScreen(
 
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -286,7 +290,7 @@ fun SettingsScreen(
 
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -319,7 +323,7 @@ fun SettingsScreen(
                 )
             }
             item {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                Column(modifier = Modifier.padding(horizontal = gutter, vertical = 6.dp)) {
                     Text(
                         text = "נותחו ${analysis.done} מתוך ${analysis.total} שירים",
                         style = MaterialTheme.typography.titleSmall
@@ -362,7 +366,7 @@ fun SettingsScreen(
             }
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -392,7 +396,7 @@ fun SettingsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -422,7 +426,7 @@ fun SettingsScreen(
             }
             item {
                 Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    modifier = Modifier.padding(horizontal = gutter, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Button(
@@ -444,7 +448,7 @@ fun SettingsScreen(
                 )
             }
             item {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                Column(modifier = Modifier.padding(horizontal = gutter, vertical = 6.dp)) {
                     Text(
                         text = if (lyricsFolder == null) "לא נבחרה תיקיית מילים"
                         else "תיקייה נבחרה",
@@ -475,7 +479,7 @@ fun SettingsScreen(
             item { SectionHeader(title = "מה המנוע יודע עליך") }
             item {
                 val r = report
-                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                Column(modifier = Modifier.padding(horizontal = gutter)) {
                     if (r == null) {
                         Text("עוד אין נתונים", color = TextSecondary)
                     } else {
@@ -583,7 +587,8 @@ private fun TuningSlider(
     onChange: (Float) -> Unit,
     onDone: () -> Unit
 ) {
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+    val gutter = rememberMetrics().gutter
+    Column(modifier = Modifier.padding(horizontal = gutter, vertical = 6.dp)) {
         Text(label, style = MaterialTheme.typography.titleSmall)
         Text(hint, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
         Slider(

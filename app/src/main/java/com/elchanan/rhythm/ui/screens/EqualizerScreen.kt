@@ -39,6 +39,7 @@ import com.elchanan.rhythm.playback.EqBridge
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.EmptyState
+import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Surface1
@@ -53,6 +54,7 @@ import com.elchanan.rhythm.ui.theme.TextSecondary
 @Composable
 fun EqualizerScreen(vm: MainViewModel, onBack: () -> Unit) {
     val controller = EqBridge.controller
+    val gutter = rememberMetrics().gutter
     var enabled by remember { mutableStateOf(vm.prefs.eqEnabled) }
     var preset by remember { mutableStateOf(vm.prefs.eqPreset) }
     var levels by remember {
@@ -89,7 +91,7 @@ fun EqualizerScreen(vm: MainViewModel, onBack: () -> Unit) {
         ) {
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -120,12 +122,12 @@ fun EqualizerScreen(vm: MainViewModel, onBack: () -> Unit) {
                         "מוכנים מראש",
                         style = MaterialTheme.typography.labelLarge,
                         color = TextSecondary,
-                        modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 4.dp)
+                        modifier = Modifier.padding(start = gutter, top = 8.dp, bottom = 4.dp)
                     )
                 }
                 item {
                     LazyRow(
-                        contentPadding = PaddingValues(horizontal = 14.dp),
+                        contentPadding = PaddingValues(horizontal = gutter),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(controller.presetNames.size + 1) { index ->
@@ -150,7 +152,7 @@ fun EqualizerScreen(vm: MainViewModel, onBack: () -> Unit) {
                     "תדרים",
                     style = MaterialTheme.typography.labelLarge,
                     color = TextSecondary,
-                    modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp)
+                    modifier = Modifier.padding(start = gutter, top = 14.dp, bottom = 4.dp)
                 )
             }
 
@@ -160,7 +162,7 @@ fun EqualizerScreen(vm: MainViewModel, onBack: () -> Unit) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 2.dp)
+                        .padding(horizontal = gutter, vertical = 2.dp)
                         .background(Surface1)
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {

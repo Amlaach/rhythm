@@ -68,6 +68,7 @@ import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.EmptyState
 import com.elchanan.rhythm.ui.components.SongRow
 import com.elchanan.rhythm.ui.components.StarRow
+import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.AppBackground
@@ -119,6 +120,7 @@ fun LibraryScreen(
 ) {
     val library by vm.library.collectAsStateWithLifecycle()
     val playlists by vm.playlists.collectAsStateWithLifecycle()
+    val gutter = rememberMetrics().gutter
     var tab by remember { mutableStateOf(0) }
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
     var newPlaylist by remember { mutableStateOf(false) }
@@ -152,10 +154,10 @@ fun LibraryScreen(
             text = "הספרייה שלי",
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(top = topPad).padding(horizontal = 16.dp, vertical = 10.dp)
+            modifier = Modifier.padding(top = topPad).padding(horizontal = gutter, vertical = 10.dp)
         )
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 14.dp),
+            contentPadding = PaddingValues(horizontal = gutter),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(TABS.size) { index ->
@@ -217,7 +219,7 @@ fun LibraryScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable(onClick = onOpenRatings)
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                .padding(horizontal = gutter, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(Icons.Filled.Favorite, contentDescription = null, tint = Accent)
@@ -239,7 +241,7 @@ fun LibraryScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable(onClick = onOpenAlbums)
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                                .padding(horizontal = gutter, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("תצוגת רשת", style = MaterialTheme.typography.labelLarge, color = Accent)
@@ -258,7 +260,7 @@ fun LibraryScreen(
                                     )
                                     onOpenDetail()
                                 }
-                                .padding(horizontal = 16.dp, vertical = 7.dp),
+                                .padding(horizontal = gutter, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Artwork(-1L, album.albumId, album.name, Modifier.size(52.dp), corner = 8)
@@ -282,7 +284,7 @@ fun LibraryScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { newPlaylist = true }
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                .padding(horizontal = gutter, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
@@ -315,7 +317,7 @@ fun LibraryScreen(
                                     )
                                     onOpenDetail()
                                 }
-                                .padding(horizontal = 16.dp, vertical = 7.dp),
+                                .padding(horizontal = gutter, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
@@ -361,7 +363,7 @@ fun LibraryScreen(
                                     )
                                     onOpenDetail()
                                 }
-                                .padding(horizontal = 16.dp, vertical = 7.dp),
+                                .padding(horizontal = gutter, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             val (c1, c2) = gradientFor("pl:${info.playlist.id}")
@@ -492,6 +494,7 @@ private fun SongTab(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val selectionMode = selection.isNotEmpty()
+    val gutter = rememberMetrics().gutter
 
     val presentLetters = remember(songs) {
         val set = songs.mapTo(HashSet()) { initialOf(it.title) }
@@ -510,12 +513,12 @@ private fun SongTab(
                         onValueChange = onFilter,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                            .padding(horizontal = gutter, vertical = 4.dp),
                         placeholder = { Text("סינון מהיר", color = TextSecondary) },
                         singleLine = true
                     )
                     Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = gutter, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Button(
@@ -686,11 +689,12 @@ private fun BarAction(icon: ImageVector, label: String, onClick: () -> Unit) {
 @Composable
 private fun ArtistRow(artist: ArtistInfo, onClick: () -> Unit) {
     val (c1, c2) = gradientFor(artist.key)
+    val gutter = rememberMetrics().gutter
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = gutter, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(

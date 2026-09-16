@@ -251,10 +251,13 @@ fun HomeScreen(
 
 @Composable
 private fun AlbumShelf(albums: List<AlbumInfo>, onOpen: (AlbumInfo) -> Unit) {
-    val width = rememberMetrics().cardWidth
+    val metrics = rememberMetrics()
+    val width = metrics.cardWidth
+    // Matching the header's margin so the first cover lines up with its title.
+    val gutter = metrics.gutter
     Column {
         SectionHeader(title = "אלבומים בשבילך", subtitle = "מתוך הספרייה שלך")
-        LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
+        LazyRow(contentPadding = PaddingValues(horizontal = gutter)) {
             items(albums.take(20), key = { it.albumId }) { album ->
                 Column(
                     modifier = Modifier
@@ -300,8 +303,9 @@ private fun AlbumShelf(albums: List<AlbumInfo>, onOpen: (AlbumInfo) -> Unit) {
  */
 @Composable
 private fun MoodChipRow(onPick: (Mood) -> Unit) {
+    val gutter = rememberMetrics().gutter
     LazyRow(
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+        contentPadding = PaddingValues(horizontal = gutter, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(Mood.entries.size) { index ->
@@ -422,6 +426,7 @@ private fun Banner(
 
 @Composable
 private fun GreetingCard(songCount: Int, ratedArtists: Int) {
+    val gutter = rememberMetrics().gutter
     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     val greeting = when (hour) {
         in 5..11 -> "בוקר טוב"
@@ -429,7 +434,7 @@ private fun GreetingCard(songCount: Int, ratedArtists: Int) {
         in 17..21 -> "ערב טוב"
         else -> "לילה טוב"
     }
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+    Column(modifier = Modifier.padding(horizontal = gutter, vertical = 10.dp)) {
         Text(
             text = greeting,
             style = MaterialTheme.typography.displaySmall,
@@ -450,6 +455,7 @@ private fun FeedSectionView(
     onOpenDetail: () -> Unit
 ) {
     val library by vm.library.collectAsStateWithLifecycle()
+    val gutter = rememberMetrics().gutter
 
     when (section.kind) {
         SectionKind.QUICK_PICKS -> {
@@ -460,7 +466,7 @@ private fun FeedSectionView(
                 onAction = { vm.playList(section.songs) }
             )
             val columns = section.songs.chunked(4)
-            LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
+            LazyRow(contentPadding = PaddingValues(horizontal = gutter)) {
                 items(columns) { column ->
                     Column(modifier = Modifier.width(quickPickColumnWidth())) {
                         column.forEach { song ->
@@ -480,7 +486,7 @@ private fun FeedSectionView(
 
         SectionKind.MIX_ROW -> {
             SectionHeader(title = section.title, subtitle = section.subtitle)
-            LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
+            LazyRow(contentPadding = PaddingValues(horizontal = gutter)) {
                 items(section.mixes, key = { it.id }) { mix ->
                     MixCard(
                         id = mix.id,
@@ -508,7 +514,7 @@ private fun FeedSectionView(
                     onOpenDetail()
                 }
             )
-            LazyRow(contentPadding = PaddingValues(horizontal = 12.dp)) {
+            LazyRow(contentPadding = PaddingValues(horizontal = gutter)) {
                 items(section.songs, key = { it.id }) { song ->
                     SongCard(
                         song = song,

@@ -61,6 +61,7 @@ import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.BgElevated
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextSecondary
+import com.elchanan.rhythm.ui.components.rememberMetrics
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +75,7 @@ fun SongOptionsSheet(
     onRemoveFromPlaylist: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val gutter = rememberMetrics().gutter
     val library by vm.library.collectAsStateWithLifecycle()
     val playlists by vm.playlists.collectAsStateWithLifecycle()
     val features by vm.featuresById.collectAsStateWithLifecycle()
@@ -97,7 +99,7 @@ fun SongOptionsSheet(
                 .padding(bottom = 28.dp)
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = gutter, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Artwork(song.id, song.albumId, song.artistKey, Modifier.size(56.dp), corner = 8)
@@ -121,7 +123,7 @@ fun SongOptionsSheet(
             }
 
             // per song rating - the most specific thing the user can say
-            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+            Column(modifier = Modifier.padding(horizontal = gutter, vertical = 6.dp)) {
                 Text("דירוג השיר", style = MaterialTheme.typography.titleSmall)
                 Text(
                     text = if (rating == 0) "דורס את דירוג האמן כשמגדירים אותו"
@@ -154,7 +156,7 @@ fun SongOptionsSheet(
                 "הוספה לרשימה",
                 style = MaterialTheme.typography.labelLarge,
                 color = TextSecondary,
-                modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp)
+                modifier = Modifier.padding(start = gutter, top = 14.dp, bottom = 4.dp)
             )
             OptionRow(Icons.Filled.Add, "רשימה חדשה", tint = Accent) { newPlaylist = true }
             playlists.forEach { info ->
@@ -343,11 +345,12 @@ private fun OptionRow(
     tint: Color? = null,
     onClick: () -> Unit
 ) {
+    val gutter = rememberMetrics().gutter
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 13.dp),
+            .padding(horizontal = gutter, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(icon, contentDescription = null, tint = tint ?: TextSecondary, modifier = Modifier.size(21.dp))

@@ -46,6 +46,7 @@ import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import java.util.Locale
+import com.elchanan.rhythm.ui.components.rememberMetrics
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -60,6 +61,7 @@ fun SearchScreen(
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
 
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val gutter = rememberMetrics().gutter
 
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         TextField(
@@ -68,7 +70,7 @@ fun SearchScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = topPad)
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = gutter, vertical = 10.dp),
             placeholder = { Text("חיפוש שיר, אמן או אלבום", color = TextSecondary) },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = TextSecondary) },
             trailingIcon = {
@@ -104,7 +106,7 @@ fun SearchScreen(
                 item { SectionHeader(title = "עיון מהיר") }
                 item {
                     Column(
-                        modifier = Modifier.padding(horizontal = 14.dp),
+                        modifier = Modifier.padding(horizontal = gutter),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         QuickBrowse(
@@ -140,7 +142,7 @@ fun SearchScreen(
                         FlowRow(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 4.dp),
+                                .padding(horizontal = gutter, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {

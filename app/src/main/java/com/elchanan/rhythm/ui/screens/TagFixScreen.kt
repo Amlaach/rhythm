@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.EmptyState
+import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
@@ -100,6 +101,7 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
     }
 
     val changed = proposals.filter { it.changed }
+    val gutter = rememberMetrics().gutter
     var filter by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<SongEntity?>(null) }
 
@@ -166,7 +168,7 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Column(modifier = Modifier.padding(horizontal = gutter, vertical = 8.dp)) {
                     Text(
                         "לכל קובץ יש תווית פנימית עם שם השיר ושם האמן. בקבצים שהורדו מהאינטרנט " +
                             "התווית לרוב שגויה — שם האמן דחוס בתוך שם השיר, ובשדה האמן יושב שם " +
@@ -208,7 +210,7 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
                     onValueChange = { filter = it },
                     singleLine = true,
                     placeholder = { Text("חפש שיר לעריכה") },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter)
                 )
             }
 
@@ -224,7 +226,7 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
+                        .padding(horizontal = gutter)
                         .clip(RoundedCornerShape(12.dp))
                         .background(Surface1)
                         .clickable { editing = song }

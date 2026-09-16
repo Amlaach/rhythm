@@ -35,6 +35,7 @@ import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.TextSecondary
+import com.elchanan.rhythm.ui.components.rememberMetrics
 
 /**
  * Shown once, before the library has been analysed.
@@ -47,6 +48,7 @@ import com.elchanan.rhythm.ui.theme.TextSecondary
  */
 @Composable
 fun WelcomeScreen(songCount: Int, onStart: () -> Unit) {
+    val gutter = rememberMetrics().gutter
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -65,7 +67,7 @@ fun WelcomeScreen(songCount: Int, onStart: () -> Unit) {
         Column(
             modifier = Modifier
                 .widthIn(max = 460.dp)
-                .padding(horizontal = 28.dp),
+                .padding(horizontal = gutter),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             RhythmMark(size = 64.dp)

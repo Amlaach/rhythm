@@ -41,6 +41,7 @@ import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.Artwork
 import com.elchanan.rhythm.ui.components.EmptyState
 import com.elchanan.rhythm.ui.components.SectionHeader
+import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.AppBackground
@@ -62,6 +63,7 @@ fun RecapScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -> Unit)
     val recap by vm.recap.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val gutter = rememberMetrics().gutter
 
     LaunchedEffect(Unit) { vm.loadRecap() }
 
@@ -129,7 +131,7 @@ fun RecapScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -> Unit)
                         text = "ההשמעה הראשונה שנרשמה: ${formatter.format(Date(data.firstPlayAt))}",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        modifier = Modifier.padding(horizontal = gutter, vertical = 8.dp)
                     )
                 }
             }
@@ -169,7 +171,7 @@ fun RecapScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -> Unit)
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { vm.playList(data.topSongs.map { it.first }, index) }
-                        .padding(horizontal = 16.dp, vertical = 7.dp),
+                        .padding(horizontal = gutter, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
@@ -213,7 +215,8 @@ private fun BigStat(label: String, value: String, modifier: Modifier = Modifier)
 @Composable
 private fun HourChart(byHour: List<Int>) {
     val max = (byHour.maxOrNull() ?: 0).coerceAtLeast(1)
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    val gutter = rememberMetrics().gutter
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth().height(110.dp),
             verticalAlignment = Alignment.Bottom,
@@ -259,11 +262,12 @@ private fun RankRow(
     onClick: () -> Unit
 ) {
     val (c1, c2) = gradientFor(seed)
+    val gutter = rememberMetrics().gutter
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 7.dp),
+            .padding(horizontal = gutter, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(

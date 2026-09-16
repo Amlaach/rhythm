@@ -125,7 +125,7 @@ fun SectionHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = rememberMetrics().gutter, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -182,7 +182,7 @@ fun SongRow(
             .fillMaxWidth()
             .background(if (selected) Accent.copy(alpha = 0.16f) else Color.Transparent)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 16.dp, vertical = 7.dp),
+            .padding(horizontal = rememberMetrics().gutter, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (selectionMode) {

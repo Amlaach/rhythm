@@ -93,6 +93,7 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val gutter = rememberMetrics().gutter
 
     val artists = library.artists
         .filter { a ->
@@ -111,7 +112,7 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = topPad)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = gutter, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -140,7 +141,7 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
             onValueChange = { query = it },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 4.dp),
+                .padding(horizontal = gutter, vertical = 4.dp),
             placeholder = { Text("סינון לפי שם", color = TextSecondary) },
             singleLine = true,
             shape = RoundedCornerShape(14.dp),
@@ -156,7 +157,7 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
         )
 
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = gutter, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(FILTERS.size) { i ->
@@ -172,7 +173,7 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                        .padding(horizontal = gutter, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Chip(

@@ -183,6 +183,7 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
     val artist by vm.artistDetail.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
+    val gutter = rememberMetrics().gutter
 
     val info = artist
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
@@ -255,7 +256,7 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
             }
 
             item {
-                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                Column(modifier = Modifier.padding(horizontal = gutter)) {
                     Text("סגנונות", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "התגיות האלה הן מה שהופך את ההמלצות למדויקות",
