@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistPlay
@@ -57,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.data.db.SongEntity
@@ -80,7 +82,7 @@ import com.elchanan.rhythm.ui.theme.gradientFor
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-private val TABS = listOf("שירים", "אהובים", "אמנים", "אלבומים", "רשימות")
+private val TABS = listOf("שירים", "אהובים", "אמנים", "אלבומים", "רשימות", "תיקיות")
 
 private enum class SongSort(val label: String) {
     TITLE("שם"),
@@ -93,6 +95,10 @@ private enum class SongSort(val label: String) {
 /** Hebrew first, then a latin bucket and a catch-all. */
 private val INDEX_LETTERS: List<String> =
     ("אבגדהוזחטיכלמנסעפצקרשת".map { it.toString() }) + listOf("A", "#")
+
+/** The last segment of a folder path, which is the part people recognise. */
+private fun folderName(path: String): String =
+    path.trimEnd('/').substringAfterLast('/').ifEmpty { path }
 
 private fun initialOf(title: String): String {
     val c = title.trim().firstOrNull() ?: return "#"
@@ -278,7 +284,7 @@ fun LibraryScreen(
                     }
                 }
 
-                else -> LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
+                4 -> LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
                     item {
                         Row(
                             modifier = Modifier
@@ -387,6 +393,75 @@ fun LibraryScreen(
                             }
                             IconButton(onClick = { vm.deletePlaylist(info.playlist.id) }) {
                                 Icon(Icons.Filled.Delete, contentDescription = "מחק", tint = TextSecondary)
+                            }
+                        }
+                    }
+                }
+
+                // Folders. The one view that matches how the files are actually
+                // arranged on the device, which is how a lot of people think
+                // about their own music - especially when the tags are a mess
+                // and the folder name is the only reliable label there is.
+                else -> {
+                    val folders = remember(library.songs) {
+                        library.songs
+                            .groupBy { it.folder }
+                            .map { (path, songs) -> path to songs }
+                            .sortedBy { it.first.lowercase(Locale.ROOT) }
+                    }
+                    if (folders.isEmpty()) {
+                        EmptyState(
+                            title = "לא נמצאו תיקיות",
+                            body = "התיקיות מופיעות אחרי שהאפליקציה סורקת את המכשיר."
+                        )
+                    } else {
+                        LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
+                            items(folders, key = { it.first }) { (path, songs) ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            vm.openList(
+                                                folderName(path),
+                                                path,
+                                                songs,
+                                                "folder:$path"
+                                            )
+                                            onOpenDetail()
+                                        }
+                                        .padding(horizontal = gutter, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val (c1, c2) = gradientFor(path)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Brush.linearGradient(listOf(c1, c2))),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Folder,
+                                            contentDescription = null,
+                                            tint = Color.White
+                                        )
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            folderName(path),
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            maxLines = 1
+                                        )
+                                        Text(
+                                            "${songs.size} שירים · $path",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextSecondary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

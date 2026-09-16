@@ -222,6 +222,18 @@ class MusicRepository(
     suspend fun analyzedCount(): Int = withContext(Dispatchers.IO) { dao.featureCount() }
 
     /**
+     * Every measured feature, read straight from the database.
+     *
+     * For one-shot work that has to be right at the moment it runs. The
+     * observable version only holds data while some screen is subscribed to it,
+     * so an action started from a screen that is not watching it sees an empty
+     * map and wrongly concludes that nothing has been analysed.
+     */
+    suspend fun featureMap(): Map<Long, AudioFeatureEntity> = withContext(Dispatchers.IO) {
+        dao.allFeatures().filter { it.energy > 0f }.associateBy { it.songId }
+    }
+
+    /**
      * Per track playback gain in 0..1, keyed by song id.
      *
      * A stand-in for ReplayGain built from the mean RMS the analyser already

@@ -51,6 +51,23 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
     private val brightScale = scaleOf(usable.map { it.brightness.toDouble() })
     private val dynamicsScale = scaleOf(usable.map { it.dynamics.toDouble() })
 
+    /**
+     * The spread of the two axes across this library.
+     *
+     * Ranking each ingredient was not enough on its own. Arousal is a weighted
+     * sum of three ranks, and a sum of ranks bunches up around the middle even
+     * when every ingredient is spread evenly - so a fixed cut at 0.40 could
+     * describe far less of the library than it looks like it should, and on a
+     * collection of one artist in one style it could describe none of it.
+     * Ranking the finished axis as well makes the cut mean what it says: the
+     * calmest two fifths are always the calmest two fifths.
+     *
+     * Declared after the scales it depends on, because Kotlin initialises
+     * properties in order.
+     */
+    private val arousalScale = scaleOf(usable.map { arousal(it) })
+    private val valenceScale = scaleOf(usable.map { valence(it) })
+
     val ready: Boolean get() = usable.size >= 8
 
     /** How activated the track is, 0 (still) to 1 (driving). */
@@ -80,8 +97,8 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
     fun matches(mood: Mood, f: AudioFeatureEntity?): Boolean {
         val feature = f ?: return false
         if (feature.energy <= 0f) return false
-        val a = arousal(feature)
-        val v = valence(feature)
+        val a = rank(arousalScale, arousal(feature))
+        val v = rank(valenceScale, valence(feature))
         val bright = rank(brightScale, feature.brightness.toDouble())
         val steady = rank(dynamicsScale, feature.dynamics.toDouble())
         return when (mood) {

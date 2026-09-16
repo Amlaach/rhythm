@@ -738,19 +738,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openMood(mood: Mood, onReady: () -> Unit) {
-        val features = featuresById.value
-        val list = Mood.filter(library.value.songs, features, mood)
-            .filter { (library.value.stats[it.id]?.liked ?: 0) != -1 }
-        if (list.isEmpty()) {
-            _message.value = "אין מספיק שירים מנותחים לקטגוריה הזאת"
-            return
+        viewModelScope.launch {
+            // Read from the database rather than from featuresById. That flow is
+            // only alive while a screen is subscribed to it, and no screen on the
+            // home tab is - so tapping a mood chip there found an empty map and
+            // reported that nothing had been analysed, however long the analysis
+            // had been finished.
+            val features = runCatching { repo.featureMap() }.getOrDefault(emptyMap())
+            val list = withContext(Dispatchers.Default) {
+                Mood.filter(library.value.songs, features, mood)
+                    .filter { (library.value.stats[it.id]?.liked ?: 0) != -1 }
+            }
+            if (list.isEmpty()) {
+                _message.value = if (features.isEmpty()) {
+                    "השירים עדיין לא נותחו. אפשר להתחיל ניתוח בהגדרות."
+                } else {
+                    "אין שירים שמתאימים ל\"${mood.label}\" בספרייה הזאת"
+                }
+                return@launch
+            }
+            val ordered = engine?.let { e ->
+                val head = list.maxByOrNull { e.totalScore(it) } ?: list.first()
+                e.sequence(head, list.filter { it.id != head.id }.take(80))
+            } ?: list
+            openList(mood.label, mood.subtitle, ordered, "mood:${mood.name}")
+            onReady()
         }
-        val ordered = engine?.let { e ->
-            val head = list.maxByOrNull { e.totalScore(it) } ?: list.first()
-            e.sequence(head, list.filter { it.id != head.id }.take(80))
-        } ?: list
-        openList(mood.label, mood.subtitle, ordered, "mood:${mood.name}")
-        onReady()
     }
 
     fun loadRecap() {
