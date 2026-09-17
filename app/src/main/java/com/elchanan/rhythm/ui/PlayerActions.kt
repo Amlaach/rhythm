@@ -38,7 +38,11 @@ enum class PlayerAction(
     DETAILS("details", "פרטי השיר", "קובץ, קצב, סולם ומיקום בדיסק", ActionPlacement.MENU),
     WHY("why", "למה זה הומלץ", "פירוק הניקוד שהמנוע נתן", ActionPlacement.MENU),
     SPEED("speed", "מהירות הפעלה", "האטה והאצה בלי שינוי גובה", ActionPlacement.HIDDEN),
-    SEEK("seek", "הרצה קדימה ואחורה", "קפיצה של עשר שניות", ActionPlacement.HIDDEN);
+    SEEK("seek", "הרצה קדימה ואחורה", "קפיצה של עשר שניות", ActionPlacement.HIDDEN),
+    EQUALIZER("equalizer", "אקולייזר", "31 התדרים, ישירות מהנגן", ActionPlacement.BUTTON),
+    BOOKMARK("bookmark", "סימניות", "סימון מקום בהקלטה וחזרה אליו", ActionPlacement.MENU),
+    SHARE("share", "שיתוף", "שליחת קובץ השיר לאפליקציה אחרת", ActionPlacement.MENU),
+    DELETE("delete", "מחיקת הקובץ", "מוחק מהמכשיר, לא רק מהספרייה", ActionPlacement.HIDDEN);
 
     companion object {
         fun placementOf(stored: Map<String, String>, action: PlayerAction): ActionPlacement =

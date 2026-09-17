@@ -71,6 +71,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.unit.Dp
 import com.elchanan.rhythm.engine.Folders
@@ -85,6 +87,7 @@ import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.BgElevated
+import com.elchanan.rhythm.ui.theme.Color_Error
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import com.elchanan.rhythm.ui.theme.gradientFor
@@ -104,7 +107,8 @@ private enum class LibraryTab(val label: String) {
     LIKED("אהובים"),
     ARTISTS("אמנים"),
     SONGS("שירים"),
-    ALBUMS("אלבומים")
+    ALBUMS("אלבומים"),
+    SPOKEN("הרצאות")
 }
 
 private enum class SongSort(val label: String) {
@@ -162,6 +166,10 @@ fun LibraryScreen(
     var sortOpen by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("") }
     var selection by remember { mutableStateOf(setOf<Long>()) }
+    // Selecting starts with a long press and ends when the last one is
+    // deselected, so there is no separate mode to turn on: having anything
+    // selected *is* the mode. The tabs that show songs all read this.
+    val selectionMode = selection.isNotEmpty()
 
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
@@ -430,6 +438,64 @@ fun LibraryScreen(
                 // arranged on the device, which is how a lot of people think
                 // about their own music - especially when the tags are a mess
                 // and the folder name is the only reliable label there is.
+                // Talking rather than music: shiurim, stories, recorded
+                // lectures. They resume where they were left and they are the
+                // one thing in the library nobody wants shuffled.
+                LibraryTab.SPOKEN -> {
+                    val spoken by vm.spokenWord.collectAsStateWithLifecycle()
+                    val positions by vm.positions.collectAsStateWithLifecycle()
+                    if (spoken.isEmpty()) {
+                        EmptyState(
+                            title = "לא נמצאו הרצאות",
+                            body = "הזיהוי מחפש הקלטות ארוכות שנשמעות כמו דיבור ולא כמו " +
+                                "מוזיקה. אם משהו סווג לא נכון, אפשר לתקן ידנית מתפריט " +
+                                "שלוש הנקודות של השיר."
+                        )
+                    } else {
+                        LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
+                            items(spoken, key = { it.id }) { song ->
+                                val stats = library.stats[song.id]
+                                val at = positions[song.id]
+                                SongRow(
+                                    song = song,
+                                    liked = stats?.liked ?: 0,
+                                    rating = stats?.rating ?: 0,
+                                    playCount = stats?.playCount ?: 0,
+                                    selected = song.id in selection,
+                                    selectionMode = selectionMode,
+                                    onClick = {
+                                        if (selectionMode) {
+                                            selection = if (song.id in selection) {
+                                                selection - song.id
+                                            } else {
+                                                selection + song.id
+                                            }
+                                        } else {
+                                            vm.playList(spoken, spoken.indexOf(song))
+                                        }
+                                    },
+                                    onLongClick = { selection = selection + song.id },
+                                    onMore = { sheetSong = song },
+                                    trailing = if (at != null && at.positionMs > 0) {
+                                        {
+                                            // How far in they are, which is the
+                                            // only thing about a part-heard
+                                            // recording worth showing here.
+                                            Text(
+                                                text = formatClock(at.positionMs),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Accent
+                                            )
+                                        }
+                                    } else {
+                                        null
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
                 LibraryTab.FOLDERS -> {
                     if (vm.prefs.folderTree) {
                         FolderTreeTab(
@@ -647,6 +713,8 @@ private fun SelectionBar(
     val playlists by vm.playlists.collectAsStateWithLifecycle()
     var rateOpen by remember { mutableStateOf(false) }
     var playlistOpen by remember { mutableStateOf(false) }
+    var genreOpen by remember { mutableStateOf(false) }
+    var deleteOpen by remember { mutableStateOf(false) }
     val ids = selection.toList()
 
     Row(
@@ -670,6 +738,44 @@ private fun SelectionBar(
         BarAction(Icons.Filled.ThumbUp, "לייק") { vm.bulkLikeSongs(ids, 1); onClear() }
         BarAction(Icons.Filled.Star, "דרג") { rateOpen = true }
         BarAction(Icons.Filled.PlaylistAdd, "לרשימה") { playlistOpen = true }
+        BarAction(Icons.Filled.LocalOffer, "ז'אנר") { genreOpen = true }
+        BarAction(Icons.Filled.Share, "שתף") { vm.shareSongs(songs); onClear() }
+        BarAction(Icons.Filled.Delete, "מחק") { deleteOpen = true }
+    }
+
+    if (genreOpen) {
+        GenreDialog(
+            initial = "",
+            count = selection.size,
+            onDismiss = { genreOpen = false },
+            onApply = { vm.setGenre(ids, it); onClear() }
+        )
+    }
+
+    if (deleteOpen) {
+        AlertDialog(
+            onDismissRequest = { deleteOpen = false },
+            containerColor = Surface1,
+            title = { Text("למחוק ${selection.size} קבצים?") },
+            text = {
+                Text(
+                    "הקבצים יימחקו מהמכשיר עצמו, לא רק מהאפליקציה. אי אפשר לבטל את זה.",
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteSongs(songs)
+                    deleteOpen = false
+                    onClear()
+                }) { Text("מחק", color = Color_Error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteOpen = false }) {
+                    Text("ביטול", color = TextSecondary)
+                }
+            }
+        )
     }
 
     if (rateOpen) {

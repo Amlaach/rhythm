@@ -54,7 +54,24 @@ data class SongStatsEntity(
     val b0: Int = 0,
     val b1: Int = 0,
     val b2: Int = 0,
-    val b3: Int = 0
+    val b3: Int = 0,
+    /**
+     * A genre the user set, replacing whatever the file said.
+     *
+     * The genre in a downloaded file is whoever tagged it's opinion, and on a
+     * library built from downloads it is usually blank, wrong, or the name of
+     * the site it came from. Empty means "use the file's".
+     */
+    val genre: String = "",
+    /**
+     * Whether this is speech rather than music: 1 yes, 0 no, -1 not decided.
+     *
+     * Set by the detector, and by the user when the detector is wrong. Kept
+     * next to the rest of what is known about a track rather than worked out
+     * fresh each time, because the audio evidence for it only exists while the
+     * file is being analysed.
+     */
+    val spoken: Int = -1
 )
 
 /** User supplied artist profile: rating 1..5 and free style tags. */
@@ -163,6 +180,43 @@ data class AudioFeatureEntity(
      * "not known" rather than "nothing there".
      */
     val tags: String = ""
+)
+
+/**
+ * Where the listener stopped, and any places they marked on the way.
+ *
+ * Songs do not need this - a song is three minutes and starting it again
+ * costs nothing. An hour of speech is a different thing entirely: losing the
+ * position means finding it again by dragging a bar, which is the single most
+ * annoying thing a player can do to someone who listens to shiurim.
+ *
+ * Kept in its own table rather than as a column on the stats, because a
+ * bookmark is a list and a position is a single value, and because a position
+ * has to be written every few seconds while playing - which is a poor reason
+ * to rewrite a row that also holds ratings and play counts.
+ */
+@Entity(tableName = "playback_positions")
+data class PlaybackPositionEntity(
+    @PrimaryKey val songId: Long,
+    val positionMs: Long,
+    val durationMs: Long,
+    val updatedAt: Long,
+    /** True once it has been heard to the end, so it starts over next time. */
+    val finished: Boolean = false
+)
+
+/**
+ * A place in a track the listener marked on purpose.
+ *
+ * @param label what they called it, or empty for a plain mark.
+ */
+@Entity(tableName = "bookmarks", indices = [Index("songId")])
+data class BookmarkEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val songId: Long,
+    val positionMs: Long,
+    val label: String = "",
+    val createdAt: Long
 )
 
 @Entity(tableName = "history", indices = [Index("playedAt"), Index("songId")])

@@ -106,6 +106,7 @@ fun HomeScreen(
 
     val statusPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
+    val pinMoods = vm.prefs.pinMoodRow
 
     // Tapping home while already home scrolls the feed back to the top.
     val feedState = rememberLazyListState()
@@ -145,9 +146,10 @@ fun HomeScreen(
                 )
             }
 
-            // Pinned under the header rather than scrolling away with the feed,
-            // so the categories stay one tap away wherever you are in the list.
-            if (hasPermission && library.songs.isNotEmpty()) {
+            // Pinned under the header by default, so the categories stay one
+            // tap away wherever you are in the list. Switched off, they go
+            // into the feed below and scroll away with it.
+            if (hasPermission && library.songs.isNotEmpty() && pinMoods) {
                 MoodChipRow(onPick = { mood -> vm.openMood(mood) { onOpenDetail() } })
             }
             Spacer(Modifier.height(6.dp))
@@ -181,6 +183,12 @@ fun HomeScreen(
                 contentPadding = PaddingValues(bottom = 40.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                if (!pinMoods) {
+                    item {
+                        MoodChipRow(onPick = { mood -> vm.openMood(mood) { onOpenDetail() } })
+                    }
+                }
+
                 item { GreetingCard(library.songs.size, library.artists.count { it.rating > 0 }) }
 
                 // One-off pointer to the tag repair tool. Shown ahead of the other

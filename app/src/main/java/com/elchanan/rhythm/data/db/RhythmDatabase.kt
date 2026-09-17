@@ -19,9 +19,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         HistoryEntity::class,
         PlaylistEntity::class,
         PlaylistItemEntity::class,
-        TagOverrideEntity::class
+        TagOverrideEntity::class,
+        PlaybackPositionEntity::class,
+        BookmarkEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class RhythmDatabase : RoomDatabase() {
@@ -90,6 +92,34 @@ abstract class RhythmDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v8 -> v9 adds where the listener stopped, the places they marked,
+         * a genre they can set themselves, and whether a track is speech.
+         *
+         * Written out rather than left to a destructive fallback: by this
+         * point a library has months of play counts, ratings and tags behind
+         * it, and none of that is recoverable from the files.
+         */
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS playback_positions (" +
+                        "songId INTEGER NOT NULL, positionMs INTEGER NOT NULL, " +
+                        "durationMs INTEGER NOT NULL, updatedAt INTEGER NOT NULL, " +
+                        "finished INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(songId))"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS bookmarks (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "songId INTEGER NOT NULL, positionMs INTEGER NOT NULL, " +
+                        "label TEXT NOT NULL DEFAULT '', createdAt INTEGER NOT NULL)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_bookmarks_songId ON bookmarks(songId)")
+                db.execSQL("ALTER TABLE song_stats ADD COLUMN genre TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE song_stats ADD COLUMN spoken INTEGER NOT NULL DEFAULT -1")
+            }
+        }
+
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE song_stats ADD COLUMN rating INTEGER NOT NULL DEFAULT 0")
@@ -117,7 +147,8 @@ abstract class RhythmDatabase : RoomDatabase() {
                 "rhythm.db"
             ).addMigrations(
                 MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
-                MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8
+                MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+                MIGRATION_8_9
             )
                 .fallbackToDestructiveMigration()
                 .build()

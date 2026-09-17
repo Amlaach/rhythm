@@ -8,9 +8,14 @@ import androidx.lifecycle.viewModelScope
 import com.elchanan.rhythm.RhythmApp
 import com.elchanan.rhythm.data.MediaScanner
 import androidx.documentfile.provider.DocumentFile
+import com.elchanan.rhythm.data.FileActions
+import com.elchanan.rhythm.data.db.BookmarkEntity
+import com.elchanan.rhythm.data.db.PlaybackPositionEntity
 import com.elchanan.rhythm.data.PlaylistExport
 import com.elchanan.rhythm.data.PlaylistImport
+import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.MoodModel
+import com.elchanan.rhythm.engine.Spoken
 import com.elchanan.rhythm.data.TagFileWriter
 import com.elchanan.rhythm.data.TagFixer
 import com.elchanan.rhythm.data.MusicRepository
@@ -79,6 +84,16 @@ data class LibraryState(
 ) {
     val liked: List<SongEntity>
         get() = songs.filter { stats[it.id]?.liked == 1 }
+
+    /**
+     * Anything the user marked as speech by hand.
+     *
+     * The detector's own verdict needs the measured features, which this state
+     * does not carry, so the full list is assembled in the view model where
+     * they are available. This is the part that needs nothing but the stats.
+     */
+    val markedSpoken: List<SongEntity>
+        get() = songs.filter { stats[it.id]?.spoken == 1 }
 }
 
 /** A list the user drilled into. Held in the view model so navigation routes
@@ -177,6 +192,34 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // the main thread, so without this it all lands there.
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LibraryState())
+
+    /**
+     * Shiurim, stories and anything else that is talking rather than music.
+     *
+     * Built from three things because no one of them is enough on its own:
+     * what the user said, what the tagging model heard, and how long the file
+     * is. The reasoning lives in [Spoken]; this is where it meets the library.
+     *
+     * Longest first, because the long ones are what this shelf exists for.
+     *
+     * Declared after [library] and [featuresById]: Kotlin builds properties in
+     * the order they are written, and a flow combining two that do not exist
+     * yet would combine nulls.
+     */
+    val spokenWord: StateFlow<List<SongEntity>> =
+        combine(library, featuresById) { state, features ->
+            if (state.songs.isEmpty()) return@combine emptyList()
+            state.songs
+                .filter { song ->
+                    val feature = features[song.id]
+                    val tags = feature?.tags
+                        ?.let { AudioTags.pick(it, AudioTags.SPEECH_INDICES) }
+                    Spoken.isSpoken(song, feature, tags, state.stats[song.id]?.spoken ?: -1)
+                }
+                .sortedByDescending { it.durationMs }
+        }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val playlists: StateFlow<List<PlaylistInfo>> =
         combine(repo.playlists, repo.playlistItems, repo.songs) { lists, items, songs ->
@@ -431,6 +474,126 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         repo.prefs.styleSeparations = rules
         engine = null
         refreshFeed()
+    }
+
+    // -----------------------------------------------------------------------
+    // files: sharing, deleting, genre
+    // -----------------------------------------------------------------------
+
+    /**
+     * A delete the system wants the user to confirm, waiting to be shown.
+     *
+     * The dialog belongs to the platform and can only be launched from an
+     * activity, so it is published here and the screen picks it up. Null when
+     * there is nothing pending.
+     */
+    private val _deleteRequest = MutableStateFlow<android.content.IntentSender?>(null)
+    val deleteRequest: StateFlow<android.content.IntentSender?> = _deleteRequest.asStateFlow()
+
+    /** Remembered so the library can be refreshed once the dialog comes back. */
+    private var deletePending: List<Long> = emptyList()
+
+    fun shareSongs(songs: List<SongEntity>) {
+        val intent = FileActions.shareIntent(songs) ?: return
+        val chooser = Intent.createChooser(intent, "שיתוף")
+        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { getApplication<Application>().startActivity(chooser) }
+            .onFailure { _message.value = "אין אפליקציה שיכולה לקבל את הקובץ" }
+    }
+
+    /**
+     * Deletes files from the device.
+     *
+     * The caller has already asked. This is the point of no return, and on
+     * Android 11 and up the system asks a second time on top - which is not
+     * duplication worth removing, because the app's own question names the
+     * songs and the system's names the consequence.
+     */
+    fun deleteSongs(songs: List<SongEntity>) {
+        if (songs.isEmpty()) return
+        deletePending = songs.map { it.id }
+        when (val outcome = FileActions.delete(getApplication(), songs)) {
+            is FileActions.DeleteOutcome.Done -> {
+                _message.value = "נמחקו ${outcome.count} קבצים"
+                finishDelete(true)
+            }
+            is FileActions.DeleteOutcome.NeedsConfirmation ->
+                _deleteRequest.value = outcome.request
+            is FileActions.DeleteOutcome.Failed -> {
+                deletePending = emptyList()
+                _message.value = outcome.reason.ifBlank { "המחיקה נכשלה" }
+            }
+        }
+    }
+
+    /** Called once the system's dialog closes, either way. */
+    fun onDeleteResult(confirmed: Boolean) {
+        _deleteRequest.value = null
+        finishDelete(confirmed)
+    }
+
+    private fun finishDelete(confirmed: Boolean) {
+        val ids = deletePending
+        deletePending = emptyList()
+        if (!confirmed || ids.isEmpty()) return
+        viewModelScope.launch {
+            // The rows have to go too, or the songs stay in the library
+            // pointing at files that are no longer there.
+            repo.forgetSongs(ids)
+            engine = null
+            rescan(showMessage = false)
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // bookmarks
+    // -----------------------------------------------------------------------
+
+    fun bookmarksFor(songId: Long): Flow<List<BookmarkEntity>> = repo.bookmarks(songId)
+
+    /**
+     * Where each part-heard recording was left, keyed by song.
+     *
+     * Only the unfinished ones: a recording heard to the end has its row
+     * removed, so this is exactly the list of things worth carrying on with.
+     */
+    val positions: StateFlow<Map<Long, PlaybackPositionEntity>> =
+        repo.positions()
+            .map { list -> list.associateBy { it.songId } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    fun addBookmark(songId: Long, positionMs: Long, label: String) {
+        viewModelScope.launch {
+            repo.addBookmark(songId, positionMs, label.trim())
+            _message.value = "סימנייה נשמרה"
+        }
+    }
+
+    fun deleteBookmark(id: Long) {
+        viewModelScope.launch { repo.deleteBookmark(id) }
+    }
+
+    /** The user correcting the speech detector, in either direction. */
+    fun setSpoken(songId: Long, spoken: Boolean) {
+        viewModelScope.launch {
+            repo.setSpoken(songId, spoken)
+            _message.value = if (spoken) "סומן כהרצאה" else "סומן כמוזיקה"
+        }
+    }
+
+    /** Sets a genre on one song, a whole album, or a selection. */
+    fun setGenre(songIds: List<Long>, genre: String) {
+        if (songIds.isEmpty()) return
+        viewModelScope.launch {
+            repo.setGenre(songIds, genre)
+            engine = null
+            refreshFeed()
+            _message.value = if (genre.isBlank()) {
+                "הז'אנר נוקה מ-${songIds.size} שירים"
+            } else {
+                "$genre הוגדר ל-${songIds.size} שירים"
+            }
+        }
     }
 
     /** Forgets that a song was played, keeping the like, rating and tags. */

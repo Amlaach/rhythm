@@ -28,6 +28,7 @@ import com.elchanan.rhythm.MainActivity
 import com.elchanan.rhythm.RhythmApp
 import com.elchanan.rhythm.R
 import com.elchanan.rhythm.data.MusicRepository
+import com.elchanan.rhythm.engine.Spoken
 import android.os.Bundle
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -62,6 +63,9 @@ class PlaybackService : MediaSessionService() {
 
     // --- listening measurement -------------------------------------------------
     private var trackedId: Long = -1L
+
+    /** The track a saved position was already applied to, so it happens once. */
+    private var resumedFor: Long = -1L
     private var trackedDurationMs: Long = 0L
     private var accumulatedMs: Long = 0L
     private var resumedAt: Long = 0L
@@ -364,9 +368,15 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            if (playbackState == Player.STATE_READY && trackedDurationMs <= 0L) {
-                val d = player.duration
-                if (d > 0L) trackedDurationMs = d
+            if (playbackState == Player.STATE_READY) {
+                if (trackedDurationMs <= 0L) {
+                    val d = player.duration
+                    if (d > 0L) trackedDurationMs = d
+                }
+                // Here rather than on the transition: the duration is not
+                // known until the player is ready, and without it there is no
+                // way to tell a long recording from a song.
+                resumeIfLong()
             }
             if (playbackState == Player.STATE_ENDED) {
                 finalizeCurrent(manual = false)
@@ -547,10 +557,18 @@ class PlaybackService : MediaSessionService() {
      * rescue a long track someone actually got lost in.
      */
     private fun rememberPosition() {
-        if (!repo.prefs.resumePrompt) return
         val id = player.currentMediaItem?.mediaId?.toLongOrNull() ?: return
         val position = player.currentPosition
         val duration = player.duration
+
+        // Kept for everything, not only when the prompt is on, because the
+        // long recordings resume by themselves and the shelf of what is part
+        // heard is built from these rows.
+        if (duration > 0L) {
+            scope.launch { repo.savePosition(id, position, duration) }
+        }
+
+        if (!repo.prefs.resumePrompt) return
         val points = repo.prefs.resumePoints.toMutableMap()
         if (position > 30_000L && (duration <= 0L || position < duration - 30_000L)) {
             points[id] = position
@@ -558,6 +576,35 @@ class PlaybackService : MediaSessionService() {
             points.remove(id)
         }
         repo.prefs.resumePoints = points
+    }
+
+    /**
+     * Picks a long recording up where it was left.
+     *
+     * Only for things past [Spoken.SHORT_MINUTES]. A song does not need it -
+     * starting a song again costs nothing, and silently jumping into the
+     * middle of one would be wrong. An hour of speech is the opposite: finding
+     * the place again by dragging a bar is the whole problem this solves.
+     *
+     * Length rather than the speech detector, deliberately. The detector needs
+     * the file to have been analysed, and this has to work on the first play -
+     * which is exactly when the file has not been analysed yet.
+     */
+    private fun resumeIfLong() {
+        val id = player.currentMediaItem?.mediaId?.toLongOrNull() ?: return
+        if (id == resumedFor) return
+        resumedFor = id
+        if (!repo.prefs.resumeSpoken) return
+        val duration = player.duration
+        if (duration <= Spoken.SHORT_MINUTES * 60_000L) return
+        // Already somewhere other than the start: the user seeked, or the
+        // queue was restored with its own position.
+        if (player.currentPosition > 5_000L) return
+        scope.launch {
+            val saved = repo.position(id) ?: return@launch
+            if (saved.positionMs <= 0L) return@launch
+            runCatching { player.seekTo(saved.positionMs) }
+        }
     }
 
     private fun persistQueue() {

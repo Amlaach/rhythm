@@ -77,6 +77,56 @@ interface MusicDao {
     )
     suspend fun resetPlayCounts(ids: List<Long>)
 
+    // ---------- positions and bookmarks ----------
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putPosition(position: PlaybackPositionEntity)
+
+    @Query("SELECT * FROM playback_positions WHERE songId = :id")
+    suspend fun position(id: Long): PlaybackPositionEntity?
+
+    @Query("SELECT * FROM playback_positions WHERE finished = 0")
+    fun observePositions(): Flow<List<PlaybackPositionEntity>>
+
+    @Query("DELETE FROM playback_positions WHERE songId = :id")
+    suspend fun clearPosition(id: Long)
+
+    @Query("SELECT * FROM bookmarks WHERE songId = :id ORDER BY positionMs")
+    fun observeBookmarks(id: Long): Flow<List<BookmarkEntity>>
+
+    @Query("SELECT * FROM bookmarks ORDER BY createdAt DESC")
+    fun observeAllBookmarks(): Flow<List<BookmarkEntity>>
+
+    @Insert
+    suspend fun addBookmark(bookmark: BookmarkEntity): Long
+
+    @Query("DELETE FROM bookmarks WHERE id = :id")
+    suspend fun deleteBookmark(id: Long)
+
+    @Query("UPDATE bookmarks SET label = :label WHERE id = :id")
+    suspend fun renameBookmark(id: Long, label: String)
+
+    @Query("DELETE FROM bookmarks WHERE songId = :id")
+    suspend fun deleteBookmarksFor(id: Long)
+
+    // ---------- genre and spoken word ----------
+
+    @Query("UPDATE song_stats SET genre = :genre WHERE songId IN (:ids)")
+    suspend fun setGenre(ids: List<Long>, genre: String)
+
+    /**
+     * Stats rows have to exist before they can be updated, and a song the user
+     * has never played has none.
+     */
+    @Query("INSERT OR IGNORE INTO song_stats (songId) VALUES (:id)")
+    suspend fun ensureStats(id: Long)
+
+    @Query("UPDATE song_stats SET spoken = :spoken WHERE songId = :id")
+    suspend fun setSpoken(id: Long, spoken: Int)
+
+    @Query("DELETE FROM song_stats WHERE songId IN (:ids)")
+    suspend fun deleteStats(ids: List<Long>)
+
     /** Ids only: the caller wants to clear them, not to read them. */
     @Query("SELECT id FROM songs WHERE artistKey = :key")
     suspend fun songIdsByArtist(key: String): List<Long>

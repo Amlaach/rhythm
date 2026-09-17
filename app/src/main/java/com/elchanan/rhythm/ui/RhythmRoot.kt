@@ -1,6 +1,9 @@
 package com.elchanan.rhythm.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -114,6 +117,22 @@ fun RhythmRoot(
     // bring the previous session's queue back once both sides are ready
     LaunchedEffect(library.loaded, playerState.connected) {
         vm.restoreQueueIfNeeded()
+    }
+
+    // Deleting someone's files is the platform's question to ask, not the
+    // app's, and its dialog can only be launched from here. The view model
+    // raises the request and waits for the answer.
+    val pendingDelete by vm.deleteRequest.collectAsStateWithLifecycle()
+    val deleteLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        vm.onDeleteResult(result.resultCode == android.app.Activity.RESULT_OK)
+    }
+    LaunchedEffect(pendingDelete) {
+        val request = pendingDelete ?: return@LaunchedEffect
+        runCatching {
+            deleteLauncher.launch(IntentSenderRequest.Builder(request).build())
+        }.onFailure { vm.onDeleteResult(false) }
     }
 
     val backStack by navController.currentBackStackEntryAsState()
@@ -293,7 +312,14 @@ fun RhythmRoot(
             ) {
                 PlayerScreen(
                     vm = vm,
-                    onCollapse = { playerOpen = false }
+                    onCollapse = { playerOpen = false },
+                    onOpenEqualizer = {
+                        // Collapsed first: the player is an overlay above the
+                        // navigation, so leaving it open would hide whatever
+                        // it navigated to.
+                        playerOpen = false
+                        navController.navigate(Routes.EQUALIZER)
+                    }
                 )
             }
             }

@@ -59,6 +59,33 @@ object AudioTags {
         IDX_LULLABY, IDX_HAPPY, IDX_SAD, IDX_TENDER, IDX_EXCITING, IDX_ANGRY
     )
 
+    /**
+     * Talking, and the two classes that have to be weighed against it.
+     *
+     * YAMNet's map has no separate male and female speech - the whole of
+     * spoken word sits in these four - so the detector reads all of them and
+     * takes the strongest.
+     */
+    const val IDX_SPEECH = 0
+    const val IDX_CHILD_SPEECH = 1
+    const val IDX_CONVERSATION = 2
+    const val IDX_NARRATION = 3
+    const val IDX_SINGING = 24
+    const val IDX_MUSIC = 132
+
+    val SPEECH_INDICES = intArrayOf(
+        IDX_SPEECH, IDX_CHILD_SPEECH, IDX_CONVERSATION, IDX_NARRATION,
+        IDX_SINGING, IDX_MUSIC
+    )
+
+    /** Positions within [SPEECH_INDICES], for reading a picked row. */
+    const val SLOT_SPEECH = 0
+    const val SLOT_CHILD_SPEECH = 1
+    const val SLOT_CONVERSATION = 2
+    const val SLOT_NARRATION = 3
+    const val SLOT_SINGING = 4
+    const val SLOT_MUSIC = 5
+
     val ACCORDION = Group("אקורדיון", intArrayOf(204), 0.04f)
     val CLARINET = Group("קלרינט", intArrayOf(193), 0.04f)
     val VIOLIN = Group("כינור", intArrayOf(186), 0.04f)

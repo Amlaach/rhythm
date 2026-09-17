@@ -185,6 +185,48 @@ class Prefs(context: Context) {
         set(value) = sp.edit { putInt(KEY_GEQ_PREAMP, value) }
 
     /**
+     * Keep voice recordings out of the library.
+     *
+     * Call recordings, voice notes and WhatsApp audio are not music, and a
+     * good number of recorders mark them as music anyway, so MediaStore's own
+     * flag does not filter them. On by default, because a library full of
+     * recorded phone calls is nobody's idea of a music player - and it is off
+     * by a switch for the few who really do keep shiurim in those folders.
+     */
+    var skipRecordings: Boolean
+        get() = sp.getBoolean(KEY_SKIP_RECORDINGS, true)
+        set(value) = sp.edit { putBoolean(KEY_SKIP_RECORDINGS, value) }
+
+    /**
+     * Keep the mood row under the header while the feed scrolls beneath it.
+     *
+     * On, because that is what it has always done and an update should not
+     * rearrange someone's home screen without being asked. Turning it off
+     * sends the chips into the feed, where they scroll away with everything
+     * else - which is what to do on a short screen, where a strip that never
+     * leaves costs a fifth of the page for something pressed once a session.
+     */
+    var pinMoodRow: Boolean
+        get() = sp.getBoolean(KEY_PIN_MOODS, true)
+        set(value) = sp.edit { putBoolean(KEY_PIN_MOODS, value) }
+
+    /** Tap the artwork in the player to pause and carry on. */
+    var tapArtworkToggles: Boolean
+        get() = sp.getBoolean(KEY_TAP_ARTWORK, true)
+        set(value) = sp.edit { putBoolean(KEY_TAP_ARTWORK, value) }
+
+    /**
+     * Pick up spoken word where it was left, without asking.
+     *
+     * Separate from [resumePrompt], which offers to jump back and disappears.
+     * An hour of speech should simply continue; a three minute song should
+     * not, which is why this only applies to what the detector called speech.
+     */
+    var resumeSpoken: Boolean
+        get() = sp.getBoolean(KEY_RESUME_SPOKEN, true)
+        set(value) = sp.edit { putBoolean(KEY_RESUME_SPOKEN, value) }
+
+    /**
      * Show folders nested, the way they sit on the device, rather than as one
      * flat list of every folder that contains a file.
      *
@@ -416,5 +458,9 @@ class Prefs(context: Context) {
         const val KEY_GEQ_PREAMP = "geq_preamp"
         const val KEY_SEPARATIONS = "style_separations"
         const val KEY_FOLDER_TREE = "folder_tree"
+        const val KEY_SKIP_RECORDINGS = "skip_recordings"
+        const val KEY_PIN_MOODS = "pin_mood_row"
+        const val KEY_TAP_ARTWORK = "tap_artwork_toggles"
+        const val KEY_RESUME_SPOKEN = "resume_spoken"
     }
 }

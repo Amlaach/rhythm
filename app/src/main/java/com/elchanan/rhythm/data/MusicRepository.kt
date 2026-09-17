@@ -2,6 +2,8 @@ package com.elchanan.rhythm.data
 
 import android.content.Context
 import com.elchanan.rhythm.data.db.AffinityEntity
+import com.elchanan.rhythm.data.db.BookmarkEntity
+import com.elchanan.rhythm.data.db.PlaybackPositionEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.ArtistEntity
 import android.net.Uri
@@ -45,9 +47,17 @@ class MusicRepository(
     suspend fun rescan(): Int = withContext(Dispatchers.IO) {
         val excluded = prefs.excludedFolders.map { it.lowercase() }
         val overrides = dao.allOverrides().associateBy { it.songId }
+        val skipRecordings = prefs.skipRecordings
         val found = MediaScanner.scan(context, prefs.minDurationSec)
             .filter { song ->
                 excluded.none { pattern -> song.folder.lowercase().contains(pattern) }
+            }
+            .filter { song ->
+                !skipRecordings ||
+                    !MediaScanner.looksLikeRecording(
+                        song.folder,
+                        song.path.substringAfterLast('/')
+                    )
             }
             .map { song -> applyOverride(song, overrides[song.id]) }
         dao.clearSongs()
@@ -94,6 +104,97 @@ class MusicRepository(
     suspend fun setSongStyles(songId: Long, styles: String) = withContext(Dispatchers.IO) {
         val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
         dao.putStats(current.copy(styles = styles))
+    }
+
+    // -----------------------------------------------------------------------
+    // where the listener stopped, and what they marked
+    // -----------------------------------------------------------------------
+
+    /**
+     * Remembers a position, or forgets it once the end is near.
+     *
+     * The last few seconds count as finished. Someone who hears a shiur out
+     * does not want it to resume three seconds from the end next time, and
+     * players that do this are a small, recurring annoyance.
+     */
+    suspend fun savePosition(songId: Long, positionMs: Long, durationMs: Long) =
+        withContext(Dispatchers.IO) {
+            val nearEnd = durationMs > 0 && positionMs >= durationMs - END_MARGIN_MS
+            if (nearEnd || positionMs < START_MARGIN_MS) {
+                dao.clearPosition(songId)
+                return@withContext
+            }
+            dao.putPosition(
+                PlaybackPositionEntity(
+                    songId = songId,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+
+    suspend fun position(songId: Long): PlaybackPositionEntity? =
+        withContext(Dispatchers.IO) { dao.position(songId) }
+
+    suspend fun clearPosition(songId: Long) = withContext(Dispatchers.IO) {
+        dao.clearPosition(songId)
+    }
+
+    fun positions(): Flow<List<PlaybackPositionEntity>> = dao.observePositions()
+
+    fun bookmarks(songId: Long): Flow<List<BookmarkEntity>> = dao.observeBookmarks(songId)
+
+    fun allBookmarks(): Flow<List<BookmarkEntity>> = dao.observeAllBookmarks()
+
+    suspend fun addBookmark(songId: Long, positionMs: Long, label: String) =
+        withContext(Dispatchers.IO) {
+            dao.addBookmark(
+                BookmarkEntity(
+                    songId = songId,
+                    positionMs = positionMs,
+                    label = label,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
+        }
+
+    suspend fun deleteBookmark(id: Long) = withContext(Dispatchers.IO) { dao.deleteBookmark(id) }
+
+    suspend fun renameBookmark(id: Long, label: String) =
+        withContext(Dispatchers.IO) { dao.renameBookmark(id, label) }
+
+    // -----------------------------------------------------------------------
+    // genre and spoken word
+    // -----------------------------------------------------------------------
+
+    /** Sets a genre on many songs at once, creating stats rows as needed. */
+    suspend fun setGenre(songIds: List<Long>, genre: String) = withContext(Dispatchers.IO) {
+        for (id in songIds) dao.ensureStats(id)
+        songIds.chunked(400).forEach { dao.setGenre(it, genre.trim()) }
+    }
+
+    /**
+     * Drops everything the app knew about songs whose files are gone.
+     *
+     * A rescan would remove the song rows on its own, but not the stats, the
+     * positions, the bookmarks or the learned edges - those are keyed on an id
+     * MediaStore will eventually hand to a different file, and a stale row
+     * would then attach one song's history to another.
+     */
+    suspend fun forgetSongs(ids: List<Long>) = withContext(Dispatchers.IO) {
+        for (id in ids) {
+            dao.clearPosition(id)
+            dao.deleteBookmarksFor(id)
+            dao.clearHistoryFor(id)
+        }
+        ids.chunked(400).forEach { dao.deleteStats(it) }
+    }
+
+    /** The user overruling the speech detector, either way. */
+    suspend fun setSpoken(songId: Long, spoken: Boolean) = withContext(Dispatchers.IO) {
+        dao.ensureStats(songId)
+        dao.setSpoken(songId, if (spoken) 1 else 0)
     }
 
     /**
@@ -658,6 +759,16 @@ class MusicRepository(
          */
         private const val EDGE_LIMIT = 20_000
         private const val TRIM_EVERY = 200
+
+        /**
+         * How close to either end counts as "not worth remembering".
+         *
+         * At the end, because resuming three seconds before the finish is
+         * worse than starting again. At the start, because a position of two
+         * seconds is not a place anyone left off from.
+         */
+        private const val END_MARGIN_MS = 15_000L
+        private const val START_MARGIN_MS = 10_000L
 
         fun create(context: Context): MusicRepository {
             val db = RhythmDatabase.get(context)

@@ -123,6 +123,10 @@ fun SettingsScreen(
     var separations by remember { mutableStateOf(vm.prefs.styleSeparations) }
     var separationsOpen by remember { mutableStateOf(false) }
     var folderTree by remember { mutableStateOf(vm.prefs.folderTree) }
+    var skipRecordings by remember { mutableStateOf(vm.prefs.skipRecordings) }
+    var resumeSpoken by remember { mutableStateOf(vm.prefs.resumeSpoken) }
+    var pinMoods by remember { mutableStateOf(vm.prefs.pinMoodRow) }
+    var tapArtwork by remember { mutableStateOf(vm.prefs.tapArtworkToggles) }
     val analysis by vm.analysisProgress.collectAsStateWithLifecycle()
     val lyricsFolder by vm.lyricsFolder.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -255,6 +259,38 @@ fun SettingsScreen(
                 )
             }
             if (homeOpen) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = gutter, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "פס מצבי הרוח נשאר למעלה",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                "דלוק: הצ'יפים נשארים מתחת לכותרת והדף נגלל מתחתיהם. " +
+                                    "כבוי: הם נגללים למעלה יחד עם כל השאר",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = pinMoods,
+                            onCheckedChange = {
+                                pinMoods = it
+                                vm.prefs.pinMoodRow = it
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Accent,
+                                checkedTrackColor = Accent.copy(alpha = 0.4f)
+                            )
+                        )
+                    }
+                }
                 item {
                     Text(
                         "כיבוי מדף לא מוחק כלום — הוא פשוט מפסיק להופיע, וחוזר כמו " +
@@ -527,6 +563,34 @@ fun SettingsScreen(
                             onCheckedChange = {
                                 openOnPlay = it
                                 vm.prefs.openPlayerOnPlay = it
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Accent,
+                                checkedTrackColor = Accent.copy(alpha = 0.4f)
+                            )
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "לחיצה על התמונה עוצרת וממשיכה",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                "התמונה הגדולה במסך הנגן היא הדבר הכי קל לפגוע בו בלי " +
+                                    "להסתכל",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = tapArtwork,
+                            onCheckedChange = {
+                                tapArtwork = it
+                                vm.prefs.tapArtworkToggles = it
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Accent,
@@ -898,6 +962,66 @@ fun SettingsScreen(
                     onChange = { minDuration = (it * 180f).coerceIn(0f, 180f) },
                     onDone = { vm.updateTuning(minDurationSec = minDuration.toInt()) }
                 )
+            }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("דלג על הקלטות", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "הקלטות שיחה, הודעות קוליות ותזכורות לא ייכנסו לספרייה. " +
+                                "חלק מאפליקציות ההקלטה מסמנות אותן כמוזיקה, ולכן צריך " +
+                                "לזהות אותן לפי התיקייה ושם הקובץ",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Switch(
+                        checked = skipRecordings,
+                        onCheckedChange = {
+                            skipRecordings = it
+                            vm.prefs.skipRecordings = it
+                            vm.rescan(showMessage = false)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Accent,
+                            checkedTrackColor = Accent.copy(alpha = 0.4f)
+                        )
+                    )
+                }
+            }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("המשך הרצאות מהמקום", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "הקלטות ארוכות — שיעורים, סיפורים — ימשיכו מהמקום שבו " +
+                                "הפסקת, בלי לשאול. שירים רגילים מתחילים מההתחלה",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Switch(
+                        checked = resumeSpoken,
+                        onCheckedChange = {
+                            resumeSpoken = it
+                            vm.prefs.resumeSpoken = it
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Accent,
+                            checkedTrackColor = Accent.copy(alpha = 0.4f)
+                        )
+                    )
+                }
             }
             item {
                 Row(

@@ -18,6 +18,45 @@ object MediaScanner {
     /** Hebrew niqqud / cantillation ranges plus common punctuation we ignore in keys. */
     private val stripRegex = Regex("[\\u0591-\\u05C7\\p{Punct}\\s]+")
 
+    /**
+     * Folders that hold recordings rather than music.
+     *
+     * MediaStore's own `is_music` flag does not settle this: plenty of call
+     * recorders and voice memo apps set it, and the files then arrive looking
+     * exactly like tracks. Matching on the folder is cruder but it is what
+     * actually works, because these apps all write to predictable places.
+     *
+     * Matched against the folder path, case insensitively, so "Call
+     * Recordings" and "callrecorder" both catch.
+     */
+    private val recordingFolders = listOf(
+        "callrecord", "call_record", "call recording", "callrecording",
+        "recordings", "recorder", "voicerecorder", "voice recorder",
+        "voicememo", "voice memo", "voicenotes", "voice notes", "soundrecorder",
+        "whatsapp audio", "whatsapp voice", "whatsapp/media/whatsapp voice notes",
+        "telegram audio", "ptt", "cube acr", "acr",
+        "הקלטות", "שיחות", "הקלטות שיחה"
+    )
+
+    /**
+     * True when a file looks like a recording rather than a track.
+     *
+     * The file name is checked as well as the folder, because recorders that
+     * write into a shared folder still name their files distinctively.
+     */
+    fun looksLikeRecording(path: String, fileName: String): Boolean {
+        val folder = path.lowercase(Locale.ROOT).replace('\\', '/')
+        if (recordingFolders.any { folder.contains(it) }) return true
+        val name = fileName.lowercase(Locale.ROOT)
+        // "call_20250114_093012.m4a", "PTT-20240103-WA0002.opus", "REC_0012"
+        return name.startsWith("call") ||
+            name.startsWith("ptt-") ||
+            name.startsWith("rec_") ||
+            name.startsWith("voice ") ||
+            name.startsWith("audio-") ||
+            Regex("^(aud|rec)[-_]?\\d{6,}").containsMatchIn(name)
+    }
+
     private val collabSeparators = listOf(
         " feat. ", " feat ", " ft. ", " ft ", " featuring ",
         " & ", " / ", " x ", " vs. ", " vs ", ";", " עם "

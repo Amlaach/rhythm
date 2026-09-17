@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.offset
@@ -60,6 +61,8 @@ import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Pause
@@ -200,7 +203,11 @@ fun MiniPlayer(
 }
 
 @Composable
-fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
+fun PlayerScreen(
+    vm: MainViewModel,
+    onCollapse: () -> Unit,
+    onOpenEqualizer: () -> Unit = {}
+) {
     val state by vm.player.state.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
     val features by vm.featuresById.collectAsStateWithLifecycle()
@@ -212,6 +219,8 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
     var optionsOpen by remember { mutableStateOf(false) }
     var detailsOpen by remember { mutableStateOf(false) }
     var speedOpen by remember { mutableStateOf(false) }
+    var bookmarksOpen by remember { mutableStateOf(false) }
+    val tapArtwork = vm.prefs.tapArtworkToggles
 
     // Read once per composition: the map lives in preferences, and asking it for
     // every control on every frame would be a file read inside layout.
@@ -411,6 +420,14 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                                         drag = 0f
                                     }
                                 ) { _, amount -> drag += amount }
+                            }
+                            // Tapping the sleeve stops and starts it. The
+                            // artwork is the biggest thing on the screen and
+                            // the easiest thing to hit without looking, which
+                            // is most of why people want this.
+                            .pointerInput(song.id, tapArtwork) {
+                                if (!tapArtwork) return@pointerInput
+                                detectTapGestures(onTap = { vm.player.togglePlayPause() })
                             },
                         corner = 20
                     )
@@ -507,6 +524,24 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                             Icon(
                                 Icons.Filled.Insights,
                                 contentDescription = "למה זה הומלץ",
+                                tint = TextSecondary
+                            )
+                        }
+                    }
+                    if (placement(PlayerAction.EQUALIZER) == ActionPlacement.BUTTON) {
+                        IconButton(onClick = onOpenEqualizer) {
+                            Icon(
+                                Icons.Filled.GraphicEq,
+                                contentDescription = "אקולייזר",
+                                tint = TextSecondary
+                            )
+                        }
+                    }
+                    if (placement(PlayerAction.BOOKMARK) == ActionPlacement.BUTTON) {
+                        IconButton(onClick = { bookmarksOpen = true }) {
+                            Icon(
+                                Icons.Filled.BookmarkBorder,
+                                contentDescription = "סימניות",
                                 tint = TextSecondary
                             )
                         }
@@ -702,6 +737,15 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
     }
     if (speedOpen) {
         SpeedDialog(vm = vm, onDismiss = { speedOpen = false })
+    }
+    if (bookmarksOpen) {
+        BookmarksSheet(
+            vm = vm,
+            song = song,
+            currentPositionMs = state.positionMs,
+            onSeek = { vm.player.seekTo(it) },
+            onDismiss = { bookmarksOpen = false }
+        )
     }
     if (optionsOpen) {
         SongOptionsSheet(

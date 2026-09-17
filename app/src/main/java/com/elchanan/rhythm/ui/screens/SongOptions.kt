@@ -25,8 +25,11 @@ import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlaylistRemove
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.SkipNext
@@ -68,6 +71,7 @@ import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.StarRow
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.BgElevated
+import com.elchanan.rhythm.ui.theme.Color_Error
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextTertiary
 import com.elchanan.rhythm.ui.theme.TextSecondary
@@ -102,6 +106,8 @@ fun SongOptionsSheet(
     var showCapo by remember { mutableStateOf(false) }
     var newPlaylist by remember { mutableStateOf(false) }
     var confirmReset by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var genreOpen by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -223,13 +229,72 @@ fun SongOptionsSheet(
                     onRemoveFromPlaylist(); onDismiss()
                 }
             }
+            OptionRow(Icons.Filled.LocalOffer, "שנה ז'אנר") { genreOpen = true }
+            OptionRow(Icons.Filled.Share, "שתף") {
+                vm.shareSongs(listOf(song))
+                onDismiss()
+            }
+
+            // The detector's verdict, and a way to disagree with it. Shown as
+            // the opposite of what it currently thinks, so the row says what
+            // pressing it will do rather than what is already true.
+            val markedSpoken = stats?.spoken == 1
+            OptionRow(
+                if (markedSpoken) Icons.Filled.MusicNote else Icons.Filled.RecordVoiceOver,
+                if (markedSpoken) "זה בעצם מוזיקה" else "סמן כהרצאה או שיעור"
+            ) {
+                vm.setSpoken(song.id, !markedSpoken)
+                onDismiss()
+            }
+
             // Only worth offering when there is something to clear.
             if ((stats?.playCount ?: 0) > 0) {
                 OptionRow(Icons.Filled.RestartAlt, "אפס את מספר ההשמעות") {
                     confirmReset = true
                 }
             }
+            OptionRow(Icons.Filled.Delete, "מחק את הקובץ מהמכשיר", tint = Color_Error) {
+                confirmDelete = true
+            }
         }
+    }
+
+    if (genreOpen) {
+        GenreDialog(
+            initial = stats?.genre.orEmpty().ifBlank { song.genre.orEmpty() },
+            count = 1,
+            onDismiss = { genreOpen = false },
+            onApply = { vm.setGenre(listOf(song.id), it) }
+        )
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            containerColor = Surface1,
+            title = { Text("למחוק את הקובץ?") },
+            text = {
+                Text(
+                    "\"${song.title}\" יימחק מהמכשיר עצמו, לא רק מהאפליקציה. " +
+                        "אי אפשר לבטל את זה.",
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.deleteSongs(listOf(song))
+                        confirmDelete = false
+                        onDismiss()
+                    }
+                ) { Text("מחק", color = Color_Error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) {
+                    Text("ביטול", color = TextSecondary)
+                }
+            }
+        )
     }
 
     if (confirmReset) {
@@ -545,6 +610,68 @@ private fun SongTagDialog(
         },
         confirmButton = {
             TextButton(onClick = { onApply(selected); onDismiss() }) { Text("שמור", color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
+}
+
+/**
+ * Sets a genre on one song, an album, or everything that is selected.
+ *
+ * The suggestions are the app's own style words, because a genre on a
+ * downloaded file is usually blank or the name of the site it came from, and
+ * a list of twenty-odd familiar words is faster than typing and keeps the
+ * spelling consistent - which is what makes the engine able to group by it at
+ * all. Free text stays allowed for everything the list does not cover.
+ */
+@Composable
+fun GenreDialog(
+    initial: String,
+    count: Int,
+    onDismiss: () -> Unit,
+    onApply: (String) -> Unit
+) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text(if (count == 1) "ז'אנר" else "ז'אנר ל-$count שירים") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    placeholder = { Text("למשל: חסידי") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(10.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Styles.SUGGESTED.take(14).forEach { style ->
+                        Chip(
+                            label = style,
+                            selected = text.equals(style, ignoreCase = true),
+                            onClick = { text = style }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "השארה ריקה מנקה את הז'אנר וחוזרת למה שכתוב בקובץ.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextTertiary
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onApply(text.trim()); onDismiss() }) {
+                Text("שמור", color = Accent)
+            }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
