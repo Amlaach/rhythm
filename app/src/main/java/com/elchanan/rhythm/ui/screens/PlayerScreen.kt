@@ -51,6 +51,11 @@ import androidx.compose.runtime.mutableFloatStateOf
 import kotlin.math.abs
 import com.elchanan.rhythm.playback.QueueMeta
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.Insights
@@ -93,7 +98,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import com.elchanan.rhythm.data.db.SongEntity
+import com.elchanan.rhythm.ui.ActionPlacement
 import com.elchanan.rhythm.ui.MainViewModel
+import com.elchanan.rhythm.ui.PlayerAction
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Radio
 import com.elchanan.rhythm.ui.components.Artwork
@@ -201,6 +208,15 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
     var sleepOpen by remember { mutableStateOf(false) }
     var whyOpen by remember { mutableStateOf(false) }
     var optionsOpen by remember { mutableStateOf(false) }
+    var detailsOpen by remember { mutableStateOf(false) }
+    var speedOpen by remember { mutableStateOf(false) }
+
+    // Read once per composition: the map lives in preferences, and asking it for
+    // every control on every frame would be a file read inside layout.
+    val actionPrefs = vm.prefs.playerActions
+    val placement: (PlayerAction) -> ActionPlacement = remember(actionPrefs) {
+        { action -> PlayerAction.placementOf(actionPrefs, action) }
+    }
 
     val song = state.currentSongId?.let { library.songsById[it] } ?: return
     val metrics = rememberMetrics()
@@ -295,29 +311,44 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                 // No "now playing" caption: the cover, the title and the
                 // transport directly below already say it.
                 Spacer(Modifier.weight(1f))
-                // Lyrics and "why this" used to sit here as their own buttons.
-                // They are both occasional, and the header is where the frequent
-                // things belong - so they moved into the menu, which is where
-                // everything else about the song already lives.
+                // The menu is always here. It is the one control that cannot be
+                // switched off, because it is what anything switched off the
+                // header goes into.
                 IconButton(onClick = { optionsOpen = true }) {
                     Icon(Icons.Filled.MoreVert, contentDescription = "עוד", tint = TextSecondary)
                 }
-                IconButton(onClick = { sleepOpen = true }) {
-                    Icon(
-                        Icons.Filled.Bedtime,
-                        contentDescription = "טיימר שינה",
-                        tint = if (SleepTimer.remainingMs() != null) Accent else TextSecondary
-                    )
+                if (placement(PlayerAction.SLEEP) == ActionPlacement.BUTTON) {
+                    IconButton(onClick = { sleepOpen = true }) {
+                        Icon(
+                            Icons.Filled.Bedtime,
+                            contentDescription = "טיימר שינה",
+                            tint = if (SleepTimer.remainingMs() != null) Accent else TextSecondary
+                        )
+                    }
                 }
-                IconButton(onClick = {
-                    showQueue = !showQueue
-                    if (showQueue) showLyrics = false
-                }) {
-                    Icon(
-                        Icons.Filled.QueueMusic,
-                        contentDescription = "תור",
-                        tint = if (showQueue) Accent else TextSecondary
-                    )
+                if (placement(PlayerAction.LYRICS) == ActionPlacement.BUTTON) {
+                    IconButton(onClick = {
+                        showLyrics = !showLyrics
+                        if (showLyrics) showQueue = false
+                    }) {
+                        Icon(
+                            Icons.Filled.FormatQuote,
+                            contentDescription = "מילות השיר",
+                            tint = if (showLyrics) Accent else TextSecondary
+                        )
+                    }
+                }
+                if (placement(PlayerAction.QUEUE) == ActionPlacement.BUTTON) {
+                    IconButton(onClick = {
+                        showQueue = !showQueue
+                        if (showQueue) showLyrics = false
+                    }) {
+                        Icon(
+                            Icons.Filled.QueueMusic,
+                            contentDescription = "תור",
+                            tint = if (showQueue) Accent else TextSecondary
+                        )
+                    }
                 }
             }
             }
@@ -402,29 +433,72 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                         .horizontalScroll(rememberScrollState()),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    LikeButtons(
-                        liked = liked,
-                        onLike = { vm.like(song.id) },
-                        onDislike = { vm.dislike(song.id) }
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    IconButton(onClick = { vm.createMix(song, andPlay = true) }) {
-                        Icon(
-                            Icons.Filled.AutoAwesome,
-                            contentDescription = "צור מיקס מהשיר",
-                            tint = TextSecondary
+                    if (placement(PlayerAction.LIKE) == ActionPlacement.BUTTON) {
+                        LikeButtons(
+                            liked = liked,
+                            onLike = { vm.like(song.id) },
+                            onDislike = { vm.dislike(song.id) }
                         )
+                        Spacer(Modifier.width(6.dp))
                     }
-                    IconButton(onClick = { vm.startRadio(song) }) {
-                        Icon(
-                            Icons.Filled.Radio,
-                            contentDescription = "התחל רדיו מהשיר",
-                            tint = TextSecondary
-                        )
+                    if (placement(PlayerAction.MIX) == ActionPlacement.BUTTON) {
+                        IconButton(onClick = { vm.createMix(song, andPlay = true) }) {
+                            Icon(
+                                Icons.Filled.AutoAwesome,
+                                contentDescription = "צור מיקס מהשיר",
+                                tint = TextSecondary
+                            )
+                        }
+                    }
+                    if (placement(PlayerAction.RADIO) == ActionPlacement.BUTTON) {
+                        IconButton(onClick = { vm.startRadio(song) }) {
+                            Icon(
+                                Icons.Filled.Radio,
+                                contentDescription = "התחל רדיו מהשיר",
+                                tint = TextSecondary
+                            )
+                        }
+                    }
+                    if (placement(PlayerAction.ADD_TO_PLAYLIST) == ActionPlacement.BUTTON) {
+                        IconButton(onClick = { optionsOpen = true }) {
+                            Icon(
+                                Icons.Filled.PlaylistAdd,
+                                contentDescription = "הוספה לרשימה",
+                                tint = TextSecondary
+                            )
+                        }
+                    }
+                    if (placement(PlayerAction.DETAILS) == ActionPlacement.BUTTON) {
+                        IconButton(onClick = { detailsOpen = true }) {
+                            Icon(
+                                Icons.Filled.Info,
+                                contentDescription = "פרטי השיר",
+                                tint = TextSecondary
+                            )
+                        }
+                    }
+                    if (placement(PlayerAction.SPEED) == ActionPlacement.BUTTON) {
+                        IconButton(onClick = { speedOpen = true }) {
+                            Icon(
+                                Icons.Filled.Speed,
+                                contentDescription = "מהירות הפעלה",
+                                tint = TextSecondary
+                            )
+                        }
+                    }
+                    if (placement(PlayerAction.WHY) == ActionPlacement.BUTTON) {
+                        IconButton(onClick = { whyOpen = true }) {
+                            Icon(
+                                Icons.Filled.Insights,
+                                contentDescription = "למה זה הומלץ",
+                                tint = TextSecondary
+                            )
+                        }
                     }
                 }
 
                 Spacer(Modifier.height(6.dp))
+                if (placement(PlayerAction.RATING) == ActionPlacement.BUTTON) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // Without this the stars sit directly under the artist line and
                     // read as a rating of the artist, which is a different thing the
@@ -448,6 +522,7 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                             color = TextSecondary
                         )
                     }
+                }
                 }
 
                 Spacer(Modifier.height(6.dp))
@@ -504,6 +579,15 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                             tint = if (state.shuffle) Accent else TextSecondary
                         )
                     }
+                    if (placement(PlayerAction.SEEK) == ActionPlacement.BUTTON) {
+                        IconButton(onClick = { vm.player.nudge(-10_000L) }) {
+                            Icon(
+                                Icons.Filled.Replay10,
+                                contentDescription = "אחורה 10 שניות",
+                                tint = TextSecondary
+                            )
+                        }
+                    }
                     IconButton(onClick = { vm.player.previous() }) {
                         Icon(
                             Icons.Filled.SkipPrevious,
@@ -537,6 +621,15 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
                             modifier = Modifier.size(40.dp)
                         )
                     }
+                    if (placement(PlayerAction.SEEK) == ActionPlacement.BUTTON) {
+                        IconButton(onClick = { vm.player.nudge(10_000L) }) {
+                            Icon(
+                                Icons.Filled.Forward10,
+                                contentDescription = "קדימה 10 שניות",
+                                tint = TextSecondary
+                            )
+                        }
+                    }
                     IconButton(onClick = { vm.player.cycleRepeat() }) {
                         Icon(
                             if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Filled.RepeatOne
@@ -554,6 +647,12 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
 
     if (sleepOpen) SleepDialog(vm = vm, onDismiss = { sleepOpen = false })
     if (whyOpen) WhyDialog(vm = vm, song = song, onDismiss = { whyOpen = false })
+    if (detailsOpen) {
+        SongDetailsDialog(song = song, feature = feature, onDismiss = { detailsOpen = false })
+    }
+    if (speedOpen) {
+        SpeedDialog(vm = vm, onDismiss = { speedOpen = false })
+    }
     if (optionsOpen) {
         SongOptionsSheet(
             vm = vm,
@@ -569,6 +668,109 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
             }
         )
     }
+}
+
+/**
+ * What the file actually is: where it lives, how long, and what the analyser
+ * measured. The measured half is only there once the song has been analysed,
+ * and saying so is better than showing zeroes.
+ */
+@Composable
+private fun SongDetailsDialog(
+    song: SongEntity,
+    feature: com.elchanan.rhythm.data.db.AudioFeatureEntity?,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("פרטי השיר") },
+        text = {
+            Column(modifier = Modifier.heightIn(max = 420.dp)) {
+                DetailLine("שם", song.title)
+                DetailLine("אמן", song.artistName)
+                if (song.albumName.isNotBlank()) DetailLine("אלבום", song.albumName)
+                DetailLine("אורך", formatDuration(song.durationMs))
+                DetailLine("תיקייה", song.folder)
+                DetailLine("קובץ", song.path.substringAfterLast('/'))
+                if (feature != null) {
+                    Spacer(Modifier.height(8.dp))
+                    DetailLine("קצב", "${feature.bpm.toInt()} BPM")
+                    DetailLine(
+                        "סולם",
+                        AudioAnalyzer.keyLabel(feature.musicalKey, feature.mode)
+                    )
+                } else {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "השיר עדיין לא נותח, אז אין קצב וסולם להציג.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }
+    )
+}
+
+@Composable
+private fun DetailLine(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = TextSecondary,
+            modifier = Modifier.width(70.dp)
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/** Playback speed, in the steps people actually use. */
+@Composable
+private fun SpeedDialog(vm: MainViewModel, onDismiss: () -> Unit) {
+    val options = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+    var current by remember { mutableFloatStateOf(vm.player.speed()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("מהירות הפעלה") },
+        text = {
+            Column {
+                Text(
+                    "גובה הצליל נשמר — השיר לא נשמע גבוה או נמוך יותר.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(10.dp))
+                options.forEach { value ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                current = value
+                                vm.player.setSpeed(value)
+                            }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (value == 1.0f) "רגילה" else "×$value",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (current == value) Accent else TextPrimary
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }
+    )
 }
 
 @Composable

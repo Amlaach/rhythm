@@ -169,6 +169,25 @@ class PlayerConnection(
         _state.value = _state.value.copy(positionMs = ms)
     }
 
+    /**
+     * Playback speed. ExoPlayer leaves the pitch alone when only the speed
+     * changes, so a slowed track sounds slower rather than lower - which is the
+     * whole point for anyone using this to learn a tune.
+     */
+    fun speed(): Float = controller?.playbackParameters?.speed ?: 1f
+
+    fun setSpeed(value: Float) {
+        controller?.setPlaybackSpeed(value.coerceIn(0.25f, 3.0f))
+    }
+
+    /** Relative jump, for the optional skip-forward and skip-back buttons. */
+    fun nudge(ms: Long) {
+        val c = controller ?: return
+        val target = (c.currentPosition + ms).coerceIn(0L, c.duration.coerceAtLeast(0L))
+        c.seekTo(target)
+        _state.value = _state.value.copy(positionMs = target)
+    }
+
     fun jumpTo(index: Int) {
         val c = controller ?: return
         if (index in 0 until c.mediaItemCount) {

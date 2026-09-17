@@ -214,6 +214,35 @@ class Recommender(
     private val artistKeyById: Map<Long, String> = songs.associate { it.id to it.artistKey }
 
     /**
+     * Whether each track is the studio cut, a stage take, a cover or a remix.
+     *
+     * Computed once for the whole snapshot: classifying a cover needs to look
+     * across every artist who recorded the piece, so it cannot be answered one
+     * song at a time.
+     */
+    val versionTypes: Map<Long, VersionType> =
+        Versions.classify(songs) { id -> stats[id]?.playCount ?: 0 }
+
+    /** The piece each song is a version of, ignoring who performed it. */
+    private val pieceKeyById: Map<Long, String> =
+        songs.associate { it.id to Versions.pieceKey(it.title) }
+
+    /**
+     * True when two tracks are the same song in different clothes.
+     *
+     * Broader than [sameRecording], which asks whether they are the same
+     * recording. This one is what keeps a studio cut and its own live take from
+     * landing next to each other in a queue: different recordings, but hearing
+     * them back to back is hearing the same song twice.
+     */
+    fun samePiece(a: Long, b: Long): Boolean {
+        if (a == b) return true
+        val ka = pieceKeyById[a] ?: return false
+        val kb = pieceKeyById[b] ?: return false
+        return ka.isNotBlank() && ka == kb
+    }
+
+    /**
      * True when two tracks look like the same piece rather than two songs.
      *
      * Looked up rather than searched: this is called from inside the sequencer's
@@ -678,7 +707,12 @@ class Recommender(
                     0.7 * tempoDistance(current.id, c.id) +
                     0.55 * liftFit(current.id, c.id) +
                     0.8 * modeFit(current.id, c.id) -
-                    (if (sameRecording(current.id, c.id)) 3.0 else 0.0) +
+                    (if (sameRecording(current.id, c.id)) 3.0 else 0.0) -
+                    // The studio cut followed by its own live take is the same
+                    // song twice in a row. Different recordings, so the penalty
+                    // above does not catch it, and heard back to back it is the
+                    // most obviously wrong thing a queue can do.
+                    (if (samePiece(current.id, c.id)) 2.2 else 0.0) +
                     noise(c.id, current.id, 0.35)
                 if (s > bestScore) {
                     bestScore = s
@@ -1089,6 +1123,23 @@ class Recommender(
             }
         }
 
+        // Other takes on songs already in the library: covers, remixes and the
+        // stage versions, gathered as the thing they have in common rather than
+        // scattered by artist. Deduping by version key would defeat the point
+        // here, since the alternatives are exactly what is being offered.
+        val alternates = Versions.alternates(notDisliked, versionTypes)
+        if (alternates.size >= 3) {
+            sections.add(
+                FeedSection(
+                    id = "covers",
+                    title = "גרסאות וקאברים",
+                    subtitle = "ביצועים אחרים לשירים שכבר יש לך",
+                    kind = SectionKind.SONG_ROW,
+                    songs = alternates.sortedByDescending { totalScore(it) }.take(24)
+                )
+            )
+        }
+
         // What the user has actually claimed - liked or rated - as opposed to what
         // merely sits on the device.
         val yours = notDisliked.filter {
@@ -1334,26 +1385,45 @@ class Recommender(
         )
     }
 
-    fun search(query: String, limit: Int = 60): List<SongEntity> {
-        val q = query.trim().lowercase(Locale.ROOT)
-        if (q.isEmpty()) return emptyList()
-        val terms = q.split(' ').filter { it.isNotBlank() }
+    /**
+     * Searchable text per song, folded once rather than on every keystroke.
+     *
+     * Search runs on every character typed, over the whole library; normalising
+     * three fields per song inside that loop is work done thousands of times to
+     * get the same answer.
+     */
+    private val searchFields: Map<Long, Triple<String, String, String>> =
+        songs.associate { song ->
+            song.id to Triple(
+                SearchText.normalize(song.title),
+                SearchText.normalize(song.artistName),
+                SearchText.normalize(song.albumName)
+            )
+        }
+
+    /**
+     * @param personal how much the learned taste is allowed to reorder results,
+     *   0 for none. Text relevance always dominates: someone typing a title
+     *   wants that title, not the app's opinion of it.
+     */
+    fun search(query: String, limit: Int = 60, personal: Double = 0.25): List<SongEntity> {
+        val terms = SearchText.terms(query)
+        if (terms.isEmpty()) return emptyList()
         return songs.mapNotNull { song ->
-            val title = song.titleLower
-            val artist = song.artistName.lowercase(Locale.ROOT)
-            val album = song.albumName.lowercase(Locale.ROOT)
+            val fields = searchFields[song.id] ?: return@mapNotNull null
+            val (title, artist, album) = fields
             var textScore = 0.0
             for (t in terms) {
-                when {
-                    title.startsWith(t) -> textScore += 3.0
-                    title.contains(t) -> textScore += 2.0
-                    artist.startsWith(t) -> textScore += 2.4
-                    artist.contains(t) -> textScore += 1.6
-                    album.contains(t) -> textScore += 0.9
-                    else -> return@mapNotNull null
-                }
+                // Best field wins for each term, so matching the artist does not
+                // disqualify a song whose title matches the next word.
+                val best = listOfNotNull(
+                    SearchText.score(title, t),
+                    SearchText.score(artist, t)?.times(0.8),
+                    SearchText.score(album, t)?.times(0.4)
+                ).maxOrNull() ?: return@mapNotNull null
+                textScore += best
             }
-            song to textScore + 0.25 * (baseScores[song.id] ?: 0.0)
+            song to textScore + personal * (baseScores[song.id] ?: 0.0)
         }.sortedByDescending { it.second }.take(limit).map { it.first }
     }
 

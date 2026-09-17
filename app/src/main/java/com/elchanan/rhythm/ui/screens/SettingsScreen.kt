@@ -108,6 +108,8 @@ fun SettingsScreen(
     var homeOpen by remember { mutableStateOf(false) }
     var libraryOpen by remember { mutableStateOf(false) }
     var playerOpen by remember { mutableStateOf(false) }
+    var searchOpen by remember { mutableStateOf(false) }
+    var searchPersonal by remember { mutableStateOf(vm.prefs.searchPersonalized) }
     var shelves by remember { mutableStateOf(vm.prefs.homeShelves) }
     var firstTab by remember { mutableStateOf(vm.prefs.libraryFirstTab) }
     var hideDupes by remember { mutableStateOf(vm.prefs.hideDuplicates) }
@@ -331,6 +333,56 @@ fun SettingsScreen(
                             onCheckedChange = {
                                 hideDupes = it
                                 vm.setHideDuplicates(it)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Accent,
+                                checkedTrackColor = Accent.copy(alpha = 0.4f)
+                            )
+                        )
+                    }
+                }
+            }
+
+            // ---------------------------------------------------------------
+            // החיפוש
+            // ---------------------------------------------------------------
+            item {
+                SectionToggleRow(
+                    title = "הגדרות החיפוש",
+                    subtitle = "איך תוצאות מסודרות",
+                    open = searchOpen,
+                    onToggle = { searchOpen = !searchOpen }
+                )
+            }
+            if (searchOpen) {
+                item {
+                    Text(
+                        "החיפוש מתעלם מאותיות סופיות, מגרשיים ומניקוד — \"מוהרן\" " +
+                            "מוצא את \"מוהר״ן\" — ומוחל על שגיאת כתיב אחת במילים ארוכות.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(horizontal = gutter, vertical = 4.dp)
+                    )
+                }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("התאמה אישית בתוצאות", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "כששתי תוצאות מתאימות באותה מידה לטקסט, זו שקרובה " +
+                                    "לטעם שלך תופיע ראשונה. לא משנה סדר של התאמה מדויקת",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = searchPersonal,
+                            onCheckedChange = {
+                                searchPersonal = it
+                                vm.prefs.searchPersonalized = it
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Accent,

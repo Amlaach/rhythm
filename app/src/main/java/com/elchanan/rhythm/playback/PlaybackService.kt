@@ -2,10 +2,13 @@ package com.elchanan.rhythm.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.database.ContentObserver
+import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -118,6 +121,8 @@ class PlaybackService : MediaSessionService() {
             .build()
         mediaSession?.setCustomLayout(customLayout())
 
+        registerVolumeWatcher()
+
         scope.launch {
             SleepTimer.deadlineElapsed.collectLatest { deadline ->
                 handler.removeCallbacks(sleepRunnable)
@@ -130,6 +135,44 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+
+    // -------------------------------------------------------------------------
+    // pausing when the volume is taken to zero
+    // -------------------------------------------------------------------------
+
+    /** Set when this feature paused playback, so only it resumes it. */
+    private var pausedByVolume = false
+
+    private val volumeWatcher = object : ContentObserver(handler) {
+        override fun onChange(selfChange: Boolean) {
+            if (!repo.prefs.pauseOnSilence) return
+            val audio = getSystemService(AUDIO_SERVICE) as? AudioManager ?: return
+            val level = runCatching { audio.getStreamVolume(AudioManager.STREAM_MUSIC) }
+                .getOrDefault(1)
+            if (level == 0) {
+                if (player.isPlaying) {
+                    pausedByVolume = true
+                    player.pause()
+                }
+            } else if (pausedByVolume) {
+                // Only resume what this actually stopped. Someone who pressed
+                // pause and then changed the volume did not ask for the song to
+                // start again.
+                pausedByVolume = false
+                player.play()
+            }
+        }
+    }
+
+    private fun registerVolumeWatcher() {
+        runCatching {
+            contentResolver.registerContentObserver(
+                Settings.System.CONTENT_URI,
+                true,
+                volumeWatcher
+            )
+        }
+    }
 
     /**
      * What the notification opens when it is tapped.
@@ -185,6 +228,7 @@ class PlaybackService : MediaSessionService() {
     )
 
     override fun onDestroy() {
+        runCatching { contentResolver.unregisterContentObserver(volumeWatcher) }
         finalizeCurrent(manual = false)
         persistQueue()
         handler.removeCallbacks(sleepRunnable)

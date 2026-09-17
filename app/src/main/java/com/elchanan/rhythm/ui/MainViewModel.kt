@@ -28,6 +28,7 @@ import com.elchanan.rhythm.engine.Recommender
 import com.elchanan.rhythm.engine.ScoreTerm
 import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.engine.TasteReport
+import com.elchanan.rhythm.engine.Versions
 import com.elchanan.rhythm.playback.PlayerConnection
 import com.elchanan.rhythm.playback.QueueMeta
 import com.elchanan.rhythm.playback.SleepTimer
@@ -101,7 +102,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     val library: StateFlow<LibraryState> =
-        combine(repo.songs, repo.stats, repo.artists) { songs, stats, artists ->
+        combine(repo.songs, repo.stats, repo.artists) { all, stats, artists ->
+            // Collapsed before anything is derived from the list, so a hidden
+            // copy is gone from the artist counts and the albums too rather
+            // than only from the songs tab.
+            val songs = if (repo.prefs.hideDuplicates) {
+                // Indexed first: classify calls this once per song, and a linear
+                // scan inside it would make building the library quadratic.
+                val playsById = stats.associate { it.songId to it.playCount }
+                val types = Versions.classify(all) { id -> playsById[id] ?: 0 }
+                Versions.withoutDuplicates(all, types)
+            } else {
+                all
+            }
             val artistMap = artists.associateBy { it.artistKey }
             val byArtist = songs.groupBy { it.artistKey }
             val artistInfos = byArtist.map { (key, list) ->
@@ -301,7 +314,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         val e = engine
         _searchResults.value = if (e != null) {
-            e.search(q)
+            e.search(q, personal = if (prefs.searchPersonalized) 0.25 else 0.0)
         } else {
             val lower = q.lowercase(Locale.ROOT)
             library.value.songs.filter {

@@ -186,6 +186,16 @@ class Prefs(context: Context) {
     fun isShelfEnabled(kind: ShelfKind?): Boolean =
         kind == null || kind.key in homeShelves
 
+    /**
+     * Let the learned taste break ties in search results.
+     *
+     * Only ties: text relevance always outranks it, so a title typed in full
+     * still comes first whatever the engine thinks of it.
+     */
+    var searchPersonalized: Boolean
+        get() = sp.getBoolean(KEY_SEARCH_PERSONAL, true)
+        set(value) = sp.edit { putBoolean(KEY_SEARCH_PERSONAL, value) }
+
     /** Which library tab opens first. Playlists unless the user says otherwise. */
     var libraryFirstTab: String
         get() = sp.getString(KEY_LIBRARY_TAB, "PLAYLISTS").orEmpty().ifBlank { "PLAYLISTS" }
@@ -261,6 +271,7 @@ class Prefs(context: Context) {
         const val KEY_HIDE_DUPES = "hide_duplicates"
         const val KEY_PAUSE_SILENT = "pause_on_silence"
         const val KEY_PLAYER_ACTIONS = "player_actions"
+        const val KEY_SEARCH_PERSONAL = "search_personalized"
         const val KEY_WELCOME = "welcome_seen"
         const val KEY_RATING_TIP = "rating_tip_seen"
         const val KEY_EQ_ON = "eq_enabled"
