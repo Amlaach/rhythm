@@ -119,7 +119,8 @@ class StyleLearner private constructor(
             for ((scores, _) in labelled) {
                 for (i in 0 until dimension) mean[i] += scores[i].toDouble()
             }
-            for (i in 0 until dimension) mean[i] /= labelled.size
+            val rowCount = labelled.size.toDouble()
+            for (i in 0 until dimension) mean[i] = mean[i] / rowCount
             for ((scores, _) in labelled) {
                 for (i in 0 until dimension) {
                     val d = scores[i] - mean[i]
@@ -127,7 +128,7 @@ class StyleLearner private constructor(
                 }
             }
             for (i in 0 until dimension) {
-                scale[i] = sqrt(scale[i] / labelled.size).coerceAtLeast(EPS)
+                scale[i] = sqrt(scale[i] / rowCount).coerceAtLeast(EPS)
             }
 
             val x = Array(labelled.size) { row ->
