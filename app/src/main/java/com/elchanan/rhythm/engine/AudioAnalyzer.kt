@@ -412,6 +412,10 @@ object AudioAnalyzer {
         val im = DoubleArray(WINDOW)
         val magnitude = DoubleArray(bins)
         val previous = DoubleArray(bins)
+        // Kept so the separation can run over the whole probe afterwards. At
+        // four seconds and this hop it is under two megabytes, freed as soon as
+        // the probe is done.
+        val spectrogram = Array(frameCount) { DoubleArray(bins) }
 
         // pitch class of every fft bin, computed once
         val binPitchClass = IntArray(bins) { k ->
@@ -491,6 +495,42 @@ object AudioAnalyzer {
                 mfccSums[c] += v
                 mfccSquares[c] += v * v
             }
+            System.arraycopy(magnitude, 0, spectrogram[frame], 0, bins)
+        }
+
+        // Harmony and rhythm are then measured on opposite halves of the sound.
+        // Beforehand both were read off the whole mix, and each was being asked
+        // to ignore the other: a snare is broadband, so it deposits a little
+        // energy in all twelve pitch classes at once and quietly flattens the
+        // very distribution the key detector weighs; a held chord is not an
+        // onset but drifts enough to look like a stream of them.
+        runCatching {
+            val split = Separation.split(spectrogram)
+            java.util.Arrays.fill(chroma, 0.0)
+            java.util.Arrays.fill(chroma24, 0.0)
+            for (frame in 0 until frameCount) {
+                val row = split.harmonic[frame]
+                for (k in 0 until bins) {
+                    val m = row[k]
+                    if (m <= 0.0) continue
+                    val pc = binPitchClass[k]
+                    if (pc >= 0) chroma[pc] += m
+                    val qc = binQuarterClass[k]
+                    if (qc >= 0) chroma24[qc] += m
+                }
+            }
+            // And the onset envelope from the percussive half only.
+            java.util.Arrays.fill(previous, 0.0)
+            for (frame in 0 until frameCount) {
+                val row = split.percussive[frame]
+                var positive = 0.0
+                for (k in 0 until bins) {
+                    val d = row[k] - previous[k]
+                    if (d > 0) positive += d
+                }
+                flux[frame] = positive
+                System.arraycopy(row, 0, previous, 0, bins)
+            }
         }
 
         val meanRms = Dsp.mean(rms)
@@ -501,6 +541,36 @@ object AudioAnalyzer {
         val onset = Dsp.rectifyAgainstLocalMean(flux, 8)
         val (bpm, confidence) = detectTempo(onset, frameRate)
         val onsetRate = countPeaks(onset) / (frameCount / frameRate)
+
+        // Beats, and chroma averaged between them rather than over a fixed
+        // grid. A chord lasts a beat or two; sampling it every 23 milliseconds
+        // measures the same chord many times and the changes between chords
+        // hardly at all, which is what smears a key estimate.
+        runCatching {
+            val beats = BeatTracker.track(onset, frameRate, bpm)
+            if (beats.size >= 4) {
+                val perFrame = Array(frameCount) { f ->
+                    val row = spectrogram[f]
+                    val acc = DoubleArray(12)
+                    for (k in 0 until bins) {
+                        val pc = binPitchClass[k]
+                        if (pc >= 0) acc[pc] += row[k]
+                    }
+                    acc
+                }
+                val perBeat = BeatTracker.synchronise(perFrame, beats)
+                if (perBeat.isNotEmpty()) {
+                    java.util.Arrays.fill(chroma, 0.0)
+                    for (beat in perBeat) {
+                        // Each beat contributes equally, so a long held note
+                        // cannot outvote a bar full of changes.
+                        val total = beat.sum()
+                        if (total <= 1e-9) continue
+                        for (pc in 0 until 12) chroma[pc] += beat[pc] / total
+                    }
+                }
+            }
+        }
 
         val timbre = DoubleArray(MFCC_COUNT) { mfccSums[it] / frameCount }
         val timbreVar = DoubleArray(MFCC_COUNT) {
