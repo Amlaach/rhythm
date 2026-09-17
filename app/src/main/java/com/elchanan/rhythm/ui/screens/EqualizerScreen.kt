@@ -35,6 +35,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,7 +50,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -156,7 +159,9 @@ private fun GraphicEqualizer(vm: MainViewModel, gutter: Dp) {
     var settings by remember { mutableStateOf(controller.settings) }
 
     LazyColumn(
-        contentPadding = PaddingValues(bottom = 48.dp),
+        // Deep enough to scroll the last slider clear of the mini player and
+        // the navigation bar, both of which float over this screen.
+        contentPadding = PaddingValues(bottom = 150.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         item {
@@ -319,6 +324,12 @@ private fun ResponseCurve(
         }
     }
 
+    // A frequency axis runs low on the left and high on the right, in every
+    // equaliser ever built, and the drawing below is written that way. Left to
+    // the app's own direction the labels and the sliders would both be flipped
+    // by the layout while the canvas stayed put, so the axis would disagree
+    // with the curve drawn against it.
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = gutter)) {
         Box(
             modifier = Modifier
@@ -476,6 +487,7 @@ private fun ResponseCurve(
             }
         }
     }
+    }
 }
 
 // --- the sliders -------------------------------------------------------------
@@ -488,6 +500,9 @@ private fun FaderStrip(
     onBandEnd: () -> Unit
 ) {
     val scroll = rememberScrollState()
+    // Same reason as the curve: band 0 is 20 Hz and belongs on the left, next
+    // to the left hand end of the curve it is drawn under.
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -504,6 +519,7 @@ private fun FaderStrip(
                 onChangeEnd = onBandEnd
             )
         }
+    }
     }
 }
 
