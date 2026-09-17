@@ -165,6 +165,17 @@ interface MusicDao {
     @Query("SELECT COUNT(*) FROM lyrics WHERE text != '' OR synced != ''")
     suspend fun lyricsCount(): Int
 
+    /**
+     * Songs whose words contain [pattern], which arrives with its own wildcards.
+     *
+     * Matched in the database rather than in memory: lyrics are the largest
+     * text this app stores, and pulling every one of them across on each
+     * keystroke to look for three words would be the wrong trade by a wide
+     * margin.
+     */
+    @Query("SELECT songId FROM lyrics WHERE text LIKE :pattern OR synced LIKE :pattern LIMIT 80")
+    suspend fun songIdsWithLyrics(pattern: String): List<Long>
+
     // ---------- playlists ----------
 
     @Query("SELECT * FROM playlists ORDER BY createdAt DESC")

@@ -319,6 +319,9 @@ class PlaybackService : MediaSessionService() {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             val manual = reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK ||
                 reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED
+            // Remembered before the track is torn down, while the position it
+            // was left at is still readable.
+            rememberPosition()
             finalizeCurrent(manual)
             if (SleepTimer.consumeStopAfterTrack()) {
                 player.pause()
@@ -338,6 +341,7 @@ class PlaybackService : MediaSessionService() {
             } else {
                 absorb()
                 persistQueue()
+                rememberPosition()
                 stopFadeLoop()
             }
             // The widget draws its play button from this exact flag, and it was
@@ -493,6 +497,28 @@ class PlaybackService : MediaSessionService() {
      * Saves the queue so the next launch can restore it. Cheap enough to call
      * on every transition: it writes a comma separated list of ids.
      */
+    /**
+     * Notes where the current song was left, if it is worth coming back to.
+     *
+     * Bounded at both ends on purpose. The first seconds are not a place worth
+     * returning to, and something abandoned near the end was effectively
+     * finished - offering to resume either would be noise where the point is to
+     * rescue a long track someone actually got lost in.
+     */
+    private fun rememberPosition() {
+        if (!repo.prefs.resumePrompt) return
+        val id = player.currentMediaItem?.mediaId?.toLongOrNull() ?: return
+        val position = player.currentPosition
+        val duration = player.duration
+        val points = repo.prefs.resumePoints.toMutableMap()
+        if (position > 30_000L && (duration <= 0L || position < duration - 30_000L)) {
+            points[id] = position
+        } else {
+            points.remove(id)
+        }
+        repo.prefs.resumePoints = points
+    }
+
     private fun persistQueue() {
         runCatching {
             val ids = ArrayList<Long>(player.mediaItemCount)

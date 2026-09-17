@@ -110,6 +110,8 @@ fun SettingsScreen(
     var playerOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
     var searchPersonal by remember { mutableStateOf(vm.prefs.searchPersonalized) }
+    var searchLyrics by remember { mutableStateOf(vm.prefs.searchLyrics) }
+    var resumePrompt by remember { mutableStateOf(vm.prefs.resumePrompt) }
     var shelves by remember { mutableStateOf(vm.prefs.homeShelves) }
     var firstTab by remember { mutableStateOf(vm.prefs.libraryFirstTab) }
     var hideDupes by remember { mutableStateOf(vm.prefs.hideDuplicates) }
@@ -370,6 +372,33 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
+                            Text("חיפוש גם במילות השיר", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "מוצא שיר לפי שורה שזכור לך ממנו, גם כשאת השם שכחת. " +
+                                    "עובד על שירים שיש להם מילים — מקובץ LRC או מתגיות הקובץ",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = searchLyrics,
+                            onCheckedChange = {
+                                searchLyrics = it
+                                vm.prefs.searchLyrics = it
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Accent,
+                                checkedTrackColor = Accent.copy(alpha = 0.4f)
+                            )
+                        )
+                    }
+                }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text("התאמה אישית בתוצאות", style = MaterialTheme.typography.titleSmall)
                             Text(
                                 "כששתי תוצאות מתאימות באותה מידה לטקסט, זו שקרובה " +
@@ -442,6 +471,34 @@ fun SettingsScreen(
                                 )
                             }
                         }
+                    }
+                }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("הצעה להמשיך מהמיקום האחרון", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "כששיר נעזב באמצע ופותחים אותו שוב, מוצגת לכמה שניות " +
+                                    "הצעה לחזור לנקודה — עם הזמן המדויק. נשמר רק לשירים " +
+                                    "שנעזבו אחרי חצי דקה ולפני הסוף",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = resumePrompt,
+                            onCheckedChange = {
+                                resumePrompt = it
+                                vm.prefs.resumePrompt = it
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Accent,
+                                checkedTrackColor = Accent.copy(alpha = 0.4f)
+                            )
+                        )
                     }
                 }
                 item {

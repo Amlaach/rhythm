@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Arrangement
@@ -227,6 +228,20 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
     val rating = songStats?.rating ?: 0
     val feature = features[song.id]
     val (c1, c2) = artColors
+
+    // "Carry on from 2:14?", offered briefly when a song that was abandoned
+    // partway is opened again. It expires by itself: an offer that waits
+    // forever is permanent clutter, and the moment for this one has passed once
+    // the song is properly under way.
+    val resumeAt: Long? = remember(song.id) {
+        if (!vm.prefs.resumePrompt) null else vm.prefs.resumePoints[song.id]
+    }
+    var resumeVisible by remember(song.id) { mutableStateOf(resumeAt != null) }
+    LaunchedEffect(song.id, resumeAt) {
+        if (resumeAt == null) return@LaunchedEffect
+        delay(8_000)
+        resumeVisible = false
+    }
 
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -528,6 +543,40 @@ fun PlayerScreen(vm: MainViewModel, onCollapse: () -> Unit) {
 
                 Spacer(Modifier.height(6.dp))
 
+                }
+
+                if (resumeVisible && resumeAt != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Surface1)
+                            .clickable {
+                                vm.player.seekTo(resumeAt)
+                                resumeVisible = false
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "המשך מ־${formatDuration(resumeAt)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Accent
+                        )
+                        Spacer(Modifier.weight(1f))
+                        IconButton(
+                            onClick = { resumeVisible = false },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = "סגור",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                 }
 
                 val duration = if (state.durationMs > 0) state.durationMs else song.durationMs

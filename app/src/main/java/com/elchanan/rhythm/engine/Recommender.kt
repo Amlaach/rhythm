@@ -54,6 +54,21 @@ private val VENUE_MARKERS = Regex(
 
 private val YEAR_MARKER = Regex("""\b20\d{2}\b""")
 
+/**
+ * A medley: several songs strung together in one track.
+ *
+ * These are the reason a generated mix suddenly seems to start in the middle of
+ * a song - the track really does, because whatever is playing is the fourth
+ * tune of a set. One is a fine thing to choose deliberately and a bad thing to
+ * be handed, so mixes leave them out and the library keeps them.
+ */
+private val MEDLEY_MARKERS = Regex(
+    """מחרוזת|מחרוזות|\bmedley\b|\bmashup\b|מדלי""",
+    RegexOption.IGNORE_CASE
+)
+
+fun isMedley(title: String): Boolean = MEDLEY_MARKERS.containsMatchIn(title)
+
 fun isLiveRecording(title: String): Boolean {
     if (LIVE_MARKERS.containsMatchIn(title)) return true
     return VENUE_MARKERS.containsMatchIn(title) && YEAR_MARKER.containsMatchIn(title)
@@ -731,7 +746,14 @@ class Recommender(
 
     fun radio(seed: SongEntity, size: Int = 40): List<SongEntity> {
         val seedIds = listOf(seed.id)
-        val pool = songs.filter { it.id != seed.id && (stats[it.id]?.liked ?: 0) != -1 }
+        // Medleys are excluded from anything generated. Landing on one without
+        // having chosen it is indistinguishable from a song starting halfway
+        // through, which is the single most jarring thing an automatic queue
+        // can do. Seeding a radio *from* a medley is still allowed - that was a
+        // deliberate choice.
+        val pool = songs.filter {
+            it.id != seed.id && (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title)
+        }
         val chosen = pick(
             candidates = pool,
             count = size,
@@ -755,7 +777,9 @@ class Recommender(
     fun continuation(recent: List<Long>, exclude: Set<Long>, size: Int = 20): List<SongEntity> {
         val seedIds = recent.take(5)
         val last = seedIds.firstOrNull()
-        val pool = songs.filter { it.id !in exclude && (stats[it.id]?.liked ?: 0) != -1 }
+        val pool = songs.filter {
+            it.id !in exclude && (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title)
+        }
         val chosen = pick(pool, size, salt = (last ?: 7L), maxPerArtist = 3) { candidate ->
             var bonus = 1.6 * affinityTo(seedIds, candidate.id)
             if (last != null) {
@@ -777,7 +801,13 @@ class Recommender(
     fun buildFeed(): List<FeedSection> {
         if (songs.isEmpty()) return emptyList()
         val sections = ArrayList<FeedSection>(8)
-        val notDisliked = songs.filter { (stats[it.id]?.liked ?: 0) != -1 }
+        // Medleys stay out of every generated shelf and mix, for the same reason
+        // they stay out of radio: one arriving unasked sounds like a song that
+        // began halfway through. They are still there to be played on purpose
+        // from the library, from search, and from a folder.
+        val notDisliked = songs.filter {
+            (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title)
+        }
 
         // Speed dial: the handful of tracks actually returned to, first on the
         // page. Held back until there is real listening behind it - a "most

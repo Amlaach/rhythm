@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -307,13 +308,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         doSearch(q)
     }
 
+    private var lyricsSearchJob: Job? = null
+
     private fun doSearch(q: String) {
+        lyricsSearchJob?.cancel()
         if (q.isBlank()) {
             _searchResults.value = emptyList()
             return
         }
         val e = engine
-        _searchResults.value = if (e != null) {
+        val byText = if (e != null) {
             e.search(q, personal = if (prefs.searchPersonalized) 0.25 else 0.0)
         } else {
             val lower = q.lowercase(Locale.ROOT)
@@ -322,6 +326,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     it.artistName.lowercase(Locale.ROOT).contains(lower) ||
                     it.albumName.lowercase(Locale.ROOT).contains(lower)
             }.take(60)
+        }
+        _searchResults.value = byText
+
+        // Lyrics come second, and separately. The database round trip is slower
+        // than matching titles in memory, and holding the whole result back for
+        // it would make every keystroke feel laggy. Title matches appear at
+        // once; anything found only in the words joins them a moment later, and
+        // always below - someone typing a title wants the title.
+        if (!prefs.searchLyrics) return
+        lyricsSearchJob = viewModelScope.launch {
+            val ids = repo.songIdsWithLyrics(q).toSet()
+            if (ids.isEmpty()) return@launch
+            if (_searchQuery.value != q) return@launch
+            val already = byText.mapTo(HashSet()) { it.id }
+            val extra = library.value.songs.filter { it.id in ids && it.id !in already }
+            if (extra.isNotEmpty()) {
+                _searchResults.value = byText + extra
+            }
         }
     }
 

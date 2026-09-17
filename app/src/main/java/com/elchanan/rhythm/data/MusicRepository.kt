@@ -221,6 +221,17 @@ class MusicRepository(
 
     suspend fun analyzedCount(): Int = withContext(Dispatchers.IO) { dao.featureCount() }
 
+    /** Song ids whose lyrics contain [query], as a plain substring. */
+    suspend fun songIdsWithLyrics(query: String): List<Long> = withContext(Dispatchers.IO) {
+        val trimmed = query.trim()
+        if (trimmed.length < 2) return@withContext emptyList()
+        // Underscore and percent are wildcards in LIKE, so a query containing
+        // either would quietly match far more than it asked for.
+        val safe = trimmed.replace("%", "").replace("_", "")
+        if (safe.isEmpty()) return@withContext emptyList()
+        runCatching { dao.songIdsWithLyrics("%$safe%") }.getOrDefault(emptyList())
+    }
+
     /**
      * Every measured feature, read straight from the database.
      *

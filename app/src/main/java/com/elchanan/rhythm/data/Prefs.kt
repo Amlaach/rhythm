@@ -196,6 +196,17 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_SEARCH_PERSONAL, true)
         set(value) = sp.edit { putBoolean(KEY_SEARCH_PERSONAL, value) }
 
+    /**
+     * Also look inside the words of the song.
+     *
+     * On, because it is the thing people remember when they cannot remember a
+     * title. It costs a database lookup per search, which is why the results
+     * arrive after the title matches rather than with them.
+     */
+    var searchLyrics: Boolean
+        get() = sp.getBoolean(KEY_SEARCH_LYRICS, true)
+        set(value) = sp.edit { putBoolean(KEY_SEARCH_LYRICS, value) }
+
     /** Which library tab opens first. Playlists unless the user says otherwise. */
     var libraryFirstTab: String
         get() = sp.getString(KEY_LIBRARY_TAB, "PLAYLISTS").orEmpty().ifBlank { "PLAYLISTS" }
@@ -221,6 +232,43 @@ class Prefs(context: Context) {
     var pauseOnSilence: Boolean
         get() = sp.getBoolean(KEY_PAUSE_SILENT, false)
         set(value) = sp.edit { putBoolean(KEY_PAUSE_SILENT, value) }
+
+    /**
+     * Offer to pick a song up where it was left, the way Musicolet does.
+     *
+     * Off by default. It is a genuinely useful thing on long tracks and a
+     * distraction on a three minute song, and only the person listening knows
+     * which kind of library theirs is.
+     */
+    var resumePrompt: Boolean
+        get() = sp.getBoolean(KEY_RESUME_PROMPT, false)
+        set(value) = sp.edit { putBoolean(KEY_RESUME_PROMPT, value) }
+
+    /**
+     * Where each song was last left, as `songId:positionMs` pairs.
+     *
+     * Deliberately not a database table. These are worth nothing the moment the
+     * song is finished, and a bounded list in preferences cannot grow into a
+     * problem the way a table quietly does.
+     */
+    var resumePoints: Map<Long, Long>
+        get() = sp.getString(KEY_RESUME_POINTS, null)
+            ?.split(',')
+            ?.mapNotNull { pair ->
+                val parts = pair.split(':')
+                val id = parts.getOrNull(0)?.toLongOrNull()
+                val at = parts.getOrNull(1)?.toLongOrNull()
+                if (id != null && at != null) id to at else null
+            }
+            ?.toMap()
+            .orEmpty()
+        set(value) {
+            // Newest kept, and only a handful: this is a convenience, not history.
+            val trimmed = value.entries.toList().takeLast(40)
+            sp.edit {
+                putString(KEY_RESUME_POINTS, trimmed.joinToString(",") { "${it.key}:${it.value}" })
+            }
+        }
 
     /**
      * Where each player control lives, as `key=placement` pairs.
@@ -272,6 +320,9 @@ class Prefs(context: Context) {
         const val KEY_PAUSE_SILENT = "pause_on_silence"
         const val KEY_PLAYER_ACTIONS = "player_actions"
         const val KEY_SEARCH_PERSONAL = "search_personalized"
+        const val KEY_SEARCH_LYRICS = "search_lyrics"
+        const val KEY_RESUME_PROMPT = "resume_prompt"
+        const val KEY_RESUME_POINTS = "resume_points"
         const val KEY_WELCOME = "welcome_seen"
         const val KEY_RATING_TIP = "rating_tip_seen"
         const val KEY_EQ_ON = "eq_enabled"
