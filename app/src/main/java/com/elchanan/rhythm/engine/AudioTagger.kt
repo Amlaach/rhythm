@@ -75,7 +75,8 @@ class AudioTagger private constructor(private val interpreter: Interpreter) {
             offset += frameSamples / 2
         }
         if (frames == 0) return null
-        for (c in 0 until classCount) total[c] /= frames
+        val divisor = frames.toFloat()
+        for (c in 0 until classCount) total[c] = total[c] / divisor
         return total
     }
 
