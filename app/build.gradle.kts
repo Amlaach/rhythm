@@ -24,6 +24,15 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         vectorDrawables { useSupportLibrary = true }
+
+        // TensorFlow Lite ships a native library per architecture, and carrying
+        // all four roughly doubles the download for nothing: arm64 covers every
+        // phone sold in years, and x86_64 is what the emulator runs on. The two
+        // that are left out are 32-bit builds this app's minimum already makes
+        // rare.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     signingConfigs {
@@ -75,6 +84,12 @@ android {
             excludes += "/META-INF/DEPENDENCIES"
         }
     }
+    androidResources {
+        // A .tflite must reach the device byte for byte. Compressing it in the
+        // apk means it cannot be memory mapped, and the interpreter refuses to
+        // load it.
+        noCompress += "tflite"
+    }
     lint {
         abortOnError = false
         checkReleaseBuilds = false
@@ -115,4 +130,9 @@ dependencies {
     implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("com.google.guava:guava:32.1.3-android")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // On-device audio tagging. The task library reads the model's own metadata
+    // for its sample rate and buffer length, which is the part of a TensorFlow
+    // Lite integration that is easiest to get quietly wrong.
+    implementation("org.tensorflow:tensorflow-lite-task-audio:0.4.4")
 }
