@@ -69,6 +69,9 @@ class AnalysisManager(
                     total = repo.songCount()
                 }
             } finally {
+                // The model holds its weights and a working arena for as long
+                // as it is open, and the pass is the only thing that uses it.
+                runCatching { AudioAnalyzer.releaseTagger() }
                 _progress.value = _progress.value.copy(running = false, currentTitle = null)
             }
         }

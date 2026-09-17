@@ -67,6 +67,9 @@ object AudioAnalyzer {
     fun analyze(context: Context, song: SongEntity): AudioFeatureEntity? {
         val uri = MediaItems.songUri(song.id)
         val windows = ArrayList<WindowStats>(PROBE_POINTS.size)
+        // The same probes at the rate the model was trained on. Decoding once
+        // and resampling twice is far cheaper than decoding the file again.
+        val forTagging = ArrayList<FloatArray>(PROBE_POINTS.size)
 
         for (fraction in PROBE_POINTS) {
             val startUs = probeStart(song.durationMs, fraction)
@@ -78,10 +81,75 @@ object AudioAnalyzer {
             val (samples, sr) = decimate(raw, sampleRate, TARGET_SAMPLE_RATE)
             val stats = runCatching { windowStats(samples, sr) }.getOrNull() ?: continue
             windows.add(stats)
+            runCatching {
+                forTagging.add(decimate(raw, sampleRate, AudioTagger.SAMPLE_RATE).first)
+            }
         }
 
         if (windows.isEmpty()) return null
-        return runCatching { merge(song.id, windows) }.getOrNull()
+        val merged = runCatching { merge(song.id, windows) }.getOrNull() ?: return null
+
+        // Tagging is best effort. A device where the model will not load, or a
+        // build that ships without it, still gets every measured feature - the
+        // track is simply left without labels rather than left unanalysed.
+        val tags = runCatching {
+            val tagger = tagger(context) ?: return@runCatching ""
+            val waveform = concat(forTagging)
+            val scores = tagger.scores(waveform) ?: return@runCatching ""
+            AudioTags.compress(scores)
+        }.getOrDefault("")
+
+        return if (tags.isEmpty()) merged else merged.copy(tags = tags)
+    }
+
+    private fun concat(parts: List<FloatArray>): FloatArray {
+        var total = 0
+        for (p in parts) total += p.size
+        val out = FloatArray(total)
+        var at = 0
+        for (p in parts) {
+            System.arraycopy(p, 0, out, at, p.size)
+            at += p.size
+        }
+        return out
+    }
+
+    // -------------------------------------------------------------------------
+    // the tagging model, created once for a whole pass
+    // -------------------------------------------------------------------------
+
+    @Volatile
+    private var tagger: AudioTagger? = null
+
+    @Volatile
+    private var taggerAttempted = false
+
+    /**
+     * Loads the model on first use and keeps it.
+     *
+     * Building an interpreter means mapping four megabytes and allocating its
+     * working memory; doing that per song would cost more than the inference.
+     * A failure is remembered too, so a device that cannot load it does not
+     * retry once per track for the length of the library.
+     */
+    private fun tagger(context: Context): AudioTagger? {
+        if (taggerAttempted) return tagger
+        synchronized(this) {
+            if (!taggerAttempted) {
+                taggerAttempted = true
+                tagger = AudioTagger.create(context.applicationContext)
+            }
+        }
+        return tagger
+    }
+
+    /** Frees the model once a pass is over. */
+    fun releaseTagger() {
+        synchronized(this) {
+            tagger?.close()
+            tagger = null
+            taggerAttempted = false
+        }
     }
 
     /**

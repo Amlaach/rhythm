@@ -150,7 +150,19 @@ data class AudioFeatureEntity(
      * rotated to the tonic. Twelve bins round a neutral third to its nearest
      * semitone, which erases the very interval that identifies Rast or Bayati.
      */
-    val chroma24: String = ""
+    val chroma24: String = "",
+    /**
+     * What the tagging model heard, as `classIndex:score` pairs.
+     *
+     * Only the classes that fired are kept. All 521 would be about two
+     * kilobytes of mostly zeros per song - for music the distribution is
+     * sharply peaked, so the top slice holds everything a classifier can use.
+     *
+     * Empty in the lite build, which ships without the model, and empty for
+     * anything analysed before the model arrived. Both cases have to read as
+     * "not known" rather than "nothing there".
+     */
+    val tags: String = ""
 )
 
 @Entity(tableName = "history", indices = [Index("playedAt"), Index("songId")])

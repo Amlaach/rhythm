@@ -21,7 +21,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaylistItemEntity::class,
         TagOverrideEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class RhythmDatabase : RoomDatabase() {
@@ -83,6 +83,13 @@ abstract class RhythmDatabase : RoomDatabase() {
             }
         }
 
+        /** v7 -> v8 stores what the tagging model heard in each track. */
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE audio_features ADD COLUMN tags TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE song_stats ADD COLUMN rating INTEGER NOT NULL DEFAULT 0")
@@ -110,7 +117,7 @@ abstract class RhythmDatabase : RoomDatabase() {
                 "rhythm.db"
             ).addMigrations(
                 MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
-                MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7
+                MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8
             )
                 .fallbackToDestructiveMigration()
                 .build()
