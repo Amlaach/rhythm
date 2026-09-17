@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -45,7 +46,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.elchanan.rhythm.ui.ActionPlacement
 import com.elchanan.rhythm.ui.MainViewModel
+import com.elchanan.rhythm.ui.PlayerAction
+import com.elchanan.rhythm.engine.ShelfKind
+import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.SectionHeader
 import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent2
@@ -100,6 +105,14 @@ fun SettingsScreen(
     var skipSilence by remember { mutableStateOf(vm.prefs.skipSilence) }
     var normalizeVolume by remember { mutableStateOf(vm.prefs.normalizeVolume) }
     var algorithmOpen by remember { mutableStateOf(false) }
+    var homeOpen by remember { mutableStateOf(false) }
+    var libraryOpen by remember { mutableStateOf(false) }
+    var playerOpen by remember { mutableStateOf(false) }
+    var shelves by remember { mutableStateOf(vm.prefs.homeShelves) }
+    var firstTab by remember { mutableStateOf(vm.prefs.libraryFirstTab) }
+    var hideDupes by remember { mutableStateOf(vm.prefs.hideDuplicates) }
+    var pauseSilent by remember { mutableStateOf(vm.prefs.pauseOnSilence) }
+    var actions by remember { mutableStateOf(vm.prefs.playerActions) }
     var stripForeign by remember { mutableStateOf(vm.prefs.tagStripForeign) }
     var writeTags by remember { mutableStateOf(vm.prefs.writeTagsToFiles) }
     val analysis by vm.analysisProgress.collectAsStateWithLifecycle()
@@ -214,6 +227,200 @@ fun SettingsScreen(
                 )
             }
             }
+
+            // ---------------------------------------------------------------
+            // דף הבית
+            // ---------------------------------------------------------------
+            item {
+                SectionToggleRow(
+                    title = "הגדרות דף הבית",
+                    subtitle = "אילו מדפים יופיעו, ובאיזה סדר הם נבנים",
+                    open = homeOpen,
+                    onToggle = { homeOpen = !homeOpen }
+                )
+            }
+            if (homeOpen) {
+                item {
+                    Text(
+                        "כיבוי מדף לא מוחק כלום — הוא פשוט מפסיק להופיע, וחוזר כמו " +
+                            "שהיה כשמדליקים אותו בחזרה.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(horizontal = gutter, vertical = 4.dp)
+                    )
+                }
+                items(ShelfKind.entries.toList()) { shelf ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = gutter, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(shelf.label, style = MaterialTheme.typography.bodyLarge)
+                            if (shelf.about.isNotEmpty()) {
+                                Text(
+                                    shelf.about,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = shelf.key in shelves,
+                            onCheckedChange = { on ->
+                                shelves = if (on) shelves + shelf.key else shelves - shelf.key
+                                vm.setHomeShelves(shelves)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Accent,
+                                checkedTrackColor = Accent.copy(alpha = 0.4f)
+                            )
+                        )
+                    }
+                }
+            }
+
+            // ---------------------------------------------------------------
+            // הספרייה
+            // ---------------------------------------------------------------
+            item {
+                SectionToggleRow(
+                    title = "הגדרות הספרייה",
+                    subtitle = "מה נפתח ראשון, וכפילויות",
+                    open = libraryOpen,
+                    onToggle = { libraryOpen = !libraryOpen }
+                )
+            }
+            if (libraryOpen) {
+                item {
+                    Column(modifier = Modifier.padding(horizontal = gutter, vertical = 6.dp)) {
+                        Text("מה נפתח ראשון", style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Chip(
+                                label = "פלייליסטים",
+                                selected = firstTab == "PLAYLISTS",
+                                onClick = { firstTab = "PLAYLISTS"; vm.prefs.libraryFirstTab = firstTab }
+                            )
+                            Chip(
+                                label = "תיקיות",
+                                selected = firstTab == "FOLDERS",
+                                onClick = { firstTab = "FOLDERS"; vm.prefs.libraryFirstTab = firstTab }
+                            )
+                        }
+                    }
+                }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("הסתרת כפילויות", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "כשאותה הקלטה קיימת פעמיים במכשיר, מוצג רק עותק אחד. " +
+                                    "גרסאות שונות של אותו שיר — לייב, קאבר — נחשבות " +
+                                    "שירים נפרדים ולא נעלמות",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = hideDupes,
+                            onCheckedChange = {
+                                hideDupes = it
+                                vm.setHideDuplicates(it)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Accent,
+                                checkedTrackColor = Accent.copy(alpha = 0.4f)
+                            )
+                        )
+                    }
+                }
+            }
+
+            // ---------------------------------------------------------------
+            // הנגן
+            // ---------------------------------------------------------------
+            item {
+                SectionToggleRow(
+                    title = "הגדרות הנגן",
+                    subtitle = "אילו כפתורים יופיעו, ואיפה",
+                    open = playerOpen,
+                    onToggle = { playerOpen = !playerOpen }
+                )
+            }
+            if (playerOpen) {
+                item {
+                    Text(
+                        "לכל פעולה אפשר לבחור: כפתור משלה במסך הנגן, פריט בתפריט " +
+                            "השלוש נקודות, או מוסתרת לגמרי.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(horizontal = gutter, vertical = 4.dp)
+                    )
+                }
+                items(PlayerAction.entries.toList()) { action ->
+                    val current = PlayerAction.placementOf(actions, action)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = gutter, vertical = 6.dp)
+                    ) {
+                        Text(action.label, style = MaterialTheme.typography.bodyLarge)
+                        if (action.about.isNotEmpty()) {
+                            Text(
+                                action.about,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ActionPlacement.entries.forEach { placement ->
+                                Chip(
+                                    label = placement.label,
+                                    selected = current == placement,
+                                    onClick = {
+                                        actions = actions + (action.key to placement.name)
+                                        vm.prefs.playerActions = actions
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("עצירה כשהעוצמה באפס", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "מוריד את העוצמה לאפס — ההשמעה נעצרת, ומתחדשת לבד " +
+                                    "כשמעלים בחזרה. בלי זה השיר ממשיך לרוץ בשקט",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = pauseSilent,
+                            onCheckedChange = {
+                                pauseSilent = it
+                                vm.prefs.pauseOnSilence = it
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Accent,
+                                checkedTrackColor = Accent.copy(alpha = 0.4f)
+                            )
+                        )
+                    }
+                }
+            }
+
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
@@ -649,6 +856,32 @@ private fun Stat(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
         Spacer(Modifier.weight(1f))
         Text(value, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/** The header that folds a whole area of settings away behind one tap. */
+@Composable
+private fun SectionToggleRow(
+    title: String,
+    subtitle: String,
+    open: Boolean,
+    onToggle: () -> Unit
+) {
+    val gutter = rememberMetrics().gutter
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = gutter, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        }
+        Button(
+            onClick = onToggle,
+            colors = ButtonDefaults.buttonColors(containerColor = Accent)
+        ) { Text(if (open) "סגור" else "פתח") }
     }
 }
 

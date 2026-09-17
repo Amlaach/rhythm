@@ -26,6 +26,7 @@ import com.elchanan.rhythm.engine.Mix
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.Recommender
 import com.elchanan.rhythm.engine.ScoreTerm
+import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.engine.TasteReport
 import com.elchanan.rhythm.playback.PlayerConnection
 import com.elchanan.rhythm.playback.QueueMeta
@@ -267,7 +268,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // feed - rating an artist, for one - froze the whole interface and
             // taps simply went nowhere.
             val built = withContext(Dispatchers.Default) { e.buildFeed() to e.tasteReport() }
-            _feed.value = built.first
+            // Filtered here rather than inside the engine: the engine's job is to
+            // decide what is worth showing, and this is the user overruling that
+            // afterwards. Keeping them apart means a shelf switched off still
+            // costs nothing and comes back intact when it is switched on.
+            val allowed = prefs.homeShelves
+            _feed.value = built.first.filter { section ->
+                ShelfKind.of(section.id)?.key?.let { it in allowed } ?: true
+            }
             _report.value = built.second
             if (_searchQuery.value.isNotBlank()) doSearch(_searchQuery.value)
         }
@@ -777,6 +785,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val _homeTopSignal = MutableStateFlow(0)
     val homeTopSignal: StateFlow<Int> = _homeTopSignal.asStateFlow()
+
+    /** Switching a shelf on or off rebuilds the feed so the change is immediate. */
+    fun setHomeShelves(keys: Set<String>) {
+        prefs.homeShelves = keys
+        refreshFeed()
+    }
+
+    fun setHideDuplicates(enabled: Boolean) {
+        prefs.hideDuplicates = enabled
+        refreshFeed()
+    }
 
     fun requestHomeTop() {
         _homeTopSignal.value = _homeTopSignal.value + 1

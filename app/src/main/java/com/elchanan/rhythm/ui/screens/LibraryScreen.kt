@@ -141,7 +141,12 @@ fun LibraryScreen(
     val library by vm.library.collectAsStateWithLifecycle()
     val playlists by vm.playlists.collectAsStateWithLifecycle()
     val gutter = rememberMetrics().gutter
-    var tab by remember { mutableStateOf(0) }
+    // Which tab the library opens on is a preference, so someone who lives in
+    // their folders does not land on playlists every single time.
+    var tab by remember {
+        val wanted = vm.prefs.libraryFirstTab
+        mutableStateOf(LibraryTab.entries.indexOfFirst { it.name == wanted }.coerceAtLeast(0))
+    }
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
     var newPlaylist by remember { mutableStateOf(false) }
     var sort by remember { mutableStateOf(SongSort.TITLE) }

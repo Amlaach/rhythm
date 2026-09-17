@@ -2,6 +2,7 @@ package com.elchanan.rhythm.data
 
 import android.content.Context
 import androidx.core.content.edit
+import com.elchanan.rhythm.engine.ShelfKind
 
 /**
  * Small, boring settings store. Everything the recommendation engine can be
@@ -162,6 +163,76 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_ONBOARDED, false)
         set(value) = sp.edit { putBoolean(KEY_ONBOARDED, value) }
 
+    // -----------------------------------------------------------------------
+    // what the screens show
+    // -----------------------------------------------------------------------
+
+    /**
+     * Which home shelves are switched on, by [ShelfKind] key.
+     *
+     * Absent means "never chosen", which is not the same as "all off" - a
+     * missing value has to read as everything enabled or a fresh install would
+     * open onto an empty home screen.
+     */
+    var homeShelves: Set<String>
+        get() = sp.getString(KEY_HOME_SHELVES, null)
+            ?.split(',')
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?.toSet()
+            ?: ShelfKind.ALL_KEYS
+        set(value) = sp.edit { putString(KEY_HOME_SHELVES, value.joinToString(",")) }
+
+    fun isShelfEnabled(kind: ShelfKind?): Boolean =
+        kind == null || kind.key in homeShelves
+
+    /** Which library tab opens first. Playlists unless the user says otherwise. */
+    var libraryFirstTab: String
+        get() = sp.getString(KEY_LIBRARY_TAB, "PLAYLISTS").orEmpty().ifBlank { "PLAYLISTS" }
+        set(value) = sp.edit { putString(KEY_LIBRARY_TAB, value) }
+
+    /**
+     * Collapse songs that are the same recording stored twice.
+     *
+     * Off by default: hiding a file the user can see in their own folders is
+     * surprising, and it should be their decision that the copy is redundant.
+     */
+    var hideDuplicates: Boolean
+        get() = sp.getBoolean(KEY_HIDE_DUPES, false)
+        set(value) = sp.edit { putBoolean(KEY_HIDE_DUPES, value) }
+
+    /**
+     * Pause when the volume reaches zero, resume when it comes back.
+     *
+     * Off by default because it takes control of playback away from the
+     * transport, and somebody who turns the volume down to talk does not always
+     * want the song to stop counting.
+     */
+    var pauseOnSilence: Boolean
+        get() = sp.getBoolean(KEY_PAUSE_SILENT, false)
+        set(value) = sp.edit { putBoolean(KEY_PAUSE_SILENT, value) }
+
+    /**
+     * Where each player control lives, as `key=placement` pairs.
+     *
+     * Stored as one string rather than a preference each, so adding a control
+     * later does not need a migration - an unknown key is simply ignored and a
+     * missing one falls back to its own default.
+     */
+    var playerActions: Map<String, String>
+        get() = sp.getString(KEY_PLAYER_ACTIONS, null)
+            ?.split(',')
+            ?.mapNotNull { pair ->
+                val parts = pair.split('=')
+                if (parts.size == 2 && parts[0].isNotBlank()) parts[0].trim() to parts[1].trim()
+                else null
+            }
+            ?.toMap()
+            .orEmpty()
+        set(value) = sp.edit {
+            putString(KEY_PLAYER_ACTIONS, value.entries.joinToString(",") { "${it.key}=${it.value}" })
+        }
+
     private companion object {
         const val KEY_MIN_DURATION = "min_duration_sec"
         const val KEY_DISCOVERY = "discovery"
@@ -185,6 +256,11 @@ class Prefs(context: Context) {
         const val KEY_TAG_TIP = "tag_tip_seen"
         const val KEY_STRIP_FOREIGN = "tag_strip_foreign"
         const val KEY_WRITE_TAGS = "tag_write_to_files"
+        const val KEY_HOME_SHELVES = "home_shelves"
+        const val KEY_LIBRARY_TAB = "library_first_tab"
+        const val KEY_HIDE_DUPES = "hide_duplicates"
+        const val KEY_PAUSE_SILENT = "pause_on_silence"
+        const val KEY_PLAYER_ACTIONS = "player_actions"
         const val KEY_WELCOME = "welcome_seen"
         const val KEY_RATING_TIP = "rating_tip_seen"
         const val KEY_EQ_ON = "eq_enabled"

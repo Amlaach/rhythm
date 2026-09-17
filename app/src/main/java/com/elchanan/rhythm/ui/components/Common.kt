@@ -94,13 +94,14 @@ fun Artwork(
             .clip(RoundedCornerShape(corner.dp))
             .background(Brush.linearGradient(listOf(c1, c2)))
     ) {
-        Icon(
-            imageVector = Icons.Filled.MusicNote,
-            contentDescription = null,
-            tint = Color.White.copy(alpha = 0.45f),
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(26.dp)
+        // What a song with no cover of its own falls back to: the app's own
+        // mark, over the tint its artist always gets. A generic note icon said
+        // nothing; this at least makes an untagged library look like it belongs
+        // to something. The real cover, when there is one, paints straight over
+        // it.
+        RhythmMark(
+            modifier = Modifier.align(Alignment.Center),
+            size = 26.dp
         )
         AsyncImage(
             model = SongArt(songId, albumId),
