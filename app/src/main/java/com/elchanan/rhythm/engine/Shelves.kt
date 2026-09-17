@@ -21,7 +21,7 @@ enum class ShelfKind(val key: String, val label: String, val about: String) {
     ARTIST("artist", "האמן המועדף", "מדף לאמן שאתה הכי מאזין לו"),
     LIVE("live", "הופעות חיות", "הקלטות מהופעה"),
     LIVE_OF_LIKED("liveofliked", "לייב של מה שאהבת", "גרסאות חיות לשירים שאהבת"),
-    COVERS("covers", "גרסאות וקאברים", "ביצועים אחרים לאותו שיר"),
+    COVERS("covers", "גרסאות כיסוי", "אמן אחר מבצע שיר שיש לך"),
     YOURS("yours", "בשבילך", "התאמה לפי הטעם שנלמד"),
     AFFINITY("affinity", "לפי סגנון", "סגנון שחוזר אצלך"),
     LONGFORM("longform", "ארוכים", "שירים מעל שמונה דקות"),

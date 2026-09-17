@@ -7,7 +7,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.elchanan.rhythm.RhythmApp
 import com.elchanan.rhythm.data.MediaScanner
+import androidx.documentfile.provider.DocumentFile
+import com.elchanan.rhythm.data.PlaylistExport
 import com.elchanan.rhythm.data.PlaylistImport
+import com.elchanan.rhythm.engine.MoodModel
 import com.elchanan.rhythm.data.TagFileWriter
 import com.elchanan.rhythm.data.TagFixer
 import com.elchanan.rhythm.data.MusicRepository
@@ -121,17 +124,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 all
             }
             val artistMap = artists.associateBy { it.artistKey }
-            val byArtist = songs.groupBy { it.artistKey }
+            // Every artist named on a song, not only the first one. A duet
+            // belongs on both singers' pages; the first name is still the one
+            // the song is keyed on everywhere else, this only decides where it
+            // is listed. Names are gathered as we go so a guest who never
+            // appears alone still gets a page.
+            val byArtist = LinkedHashMap<String, MutableList<SongEntity>>()
+            val nameForKey = HashMap<String, String>()
+            for (song in songs) {
+                byArtist.getOrPut(song.artistKey) { ArrayList() }.add(song)
+                nameForKey.putIfAbsent(song.artistKey, MediaScanner.primaryArtist(song.artistName))
+                for (credit in MediaScanner.credits(song.artistName)) {
+                    val key = MediaScanner.normalizeKey(credit)
+                    if (key == song.artistKey) continue
+                    byArtist.getOrPut(key) { ArrayList() }.add(song)
+                    nameForKey.putIfAbsent(key, credit)
+                }
+            }
             val artistInfos = byArtist.map { (key, list) ->
                 val profile = artistMap[key]
                 ArtistInfo(
                     key = key,
                     displayName = profile?.displayName?.takeIf { it.isNotBlank() }
-                        ?: MediaScanner.primaryArtist(list.first().artistName),
+                        ?: nameForKey[key].orEmpty(),
                     rating = profile?.rating ?: 0,
                     styles = profile?.styles.orEmpty(),
                     note = profile?.note.orEmpty(),
-                    songs = list.sortedBy { it.titleLower }
+                    songs = list.distinctBy { it.id }.sortedBy { it.titleLower }
                 )
             }.sortedBy { it.displayName.lowercase(Locale.ROOT) }
 
@@ -355,16 +374,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // playback
     // -----------------------------------------------------------------------
 
+    /**
+     * Bumped whenever the user deliberately starts something playing.
+     *
+     * The setting that opens the full player on play needs to know the
+     * difference between "the user tapped a song" and "the queue moved on by
+     * itself", and the player's own state cannot tell them apart - both look
+     * like a new current song. A counter rather than a flag because two taps
+     * on the same song are two events, and the screen has to react to the
+     * second one as well.
+     *
+     * Queueing something for later is not a start: [playNext] and
+     * [addToQueue] deliberately leave it alone.
+     */
+    private val _playbackStarted = MutableStateFlow(0)
+    val playbackStarted: StateFlow<Int> = _playbackStarted.asStateFlow()
+
+    private fun markStarted() {
+        _playbackStarted.value = _playbackStarted.value + 1
+    }
+
     fun playList(songs: List<SongEntity>, index: Int = 0, source: String? = null) {
         if (songs.isEmpty()) return
         QueueMeta.reset()
         QueueMeta.setSource(source ?: _detail.value?.title)
         player.play(songs, index)
+        markStarted()
     }
 
     fun shuffleList(songs: List<SongEntity>) {
         if (songs.isEmpty()) return
         player.playShuffled(songs)
+        markStarted()
     }
 
     /** "Start radio": one seed song plus an endless, ranked continuation. */
@@ -375,7 +416,42 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             QueueMeta.reset()
             QueueMeta.markAuto(list.drop(1).map { it.id })
             player.play(list, 0)
+            markStarted()
             _message.value = "רדיו: ${song.title}"
+        }
+    }
+
+    /**
+     * Stores the "never mix these styles" rules and rebuilds the feed.
+     *
+     * The engine holds them as a parsed value taken at construction, so a
+     * change only takes effect once it is thrown away.
+     */
+    fun setStyleSeparations(rules: String) {
+        repo.prefs.styleSeparations = rules
+        engine = null
+        refreshFeed()
+    }
+
+    /** Forgets that a song was played, keeping the like, rating and tags. */
+    fun resetPlayCount(song: SongEntity) {
+        viewModelScope.launch {
+            repo.resetPlayCount(song.id)
+            engine = null
+            _message.value = "אופסו ההשמעות של ${song.title}"
+        }
+    }
+
+    /** The same for a whole artist. */
+    fun resetArtistPlayCounts(artistKey: String, displayName: String) {
+        viewModelScope.launch {
+            val cleared = repo.resetArtistPlayCounts(artistKey)
+            engine = null
+            _message.value = if (cleared == 0) {
+                "אין השמעות ל$displayName"
+            } else {
+                "אופסו ההשמעות של $displayName ($cleared שירים)"
+            }
         }
     }
 
@@ -479,7 +555,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 songs = list,
                 key = "mix:seed:${song.id}"
             )
-            if (andPlay) player.play(list, 0)
+            if (andPlay) {
+                player.play(list, 0)
+                markStarted()
+            }
             onReady()
         }
     }
@@ -577,6 +656,93 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             initial?.let { repo.addToPlaylist(id, it.id) }
             _message.value = "נוצרה רשימה: $name"
         }
+    }
+
+    /**
+     * Writes every list the app knows about into a folder the user picked.
+     *
+     * Not only the playlists they made. The mixes, the daily mixes and the
+     * mood filters are worked out on this device and exist nowhere else, so
+     * without this they cannot be taken anywhere - not to another player, not
+     * to a new phone, not even backed up. Everything goes out as M3U8, which
+     * every player reads.
+     *
+     * @param tree the folder, from OpenDocumentTree.
+     */
+    fun exportAllPlaylists(tree: Uri) {
+        viewModelScope.launch {
+            _busy.value = true
+            val result = runCatching {
+                val lists = gatherExportable()
+                withContext(Dispatchers.IO) { writeLists(tree, lists) }
+            }
+            _busy.value = false
+            val written = result.getOrNull()
+            _message.value = when {
+                written == null -> "הייצוא נכשל - בדוק את ההרשאה לתיקייה"
+                written == 0 -> "אין מה לייצא עדיין"
+                else -> "יוצאו $written רשימות"
+            }
+        }
+    }
+
+    /**
+     * Everything worth writing out, as name-to-songs.
+     *
+     * Deliberately built here rather than read from one place, because these
+     * come from three different mechanisms: the playlist table, the engine's
+     * clustering, and a filter over the measured features. What they have in
+     * common is only that the user thinks of all of them as their lists.
+     */
+    private suspend fun gatherExportable(): List<Pair<String, List<SongEntity>>> {
+        val out = ArrayList<Pair<String, List<SongEntity>>>()
+
+        for (info in playlists.value) {
+            if (info.songs.isNotEmpty()) out.add(info.playlist.name to info.songs)
+        }
+
+        val engineNow = engine ?: repo.buildRecommender().also { engine = it }
+        for (mix in engineNow.dailyMixes()) {
+            if (mix.songs.isNotEmpty()) out.add("מיקס - ${mix.title}" to mix.songs)
+        }
+
+        val songs = library.value.songs
+        if (songs.isNotEmpty()) {
+            val features = repo.featureMap()
+            if (features.isNotEmpty()) {
+                val model = MoodModel(features.values)
+                if (model.ready) {
+                    for (mood in Mood.entries) {
+                        val matching = songs.filter { model.matches(mood, features[it.id]) }
+                        // A mood that matched two songs is not a list.
+                        if (matching.size >= 5) {
+                            out.add("מצב רוח - ${mood.label}" to matching)
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    private fun writeLists(tree: Uri, lists: List<Pair<String, List<SongEntity>>>): Int {
+        if (lists.isEmpty()) return 0
+        val context = getApplication<Application>()
+        val folder = DocumentFile.fromTreeUri(context, tree) ?: return 0
+        val taken = HashSet<String>()
+        var written = 0
+        for ((name, songs) in lists) {
+            val fileName = PlaylistExport.uniqueName(name, taken)
+            val file = folder.createFile(PlaylistExport.MIME, fileName) ?: continue
+            val ok = runCatching {
+                context.contentResolver.openOutputStream(file.uri)?.use { stream ->
+                    stream.write(PlaylistExport.write(name, songs).toByteArray(Charsets.UTF_8))
+                } ?: return@runCatching false
+                true
+            }.getOrDefault(false)
+            if (ok) written++
+        }
+        return written
     }
 
     /**

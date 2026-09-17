@@ -16,7 +16,12 @@ import androidx.media3.common.Player
 import androidx.media3.session.CommandButton
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.RenderersFactory
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.elchanan.rhythm.MainActivity
@@ -51,6 +56,7 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private lateinit var player: ExoPlayer
+    private lateinit var graphicEqProcessor: GraphicEqProcessor
     private lateinit var repo: MusicRepository
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -92,7 +98,12 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         repo = (application as RhythmApp).repository
 
+        // The equaliser has to be built before the player, because it goes
+        // inside the audio sink rather than being attached to it afterwards.
+        graphicEqProcessor = GraphicEqProcessor()
+
         player = ExoPlayer.Builder(this)
+            .setRenderersFactory(equalisingRenderers())
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -114,6 +125,7 @@ class PlaybackService : MediaSessionService() {
         // created once.
         eq = EqController(repo.prefs)
         attachEqualizer()
+        EqBridge.graphic = GraphicEqController(repo.prefs, graphicEqProcessor)
 
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(openAppIntent())
@@ -238,6 +250,7 @@ class PlaybackService : MediaSessionService() {
         player.release()
         mediaSession = null
         EqBridge.controller = null
+        EqBridge.graphic = null
         eq?.release()
         scope.cancel()
         super.onDestroy()
@@ -422,6 +435,34 @@ class PlaybackService : MediaSessionService() {
         runCatching { eq?.attach(player.audioSessionId) }
         EqBridge.controller = eq
     }
+
+    /**
+     * A renderers factory whose audio sink has the equaliser in it.
+     *
+     * This is the only hook ExoPlayer offers for touching decoded audio: the
+     * sink is built here, and the processors it is given run over every buffer
+     * on its way out. Passing the two flags straight back through keeps
+     * whatever the default would have decided about float output and playback
+     * speed - the point is to add a processor, not to take over the sink.
+     *
+     * Offload is deliberately never enabled. It hands the compressed stream to
+     * the DSP and saves a little battery, and it would skip the equaliser
+     * entirely, which is not a trade worth making silently.
+     */
+    private fun equalisingRenderers(): RenderersFactory =
+        object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: android.content.Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): AudioSink = DefaultAudioSink.Builder(context)
+                .setEnableFloatOutput(enableFloatOutput)
+                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                // Explicitly typed: Kotlin arrays are invariant, so an
+                // Array<GraphicEqProcessor> is not an Array<AudioProcessor>.
+                .setAudioProcessors(arrayOf<AudioProcessor>(graphicEqProcessor))
+                .build()
+        }
 
     private fun refreshGains() {
         scope.launch {

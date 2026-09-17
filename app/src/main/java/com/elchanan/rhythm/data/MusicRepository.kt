@@ -96,6 +96,36 @@ class MusicRepository(
         dao.putStats(current.copy(styles = styles))
     }
 
+    /**
+     * Clears the listening record for one song, keeping the user's own marks.
+     *
+     * Counts get inflated by things that were not really listening - a song
+     * left on repeat overnight, a phone lent to someone - and once they are
+     * wrong there is no arguing with the shelves built on top of them. This is
+     * the way to argue with them. The like, the rating and the tags stay:
+     * those were said on purpose.
+     */
+    suspend fun resetPlayCount(songId: Long) = withContext(Dispatchers.IO) {
+        dao.resetPlayCount(songId)
+        dao.clearHistoryFor(songId)
+    }
+
+    /**
+     * The same for everything by one artist.
+     *
+     * @return how many songs were cleared.
+     */
+    suspend fun resetArtistPlayCounts(artistKey: String): Int = withContext(Dispatchers.IO) {
+        val ids = dao.songIdsByArtist(artistKey)
+        // SQLite caps how many values one statement may bind, and a prolific
+        // artist in a large library goes past it.
+        ids.chunked(400).forEach { chunk ->
+            dao.resetPlayCounts(chunk)
+            dao.clearHistoryFor(chunk)
+        }
+        ids.size
+    }
+
     suspend fun rateArtist(key: String, displayName: String, rating: Int, styles: String, note: String) =
         withContext(Dispatchers.IO) {
             val existing = dao.artist(key)
@@ -308,7 +338,8 @@ class MusicRepository(
                 artistWeight = prefs.artistWeight,
                 styleWeight = prefs.styleWeight,
                 repeatGuard = prefs.repeatGuard,
-                acousticWeight = prefs.acousticWeight
+                acousticWeight = prefs.acousticWeight,
+                separations = prefs.styleSeparations
             ),
             now = System.currentTimeMillis(),
             feedSeed = prefs.feedSeed.toLong()

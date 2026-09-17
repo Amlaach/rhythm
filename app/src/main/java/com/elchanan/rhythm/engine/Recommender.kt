@@ -88,7 +88,9 @@ data class EngineTuning(
     val artistWeight: Float = 1.0f,
     val styleWeight: Float = 1.0f,
     val repeatGuard: Float = 1.0f,
-    val acousticWeight: Float = 1.0f
+    val acousticWeight: Float = 1.0f,
+    /** Styles the user has said never belong in the same mix, one rule a line. */
+    val separations: String = ""
 )
 
 data class TransitionEdge(val weight: Double, val penalty: Double)
@@ -148,6 +150,58 @@ class Recommender(
 
     private val hourBucket: Int = bucketOf(now)
     private val maxPlays: Int = stats.values.maxOfOrNull { it.playCount } ?: 0
+
+    /** The styles the user has said must not be mixed, ready to consult. */
+    private val separations: Styles.Separations =
+        Styles.Separations.parse(tuning.separations)
+
+    /**
+     * The style words on a song, from the song's own tags or its artist's.
+     *
+     * Only the words the user wrote. The measured tokens that [tokensFor] adds
+     * - tempo, mode, decade - are for scoring similarity, and a rule about
+     * what not to mix is about what the user called things.
+     */
+    private val declaredStyles: Map<Long, List<String>> = if (separations.isEmpty) {
+        emptyMap()
+    } else {
+        songs.associate { song ->
+            val own = Styles.parse(stats[song.id]?.styles.orEmpty())
+            val styles = own.ifEmpty { Styles.parse(artists[song.artistKey]?.styles.orEmpty()) }
+            song.id to styles
+        }
+    }
+
+    /** True when these two must not appear in the same generated list. */
+    private fun separated(a: Long, b: Long): Boolean {
+        if (separations.isEmpty) return false
+        return separations.clash(
+            declaredStyles[a].orEmpty(),
+            declaredStyles[b].orEmpty()
+        )
+    }
+
+    /**
+     * Thins a group down to one side of every separation rule.
+     *
+     * Used where a list was assembled without a seed to measure against - a
+     * cluster, say. The biggest group wins, counted by how many songs carry
+     * each style, and anything that clashes with the winner goes. Untagged
+     * songs stay: they clash with nothing, and throwing them out would gut
+     * the mixes of anyone who has not tagged their library.
+     */
+    private fun withoutSeparated(group: List<SongEntity>): List<SongEntity> {
+        if (separations.isEmpty || group.size < 2) return group
+        val counts = HashMap<String, Int>()
+        for (song in group) {
+            for (style in declaredStyles[song.id].orEmpty()) {
+                counts[style] = (counts[style] ?: 0) + 1
+            }
+        }
+        val leader = counts.maxByOrNull { it.value }?.key ?: return group
+        val winning = listOf(leader)
+        return group.filterNot { separations.clash(winning, declaredStyles[it.id].orEmpty()) }
+    }
 
     /**
      * How restless the listening has been lately, 0..1.
@@ -752,7 +806,8 @@ class Recommender(
         // can do. Seeding a radio *from* a medley is still allowed - that was a
         // deliberate choice.
         val pool = songs.filter {
-            it.id != seed.id && (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title)
+            it.id != seed.id && (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title) &&
+                !separated(seed.id, it.id)
         }
         val chosen = pick(
             candidates = pool,
@@ -778,7 +833,12 @@ class Recommender(
         val seedIds = recent.take(5)
         val last = seedIds.firstOrNull()
         val pool = songs.filter {
-            it.id !in exclude && (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title)
+            it.id !in exclude && (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title) &&
+                // Against the track just played, not the whole of `recent`: a
+                // continuation follows what is happening now, and a sitting
+                // that moved from one style to another should be allowed to
+                // carry on where it got to.
+                (last == null || !separated(last, it.id))
         }
         val chosen = pick(pool, size, salt = (last ?: 7L), maxPerArtist = 3) { candidate ->
             var bonus = 1.6 * affinityTo(seedIds, candidate.id)
@@ -1153,17 +1213,18 @@ class Recommender(
             }
         }
 
-        // Other takes on songs already in the library: covers, remixes and the
-        // stage versions, gathered as the thing they have in common rather than
-        // scattered by artist. Deduping by version key would defeat the point
-        // here, since the alternatives are exactly what is being offered.
+        // Someone else's take on a song already in the library. Live recordings
+        // are deliberately not here: they are a different kind of alternative
+        // and they have two shelves of their own above, and mixing them in
+        // left this one mostly full of concert tracks. Deduping by version key
+        // would defeat the point, since the alternatives are the offer.
         val alternates = Versions.alternates(notDisliked, versionTypes)
         if (alternates.size >= 3) {
             sections.add(
                 FeedSection(
                     id = "covers",
-                    title = "גרסאות וקאברים",
-                    subtitle = "ביצועים אחרים לשירים שכבר יש לך",
+                    title = "גרסאות כיסוי",
+                    subtitle = "ביצועים של אמנים אחרים לשירים שכבר יש לך",
                     kind = SectionKind.SONG_ROW,
                     songs = alternates.sortedByDescending { totalScore(it) }.take(24)
                 )
@@ -1332,7 +1393,12 @@ class Recommender(
 
         val out = ArrayList<Mix>(centres.size)
         for (c in centres.indices) {
-            val members = entries.filterIndexed { i, _ -> assignment[i] == c }
+            val clustered = entries.filterIndexed { i, _ -> assignment[i] == c }
+            // Clusters are acoustic, and two styles the user keeps apart can
+            // sound alike enough to land in the same one. Whichever of them
+            // has more of the cluster keeps it, and the rest are dropped -
+            // they will have their own cluster elsewhere.
+            val members = withoutSeparated(clustered)
             if (members.size < 10) continue
             val label = clusterLabel(members, c)
             out.add(

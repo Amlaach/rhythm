@@ -30,6 +30,18 @@ val AppBackground: Brush = Brush.verticalGradient(
         0.55f to Color(0xFF0A0910)
     )
 )
+/**
+ * The wash across the top of the home screen: violet on one side running into a
+ * warm amber, then out into the page.
+ *
+ * Kept well below full strength. At full saturation a band like this takes the
+ * whole screen over and every cover underneath it starts looking tinted; at
+ * this weight it reads as light falling on the top of the page, which is the
+ * effect worth having.
+ */
+val HeaderWarm = Color(0xFF3A2150)
+val HeaderMid = Color(0xFF2A1B30)
+
 val Surface1 = Color(0xFF17171D)
 val Surface2 = Color(0xFF23232B)
 val Surface3 = Color(0xFF2E2E38)

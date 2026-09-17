@@ -56,7 +56,10 @@ import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.Artwork
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import com.elchanan.rhythm.ui.components.Chip
+import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.components.EmptyState
 import com.elchanan.rhythm.ui.components.SongRow
 import com.elchanan.rhythm.ui.components.StarRow
@@ -183,6 +186,7 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
     val artist by vm.artistDetail.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
+    var confirmReset by remember { mutableStateOf(false) }
     val gutter = rememberMetrics().gutter
 
     val info = artist
@@ -286,6 +290,25 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
                             })
                         }
                     }
+                    val plays = live.songs.sumOf { library.stats[it.id]?.playCount ?: 0 }
+                    if (plays > 0) {
+                        Spacer(Modifier.height(16.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("השמעות", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "$plays בסך הכל",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+                            Chip(
+                                label = "אפס",
+                                selected = false,
+                                onClick = { confirmReset = true }
+                            )
+                        }
+                    }
                     Spacer(Modifier.height(16.dp))
                     Text("השירים", style = MaterialTheme.typography.titleMedium)
                 }
@@ -315,6 +338,34 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
                 library.albums.firstOrNull { it.albumId == song.albumId }?.let {
                     vm.openList(it.name, it.artistName, it.songs, "album:${it.albumId}")
                     onOpenDetail()
+                }
+            }
+        )
+    }
+
+    if (confirmReset && info != null) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            containerColor = Surface1,
+            title = { Text("לאפס את ההשמעות?") },
+            text = {
+                Text(
+                    "כל ההשמעות של ${info.displayName} יתאפסו, והשירים ייעלמו מ\"הושמעו לאחרונה\". " +
+                        "הדירוג, הסגנונות והלייקים נשארים.",
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.resetArtistPlayCounts(info.key, info.displayName)
+                        confirmReset = false
+                    }
+                ) { Text("אפס", color = Accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmReset = false }) {
+                    Text("ביטול", color = TextSecondary)
                 }
             }
         )

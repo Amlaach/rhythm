@@ -39,6 +39,26 @@ object AudioTags {
     val TENDER = Group("רגוע", intArrayOf(273), 0.03f)
     val EXCITING = Group("מרגש", intArrayOf(274), 0.03f)
 
+    /**
+     * The four mood classes, plus the two that sit either side of them.
+     *
+     * AudioSet was labelled by people asked what a clip sounded like, so these
+     * are the only part of the model trained on the question the mood filters
+     * are asking. Lullaby counts as tender and Angry as exciting: both are
+     * about how activated the music is, which is the axis being measured, and
+     * neither is common enough on its own to be worth its own filter.
+     */
+    const val IDX_LULLABY = 266
+    const val IDX_HAPPY = 271
+    const val IDX_SAD = 272
+    const val IDX_TENDER = 273
+    const val IDX_EXCITING = 274
+    const val IDX_ANGRY = 275
+
+    val MOOD_INDICES = intArrayOf(
+        IDX_LULLABY, IDX_HAPPY, IDX_SAD, IDX_TENDER, IDX_EXCITING, IDX_ANGRY
+    )
+
     val ACCORDION = Group("אקורדיון", intArrayOf(204), 0.04f)
     val CLARINET = Group("קלרינט", intArrayOf(193), 0.04f)
     val VIOLIN = Group("כינור", intArrayOf(186), 0.04f)
@@ -94,6 +114,31 @@ object AudioTags {
             .take(keep)
             .filter { scores[it] > 0.001f }
             .joinToString(",") { "$it:${"%.4f".format(scores[it])}" }
+
+    /**
+     * Reads a handful of classes out of a stored string without rebuilding it.
+     *
+     * [decompress] allocates 521 floats, which is the right thing when a
+     * classifier is about to read all of them and the wrong thing when six are
+     * wanted for every song in the library at once.
+     *
+     * @return one score per entry of [wanted], zero for anything absent, or
+     *   null when nothing was stored - which is not the same as zero and must
+     *   not be allowed to look like a confident "no".
+     */
+    fun pick(stored: String, wanted: IntArray): FloatArray? {
+        if (stored.isBlank()) return null
+        val out = FloatArray(wanted.size)
+        for (pair in stored.split(',')) {
+            val colon = pair.indexOf(':')
+            if (colon <= 0) continue
+            val index = pair.substring(0, colon).toIntOrNull() ?: continue
+            val slot = wanted.indexOf(index)
+            if (slot < 0) continue
+            out[slot] = pair.substring(colon + 1).toFloatOrNull() ?: 0f
+        }
+        return out
+    }
 
     /** Rebuilds a sparse score vector written by [compress]. */
     fun decompress(stored: String, size: Int = 521): FloatArray {

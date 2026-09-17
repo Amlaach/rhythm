@@ -89,15 +89,22 @@ object Versions {
     }
 
     /**
-     * Pieces that exist in more than one version, newest interpretation first.
+     * Pieces that exist in more than one version.
      *
      * Only pieces where the versions actually differ in kind are returned - two
      * copies of the same studio cut are a duplicate, not an alternative take,
      * and belong in the duplicate finder rather than on a shelf.
+     *
+     * @param wanted which kinds of take to return. Live recordings are left out
+     *   by default: a concert take of a song is a different listen from someone
+     *   else's cover of it, and they already have shelves of their own. Putting
+     *   the two together made the covers shelf mostly live tracks, which is not
+     *   what a shelf called covers is for.
      */
     fun alternates(
         songs: List<SongEntity>,
-        types: Map<Long, VersionType>
+        types: Map<Long, VersionType>,
+        wanted: Set<VersionType> = setOf(VersionType.COVER, VersionType.REMIX)
     ): List<SongEntity> {
         val byPiece = songs.groupBy { pieceKey(it.title) }
         val out = ArrayList<SongEntity>()
@@ -105,9 +112,7 @@ object Versions {
             if (key.isBlank() || group.size < 2) continue
             val kinds = group.mapNotNull { types[it.id] }.toSet()
             if (kinds.size < 2) continue
-            // The alternatives, not the original - the point of the shelf is the
-            // version you are less likely to have reached for.
-            out += group.filter { types[it.id] != VersionType.ORIGINAL }
+            out += group.filter { types[it.id] in wanted }
         }
         return out
     }

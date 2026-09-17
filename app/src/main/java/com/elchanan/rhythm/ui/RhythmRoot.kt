@@ -131,6 +131,15 @@ fun RhythmRoot(
         if (currentSong == null) playerOpen = false
     }
 
+    // "Open the player when I start a song", for those who want it. Keyed on
+    // the counter rather than on the current song, so that it fires on a
+    // deliberate tap and stays quiet when the queue simply moves on - and so
+    // that starting the same song twice opens it twice.
+    val startedCount by vm.playbackStarted.collectAsStateWithLifecycle()
+    LaunchedEffect(startedCount) {
+        if (startedCount > 0 && vm.prefs.openPlayerOnPlay) playerOpen = true
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()

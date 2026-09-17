@@ -44,6 +44,56 @@ object MediaScanner {
         return value.ifEmpty { raw.trim() }
     }
 
+    /**
+     * Everyone named in an artist field, not only the first.
+     *
+     * "מוטי שטיינמץ feat. אברהם פריד" is a song by both of them, and filing
+     * it under whoever is written first leaves it missing from the other's
+     * page - which is exactly where someone would go looking for it. A
+     * combined "מוטי שטיינמץ feat. אברהם פריד" artist would be worse again: a
+     * third name in the list with one song in it.
+     *
+     * Only the separators that are actually written as separators, from
+     * [collabSeparators]. The Hebrew "ו" prefix is not among them: it attaches
+     * to the following word, so splitting on it would cut real names in half.
+     *
+     * The first name stays the primary one, because that is what everything
+     * else is keyed on. This is only for showing a song in more than one
+     * place.
+     *
+     * Kept conservative on purpose. A band whose name genuinely contains "&"
+     * should not be split in two, so single letters and very short fragments
+     * are dropped rather than trusted.
+     */
+    fun credits(raw: String): List<String> {
+        val value = raw.trim()
+        if (value.isEmpty()) return emptyList()
+        var parts = listOf(value)
+        for (sep in collabSeparators) {
+            parts = parts.flatMap { splitIgnoringCase(it, sep) }
+        }
+        parts = parts.flatMap { it.split(',') }
+        return parts
+            .map { it.trim().trim('-', '–', '.').trim() }
+            .filter { it.length >= 3 }
+            .distinctBy { normalizeKey(it) }
+    }
+
+    private fun splitIgnoringCase(text: String, separator: String): List<String> {
+        val lower = text.lowercase(Locale.ROOT)
+        val out = ArrayList<String>(2)
+        var from = 0
+        while (true) {
+            val at = lower.indexOf(separator, from)
+            if (at < 0) break
+            out.add(text.substring(from, at))
+            from = at + separator.length
+        }
+        if (out.isEmpty()) return listOf(text)
+        out.add(text.substring(from))
+        return out
+    }
+
     fun scan(context: Context, minDurationSec: Int): List<SongEntity> {
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
 

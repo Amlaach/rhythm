@@ -3,6 +3,8 @@ package com.elchanan.rhythm.data
 import android.content.Context
 import androidx.core.content.edit
 import com.elchanan.rhythm.engine.ShelfKind
+import com.elchanan.rhythm.engine.Styles
+import com.elchanan.rhythm.playback.EqBands
 
 /**
  * Small, boring settings store. Everything the recommendation engine can be
@@ -136,6 +138,73 @@ class Prefs(context: Context) {
             ?.mapNotNull { it.trim().toIntOrNull() }
             .orEmpty()
         set(value) = sp.edit { putString(KEY_EQ_BANDS, value.joinToString(",")) }
+
+    /**
+     * Which equaliser is in charge: the app's own thirty one bands, or the
+     * device's.
+     *
+     * Two, because they are good at different things. The app's is the same
+     * everywhere and has the resolution to be useful; the device's may be
+     * implemented in hardware below the mixer, which costs nothing and on a
+     * few phones is tied into effects the manufacturer ships. Only one runs at
+     * a time - stacking them would be two sets of filters fighting over the
+     * same frequencies.
+     */
+    var eqUseGraphic: Boolean
+        get() = sp.getBoolean(KEY_EQ_GRAPHIC, true)
+        set(value) = sp.edit { putBoolean(KEY_EQ_GRAPHIC, value) }
+
+    /** The thirty one band equaliser: on or off. */
+    var graphicEqEnabled: Boolean
+        get() = sp.getBoolean(KEY_GEQ_ON, false)
+        set(value) = sp.edit { putBoolean(KEY_GEQ_ON, value) }
+
+    /** Thirty one gains in millibels, one per ISO third octave centre. */
+    var graphicEqBands: List<Int>
+        get() {
+            val stored = sp.getString(KEY_GEQ_BANDS, null)
+                ?.split(',')
+                ?.mapNotNull { it.trim().toIntOrNull() }
+                .orEmpty()
+            // Always the full length, whatever is on disk: a short or missing
+            // list would otherwise have to be handled at every use.
+            return List(EqBands.COUNT) { stored.getOrNull(it) ?: 0 }
+        }
+        set(value) = sp.edit { putString(KEY_GEQ_BANDS, value.joinToString(",")) }
+
+    /**
+     * Gain applied before the filters, in millibels.
+     *
+     * Its own control because boosting and turning down are different
+     * intentions. Someone adding 8 dB of bass wants more bass, not a louder
+     * track, and without this the only way to get one without the other is to
+     * pull the other thirty sliders down by hand.
+     */
+    var graphicEqPreamp: Int
+        get() = sp.getInt(KEY_GEQ_PREAMP, 0)
+        set(value) = sp.edit { putInt(KEY_GEQ_PREAMP, value) }
+
+    /**
+     * Show folders nested, the way they sit on the device, rather than as one
+     * flat list of every folder that contains a file.
+     *
+     * On by default: it is how the files actually are, and the flat list is
+     * only easier when there are few enough folders for the difference not to
+     * matter - in which case the tree is no harder either.
+     */
+    var folderTree: Boolean
+        get() = sp.getBoolean(KEY_FOLDER_TREE, true)
+        set(value) = sp.edit { putBoolean(KEY_FOLDER_TREE, value) }
+
+    /**
+     * Styles that must never share a mix, one rule per line.
+     *
+     * See [com.elchanan.rhythm.engine.Styles.Separations] for why this is a
+     * setting and not something the engine works out for itself.
+     */
+    var styleSeparations: String
+        get() = sp.getString(KEY_SEPARATIONS, null) ?: Styles.DEFAULT_SEPARATIONS
+        set(value) = sp.edit { putString(KEY_SEPARATIONS, value) }
 
     /** Even out how loud tracks are relative to one another. */
     var normalizeVolume: Boolean
@@ -341,5 +410,11 @@ class Prefs(context: Context) {
         const val KEY_EQ_ON = "eq_enabled"
         const val KEY_EQ_PRESET = "eq_preset"
         const val KEY_EQ_BANDS = "eq_bands"
+        const val KEY_EQ_GRAPHIC = "eq_use_graphic"
+        const val KEY_GEQ_ON = "geq_enabled"
+        const val KEY_GEQ_BANDS = "geq_bands"
+        const val KEY_GEQ_PREAMP = "geq_preamp"
+        const val KEY_SEPARATIONS = "style_separations"
+        const val KEY_FOLDER_TREE = "folder_tree"
     }
 }

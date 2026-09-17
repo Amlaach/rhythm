@@ -46,6 +46,48 @@ interface MusicDao {
     @Query("UPDATE song_stats SET liked = 0, likedAt = 0")
     suspend fun clearAllLikes()
 
+    /**
+     * Forgets that a song was ever played, without forgetting what the user
+     * said about it.
+     *
+     * The like, the rating and the style tags are choices the user made and
+     * are left alone; the counts are a record of behaviour, and the whole
+     * point of offering to clear them is that the record is sometimes wrong -
+     * a song left on repeat by accident, or a phone handed to someone else.
+     * The time-of-day buckets go too, or the engine would keep recommending
+     * by an hour that no longer has any plays behind it.
+     */
+    @Query(
+        """
+        UPDATE song_stats
+        SET playCount = 0, skipCount = 0, completeCount = 0, listenedMs = 0,
+            lastPlayedAt = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0
+        WHERE songId = :id
+        """
+    )
+    suspend fun resetPlayCount(id: Long)
+
+    @Query(
+        """
+        UPDATE song_stats
+        SET playCount = 0, skipCount = 0, completeCount = 0, listenedMs = 0,
+            lastPlayedAt = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0
+        WHERE songId IN (:ids)
+        """
+    )
+    suspend fun resetPlayCounts(ids: List<Long>)
+
+    /** Ids only: the caller wants to clear them, not to read them. */
+    @Query("SELECT id FROM songs WHERE artistKey = :key")
+    suspend fun songIdsByArtist(key: String): List<Long>
+
+    /** The history rows too, or "recently played" would still show it. */
+    @Query("DELETE FROM history WHERE songId = :id")
+    suspend fun clearHistoryFor(id: Long)
+
+    @Query("DELETE FROM history WHERE songId IN (:ids)")
+    suspend fun clearHistoryFor(ids: List<Long>)
+
     @Query("DELETE FROM song_stats")
     suspend fun clearStats()
 

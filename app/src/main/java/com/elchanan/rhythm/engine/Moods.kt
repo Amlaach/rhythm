@@ -32,79 +32,143 @@ enum class Mood(val label: String, val subtitle: String) {
  * (how activated it is) and valence (how positive it sounds) - and reads the
  * moods off as regions of that plane.
  *
- * The important part is that both axes are measured *against the rest of the
- * library* rather than against fixed numbers. Absolute cutoffs - "energetic
- * means over 110 BPM" - assume a collection spanning lullabies to techno. Give
- * them a library that is one artist in one style, as most personal collections
- * are, and every track lands on the same side of every threshold: some moods
- * match everything and the rest match nothing, which is exactly the state the
- * old thresholds produced here. Ranking within the library instead guarantees
- * each mood describes a real, distinguishable part of the collection.
+ * Each axis is measured twice and the two are averaged.
+ *
+ * Once against fixed musical anchors: 60 BPM is slow and 150 is fast wherever
+ * they are found, and nothing about the rest of the collection changes that.
+ * Once against the rest of the library, by rank. Neither works alone. Fixed
+ * cutoffs on their own assume a collection spanning lullabies to techno, and
+ * on a library that is one artist in one style every track lands on the same
+ * side of every threshold, so some moods match everything and the rest match
+ * nothing. Ranks on their own have the opposite fault, and it is the one that
+ * was actually being complained about: a rank always spreads across the whole
+ * range, so "the calmest two fifths" is two fifths of the library whether or
+ * not a single track in it is calm. On a collection of fast music, every
+ * second song was being offered as רגוע.
+ *
+ * Averaging the two keeps both properties. On a varied library the rank does
+ * the work and the filters describe real, comparable parts of it. On a library
+ * that leans one way the anchors hold, and a mood that genuinely is not there
+ * returns a few tracks instead of a confident two fifths of the wrong ones.
+ *
+ * Where the tagging model ran, what it heard is folded in as well. AudioSet
+ * has classes for happy, sad, tender and exciting music, labelled by people
+ * asked what a clip sounded like - the only part of any of this trained on the
+ * question actually being asked.
  */
 class MoodModel(all: Collection<AudioFeatureEntity>) {
 
     private val usable = all.filter { it.energy > 0f }
 
-    private val bpmScale = scaleOf(usable.mapNotNull { if (it.bpm > 0f) it.bpm.toDouble() else null })
-    private val onsetScale = scaleOf(usable.map { it.onsetRate.toDouble() })
-    private val energyScale = scaleOf(usable.map { it.energy.toDouble() })
     private val brightScale = scaleOf(usable.map { it.brightness.toDouble() })
     private val dynamicsScale = scaleOf(usable.map { it.dynamics.toDouble() })
+    private val energyScale = scaleOf(usable.map { it.energy.toDouble() })
 
     /**
-     * The spread of the two axes across this library.
+     * What the tagging model heard, per song, or null where it never ran.
      *
-     * Ranking each ingredient was not enough on its own. Arousal is a weighted
-     * sum of three ranks, and a sum of ranks bunches up around the middle even
-     * when every ingredient is spread evenly - so a fixed cut at 0.40 could
-     * describe far less of the library than it looks like it should, and on a
-     * collection of one artist in one style it could describe none of it.
-     * Ranking the finished axis as well makes the cut mean what it says: the
-     * calmest two fifths are always the calmest two fifths.
-     *
-     * Declared after the scales it depends on, because Kotlin initialises
-     * properties in order.
+     * Read once here rather than on every comparison: filtering a library
+     * calls [matches] once per track, and parsing the stored scores inside
+     * that would reparse the same strings for every mood chip pressed.
      */
-    private val arousalScale = scaleOf(usable.map { arousal(it) })
-    private val valenceScale = scaleOf(usable.map { valence(it) })
+    private val cues: Map<Long, FloatArray> = buildMap {
+        for (f in usable) {
+            val picked = AudioTags.pick(f.tags, AudioTags.MOOD_INDICES) ?: continue
+            put(f.songId, picked)
+        }
+    }
+
+    /**
+     * The tag scores ranked across the library.
+     *
+     * The model's raw outputs are small and their useful range differs by
+     * class - "Exciting music" fires more readily than "Tender music" - so an
+     * absolute threshold on them would mean something different for each. What
+     * is comparable is where a track sits against the others.
+     */
+    private val tagScales: List<DoubleArray> = AudioTags.MOOD_INDICES.indices.map { slot ->
+        scaleOf(cues.values.map { it[slot].toDouble() })
+    }
+
+    /** Arousal and valence before the library is taken into account. */
+    private val rawArousal: Map<Long, Double> =
+        usable.associate { it.songId to absoluteArousal(it) }
+    private val rawValence: Map<Long, Double> =
+        usable.associate { it.songId to absoluteValence(it) }
+
+    private val arousalScale = scaleOf(rawArousal.values.toList())
+    private val valenceScale = scaleOf(rawValence.values.toList())
 
     val ready: Boolean get() = usable.size >= 8
 
-    /** How activated the track is, 0 (still) to 1 (driving). */
-    fun arousal(f: AudioFeatureEntity): Double {
-        val tempo = if (f.bpm > 0f) rank(bpmScale, f.bpm.toDouble()) else 0.5
-        val pulse = rank(onsetScale, f.onsetRate.toDouble())
-        val loud = rank(energyScale, f.energy.toDouble())
-        return (0.4 * tempo + 0.35 * pulse + 0.25 * loud).coerceIn(0.0, 1.0)
+    /**
+     * How activated the track is, 0 (still) to 1 (driving), against fixed
+     * anchors rather than against the library.
+     */
+    private fun absoluteArousal(f: AudioFeatureEntity): Double {
+        val pulse = between(f.onsetRate.toDouble(), CALM_ONSETS, BUSY_ONSETS)
+        val measured = if (f.bpm > 0f) {
+            val tempo = between(f.bpm.toDouble(), SLOW_BPM, FAST_BPM)
+            0.65 * tempo + 0.35 * pulse
+        } else {
+            // No tempo estimate, so the onset rate carries it alone rather
+            // than a missing value being scored as average.
+            pulse
+        }
+        val heard = cues[f.songId] ?: return measured
+        // Exciting and angry push up, tender and lullaby pull down.
+        val up = maxOf(rankTag(heard, SLOT_EXCITING), rankTag(heard, SLOT_ANGRY))
+        val down = maxOf(rankTag(heard, SLOT_TENDER), rankTag(heard, SLOT_LULLABY))
+        val tag = (0.5 + 0.5 * (up - down)).coerceIn(0.0, 1.0)
+        return (1 - TAG_WEIGHT) * measured + TAG_WEIGHT * tag
     }
 
     /**
      * How positive it sounds, 0 (dark) to 1 (bright).
      *
-     * Major or minor carries most of it - the single strongest cue available
-     * without a trained model - with spectral brightness as the tiebreaker.
+     * Major or minor carries most of it - the strongest cue available from the
+     * signal alone - with spectral brightness as the tiebreaker, and what the
+     * model heard on top of both.
      */
-    fun valence(f: AudioFeatureEntity): Double {
+    private fun absoluteValence(f: AudioFeatureEntity): Double {
         val modeTerm = when (f.mode) {
             1 -> 1.0
             0 -> 0.0
             else -> 0.5
         }
         val bright = rank(brightScale, f.brightness.toDouble())
-        return (0.6 * modeTerm + 0.4 * bright).coerceIn(0.0, 1.0)
+        val measured = (0.6 * modeTerm + 0.4 * bright).coerceIn(0.0, 1.0)
+        val heard = cues[f.songId] ?: return measured
+        val tag = (0.5 + 0.5 * (rankTag(heard, SLOT_HAPPY) - rankTag(heard, SLOT_SAD)))
+            .coerceIn(0.0, 1.0)
+        return (1 - TAG_WEIGHT) * measured + TAG_WEIGHT * tag
+    }
+
+    /** Half what the anchors say, half where the library puts it. */
+    fun arousal(f: AudioFeatureEntity): Double {
+        val raw = rawArousal[f.songId] ?: absoluteArousal(f)
+        return 0.5 * raw + 0.5 * rank(arousalScale, raw)
+    }
+
+    fun valence(f: AudioFeatureEntity): Double {
+        val raw = rawValence[f.songId] ?: absoluteValence(f)
+        return 0.5 * raw + 0.5 * rank(valenceScale, raw)
     }
 
     fun matches(mood: Mood, f: AudioFeatureEntity?): Boolean {
         val feature = f ?: return false
         if (feature.energy <= 0f) return false
-        val a = rank(arousalScale, arousal(feature))
-        val v = rank(valenceScale, valence(feature))
+        val a = arousal(feature)
+        val v = valence(feature)
         val bright = rank(brightScale, feature.brightness.toDouble())
         val steady = rank(dynamicsScale, feature.dynamics.toDouble())
+        val loud = rank(energyScale, feature.energy.toDouble())
         return when (mood) {
             Mood.CALM -> a <= 0.40
             Mood.ENERGETIC -> a >= 0.60
-            Mood.WORKOUT -> a >= 0.80
+            // Loudness as well as pace: a fast piece played quietly is not
+            // what anyone means by a workout track.
+            Mood.WORKOUT -> a >= 0.75 && loud >= 0.55
             Mood.BRIGHT -> v >= 0.60 && a >= 0.40
             Mood.DEEP -> v <= 0.40 && a in 0.20..0.80
             Mood.FOCUS -> steady <= 0.40 && a in 0.25..0.75
@@ -112,7 +176,47 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
         }
     }
 
+    private fun rankTag(heard: FloatArray, slot: Int): Double =
+        rank(tagScales[slot], heard[slot].toDouble())
+
     private companion object {
+
+        /**
+         * The anchors, in the units the analyser reports.
+         *
+         * The tempo pair is the part that can be stated plainly: 60 BPM is a
+         * ballad and 150 is dance music, in any collection. The onset pair -
+         * prominent onsets per second - is an estimate of what this analyser
+         * produces for sparse and for busy material, and is weighted lower
+         * because of it. Both are only half the answer anyway; the library's
+         * own spread is the other half.
+         */
+        const val SLOW_BPM = 62.0
+        const val FAST_BPM = 150.0
+        const val CALM_ONSETS = 1.2
+        const val BUSY_ONSETS = 5.5
+
+        /**
+         * How much of each axis the tagging model gets to move.
+         *
+         * Modest on purpose. AudioSet is built from YouTube, where the music
+         * this library is full of is thinly represented, so the mood classes
+         * are informed rather than authoritative here.
+         */
+        const val TAG_WEIGHT = 0.3
+
+        // Positions within AudioTags.MOOD_INDICES.
+        const val SLOT_LULLABY = 0
+        const val SLOT_HAPPY = 1
+        const val SLOT_SAD = 2
+        const val SLOT_TENDER = 3
+        const val SLOT_EXCITING = 4
+        const val SLOT_ANGRY = 5
+
+        /** Where [value] sits between [low] and [high], clamped to 0..1. */
+        fun between(value: Double, low: Double, high: Double): Double =
+            ((value - low) / (high - low)).coerceIn(0.0, 1.0)
+
         /** Sorted copy used for rank lookups; empty when nothing was measured. */
         fun scaleOf(values: List<Double>): DoubleArray = values.sorted().toDoubleArray()
 

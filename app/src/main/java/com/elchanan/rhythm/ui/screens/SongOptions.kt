@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistRemove
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.SkipNext
@@ -68,6 +69,7 @@ import com.elchanan.rhythm.ui.components.StarRow
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.BgElevated
 import com.elchanan.rhythm.ui.theme.Surface1
+import com.elchanan.rhythm.ui.theme.TextTertiary
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import com.elchanan.rhythm.ui.components.rememberMetrics
 
@@ -99,6 +101,7 @@ fun SongOptionsSheet(
     var showTags by remember { mutableStateOf(false) }
     var showCapo by remember { mutableStateOf(false) }
     var newPlaylist by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -130,6 +133,14 @@ fun SongOptionsSheet(
                             text = "${f.bpm.toInt()} BPM · ${AudioAnalyzer.keyLabel(f.musicalKey, f.mode)}",
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary
+                        )
+                    }
+                    val plays = stats?.playCount ?: 0
+                    if (plays > 0) {
+                        Text(
+                            text = "$plays השמעות",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextTertiary
                         )
                     }
                 }
@@ -212,7 +223,42 @@ fun SongOptionsSheet(
                     onRemoveFromPlaylist(); onDismiss()
                 }
             }
+            // Only worth offering when there is something to clear.
+            if ((stats?.playCount ?: 0) > 0) {
+                OptionRow(Icons.Filled.RestartAlt, "אפס את מספר ההשמעות") {
+                    confirmReset = true
+                }
+            }
         }
+    }
+
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            containerColor = Surface1,
+            title = { Text("לאפס את ההשמעות?") },
+            text = {
+                Text(
+                    "מספר ההשמעות של \"${song.title}\" יתאפס, והשיר ייעלם מ\"הושמעו לאחרונה\". " +
+                        "הלייק, הדירוג והתגיות נשארים.",
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.resetPlayCount(song)
+                        confirmReset = false
+                        onDismiss()
+                    }
+                ) { Text("אפס", color = Accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmReset = false }) {
+                    Text("ביטול", color = TextSecondary)
+                }
+            }
+        )
     }
 
     if (newPlaylist) {

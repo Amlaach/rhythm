@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -48,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.data.db.SongEntity
@@ -68,6 +70,10 @@ import com.elchanan.rhythm.ui.components.SectionHeader
 import com.elchanan.rhythm.ui.components.SongCard
 import com.elchanan.rhythm.ui.components.quickPickColumnWidth
 import com.elchanan.rhythm.ui.components.formatDuration
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import com.elchanan.rhythm.ui.theme.HeaderWarm
+import com.elchanan.rhythm.ui.theme.HeaderMid
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.AppBackground
@@ -107,23 +113,42 @@ fun HomeScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
-        HomeTopBar(
-            padding = statusPadding,
-            onRefresh = { vm.refreshFeed(reshuffle = true) },
-            onRecap = onOpenRecap,
-            onSettings = onOpenSettings
-        )
-        if (busy) {
-            LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth(),
-                color = Accent
+        // A wash of colour behind the header and the category chips, fading out
+        // into the page. It sits under both rather than belonging to either, so
+        // the two keep their own spacing and the gradient ends where it likes
+        // instead of at a component boundary.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            HeaderWarm,
+                            HeaderMid,
+                            Color.Transparent
+                        )
+                    )
+                )
+        ) {
+            HomeTopBar(
+                padding = statusPadding,
+                onRefresh = { vm.refreshFeed(reshuffle = true) },
+                onRecap = onOpenRecap,
+                onSettings = onOpenSettings
             )
-        }
+            if (busy) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Accent
+                )
+            }
 
-        // Pinned under the header rather than scrolling away with the feed, so the
-        // categories stay one tap away wherever you are in the list.
-        if (hasPermission && library.songs.isNotEmpty()) {
-            MoodChipRow(onPick = { mood -> vm.openMood(mood) { onOpenDetail() } })
+            // Pinned under the header rather than scrolling away with the feed,
+            // so the categories stay one tap away wherever you are in the list.
+            if (hasPermission && library.songs.isNotEmpty()) {
+                MoodChipRow(onPick = { mood -> vm.openMood(mood) { onOpenDetail() } })
+            }
+            Spacer(Modifier.height(6.dp))
         }
 
         when {
@@ -482,24 +507,18 @@ private fun FeedSectionView(
                 actionLabel = "נגן הכל",
                 onAction = { vm.playList(section.songs) }
             )
-            val columns = section.songs.chunked(4)
-            LazyRow(contentPadding = PaddingValues(horizontal = gutter)) {
-                items(columns) { column ->
-                    Column(modifier = Modifier.width(quickPickColumnWidth())) {
-                        column.forEach { song ->
-                            QuickPickRow(
-                                song = song,
-                                liked = library.stats[song.id]?.liked ?: 0,
-                                onClick = {
-                                    val index = section.songs.indexOf(song)
-                                    vm.playList(section.songs, if (index >= 0) index else 0)
-                                },
-                                onMore = { onMore(song) }
-                            )
-                        }
-                    }
-                }
-            }
+            // Covers with the title written across them, which is how these are
+            // actually recognised: someone returning to a track knows its sleeve
+            // long before they read its name.
+            QuickPickTiles(
+                songs = section.songs.take(9),
+                gutter = gutter,
+                onPlay = { song ->
+                    val index = section.songs.indexOf(song)
+                    vm.playList(section.songs, if (index >= 0) index else 0)
+                },
+                onMore = onMore
+            )
         }
 
         SectionKind.MIX_ROW -> {
@@ -548,57 +567,108 @@ private fun FeedSectionView(
     }
 }
 
+/**
+ * The quick picks, as covers with the title written across them.
+ *
+ * Two arrangements of the same tile, because which one is right depends on the
+ * shape of the window rather than on a preference. A phone is tall and narrow,
+ * so three columns fill it and nine tiles are in view at once. A wide screen
+ * has room lengthways and little to spare downwards, so the same tiles run
+ * sideways in one strip - a three column grid there would either leave most of
+ * the width empty or push everything below it off the screen.
+ */
 @Composable
-private fun QuickPickRow(
+private fun QuickPickTiles(
+    songs: List<SongEntity>,
+    gutter: Dp,
+    onPlay: (SongEntity) -> Unit,
+    onMore: (SongEntity) -> Unit
+) {
+    if (songs.isEmpty()) return
+    val metrics = rememberMetrics()
+
+    if (metrics.isCompact) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = gutter),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            songs.chunked(3).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    row.forEach { song ->
+                        QuickPickTile(
+                            song = song,
+                            modifier = Modifier.weight(1f),
+                            onPlay = { onPlay(song) },
+                            onMore = { onMore(song) }
+                        )
+                    }
+                    // Keeps a short last row aligned with the ones above rather
+                    // than letting two tiles stretch across the whole width.
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    } else {
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = gutter),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            items(songs, key = { it.id }) { song ->
+                QuickPickTile(
+                    song = song,
+                    modifier = Modifier.width(metrics.cardWidth),
+                    onPlay = { onPlay(song) },
+                    onMore = { onMore(song) }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun QuickPickTile(
     song: SongEntity,
-    liked: Int,
-    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onPlay: () -> Unit,
     onMore: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Box(
+        modifier = modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(10.dp))
+            .combinedClickable(onClick = onPlay, onLongClick = onMore)
     ) {
         Artwork(
             songId = song.id,
             albumId = song.albumId,
             seed = song.artistKey,
-            modifier = Modifier.size(52.dp),
-            corner = 8
+            modifier = Modifier.fillMaxSize(),
+            corner = 0
         )
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = song.title,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1
-            )
-            Text(
-                text = "${song.artistName} · ${formatDuration(song.durationMs)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
-                maxLines = 1
-            )
-        }
-        if (liked == 1) {
-            Box(
-                modifier = Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(Accent)
-            )
-        }
-        IconButton(onClick = onMore, modifier = Modifier.size(34.dp)) {
-            Icon(
-                Icons.Filled.MoreVert,
-                contentDescription = "עוד",
-                tint = TextSecondary,
-                modifier = Modifier.size(20.dp)
-            )
-        }
+        // Without this the title lands on whatever the sleeve happens to be and
+        // is unreadable on about half of them. The scrim darkens only the strip
+        // the words sit on, leaving the artwork above it alone.
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .fillMaxHeight(0.45f)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f))
+                    )
+                )
+        )
+        Text(
+            text = song.title,
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 8.dp, vertical = 7.dp)
+        )
     }
 }

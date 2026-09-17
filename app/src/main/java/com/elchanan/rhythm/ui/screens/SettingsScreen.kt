@@ -120,6 +120,9 @@ fun SettingsScreen(
     var actions by remember { mutableStateOf(vm.prefs.playerActions) }
     var stripForeign by remember { mutableStateOf(vm.prefs.tagStripForeign) }
     var writeTags by remember { mutableStateOf(vm.prefs.writeTagsToFiles) }
+    var separations by remember { mutableStateOf(vm.prefs.styleSeparations) }
+    var separationsOpen by remember { mutableStateOf(false) }
+    var folderTree by remember { mutableStateOf(vm.prefs.folderTree) }
     val analysis by vm.analysisProgress.collectAsStateWithLifecycle()
     val lyricsFolder by vm.lyricsFolder.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -132,6 +135,13 @@ fun SettingsScreen(
         if (uri != null) {
             vm.importPlaylist(uri, displayNameOf(context, uri))
         }
+    }
+    // A folder rather than a file: there is more than one list to write, and
+    // asking where to put each of thirty of them would be absurd.
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) vm.exportAllPlaylists(uri)
     }
 
     val folderLauncher = rememberLauncherForActivityResult(
@@ -670,6 +680,30 @@ fun SettingsScreen(
                     ) { Text("בחר קובץ") }
                 }
             }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("ייצוא כל הרשימות", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "כותב לתיקייה שתבחר קובץ M3U8 לכל פלייליסט, לכל מיקס " +
+                                "ולכל מצב רוח. המיקסים ומצבי הרוח נבנים כאן ולא קיימים " +
+                                "בשום מקום אחר",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = { exportLauncher.launch(null) },
+                        enabled = !busy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                    ) { Text("בחר תיקייה") }
+                }
+            }
 
             item {
                 Row(
@@ -867,6 +901,60 @@ fun SettingsScreen(
             }
             item {
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("תיקיות בתוך תיקיות", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "מציג את התיקיות כמו שהן מסודרות במכשיר — אחת בתוך השנייה — " +
+                                "במקום רשימה אחת ארוכה של כל התיקיות",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Switch(
+                        checked = folderTree,
+                        onCheckedChange = {
+                            folderTree = it
+                            vm.prefs.folderTree = it
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Accent,
+                            checkedTrackColor = Accent.copy(alpha = 0.4f)
+                        )
+                    )
+                }
+            }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("סגנונות שלא יתערבבו", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            text = separations.split('\n')
+                                .filter { it.isNotBlank() }
+                                .joinToString(" · ") { it.trim() }
+                                .ifBlank { "הכל יכול להתערבב" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            maxLines = 2
+                        )
+                    }
+                    Button(
+                        onClick = { separationsOpen = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                    ) { Text("ערוך") }
+                }
+            }
+            item {
+                Row(
                     modifier = Modifier.padding(horizontal = gutter, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -971,6 +1059,67 @@ fun SettingsScreen(
             }
         )
     }
+
+    if (separationsOpen) {
+        SeparationDialog(
+            initial = separations,
+            onDismiss = { separationsOpen = false },
+            onApply = {
+                separations = it
+                vm.setStyleSeparations(it)
+            }
+        )
+    }
+}
+
+/**
+ * Which styles are never to share a mix.
+ *
+ * Free text rather than a grid of checkboxes: the styles are free text
+ * themselves, the rules are a handful of lines, and a matrix of every style
+ * against every other would be a hundred and fifty boxes to answer a question
+ * most people have one opinion about.
+ */
+@Composable
+private fun SeparationDialog(
+    initial: String,
+    onDismiss: () -> Unit,
+    onApply: (String) -> Unit
+) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("סגנונות שלא יתערבבו") },
+        text = {
+            Column {
+                Text(
+                    "שורה לכל כלל, והסגנונות בתוך השורה מופרדים בפסיק. " +
+                        "סגנונות שנמצאים באותה שורה לא יופיעו יחד באותו מיקס, רדיו או המשך תור.\n\n" +
+                        "למשל:\nחסידי, ישראלי\nילדים, חזנות\n\n" +
+                        "הכלל חל על התגיות שאתה נתת — לשיר עצמו או לאמן שלו. " +
+                        "שירים בלי תגיות לא מושפעים.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 200.dp)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onApply(text.lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n"))
+                onDismiss()
+            }) { Text("שמור", color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
 }
 
 @Composable
