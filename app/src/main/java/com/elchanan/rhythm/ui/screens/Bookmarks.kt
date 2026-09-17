@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.elchanan.rhythm.data.db.BookmarkEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.EmptyState
@@ -56,6 +58,7 @@ import com.elchanan.rhythm.ui.theme.TextTertiary
  * because the bar is the one control people grab without looking and it should
  * keep doing exactly what it does.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookmarksSheet(
     vm: MainViewModel,

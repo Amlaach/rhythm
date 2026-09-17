@@ -626,6 +626,7 @@ private fun SongTagDialog(
  * spelling consistent - which is what makes the engine able to group by it at
  * all. Free text stays allowed for everything the list does not cover.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GenreDialog(
     initial: String,
