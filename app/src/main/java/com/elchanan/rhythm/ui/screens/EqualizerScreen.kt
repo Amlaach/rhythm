@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
 import com.elchanan.rhythm.playback.EqBands
 import com.elchanan.rhythm.playback.EqBridge
 import com.elchanan.rhythm.playback.EqPresets
