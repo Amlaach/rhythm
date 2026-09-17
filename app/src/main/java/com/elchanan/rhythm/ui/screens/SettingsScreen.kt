@@ -55,6 +55,24 @@ import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextSecondary
 
+/**
+ * The name the picker shows for a document, which is where the playlist gets
+ * its own name from. Falls back to the last path segment, which for a
+ * content:// uri is an opaque id but is at least never empty.
+ */
+private fun displayNameOf(context: android.content.Context, uri: android.net.Uri): String {
+    val projection = arrayOf(android.provider.OpenableColumns.DISPLAY_NAME)
+    runCatching {
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val value = cursor.getString(0)
+                if (!value.isNullOrBlank()) return value
+            }
+        }
+    }
+    return uri.lastPathSegment.orEmpty()
+}
+
 @Composable
 fun SettingsScreen(
     vm: MainViewModel,
@@ -87,6 +105,17 @@ fun SettingsScreen(
     val analysis by vm.analysisProgress.collectAsStateWithLifecycle()
     val lyricsFolder by vm.lyricsFolder.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // Any mime type, because an .m3u exported by another player is served as
+    // audio/x-mpegurl, text/plain or application/octet-stream depending on who
+    // wrote it - filtering on type is how these files become unpickable.
+    val playlistLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            vm.importPlaylist(uri, displayNameOf(context, uri))
+        }
+    }
+
     val folderLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
@@ -250,6 +279,27 @@ fun SettingsScreen(
                         onClick = onOpenTagFix,
                         colors = ButtonDefaults.buttonColors(containerColor = Accent)
                     ) { Text("פתח") }
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("ייבוא רשימת השמעה", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "קורא קובץ M3U, M3U8 או PLS שיוצא מנגן אחר — למשל " +
+                                "\"ייצא כקובץ M3U\" במיוזיקולט. השירים מזוהים לפי שם הקובץ",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = { playlistLauncher.launch(arrayOf("*/*")) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("בחר קובץ") }
                 }
             }
 

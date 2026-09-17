@@ -2,10 +2,12 @@ package com.elchanan.rhythm.ui
 
 import android.app.Application
 import android.content.IntentSender
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.elchanan.rhythm.RhythmApp
 import com.elchanan.rhythm.data.MediaScanner
+import com.elchanan.rhythm.data.PlaylistImport
 import com.elchanan.rhythm.data.TagFileWriter
 import com.elchanan.rhythm.data.TagFixer
 import com.elchanan.rhythm.data.MusicRepository
@@ -527,6 +529,49 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val id = repo.createPlaylist(name)
             initial?.let { repo.addToPlaylist(id, it.id) }
             _message.value = "נוצרה רשימה: $name"
+        }
+    }
+
+    /**
+     * Imports an .m3u, .m3u8 or .pls written by another player.
+     *
+     * Reported honestly: a playlist that half matched looks identical to one
+     * that fully matched unless the count says otherwise, and the usual reason
+     * for a miss is that the other app's library covers folders this one is not
+     * scanning.
+     */
+    fun importPlaylist(uri: Uri, displayName: String) {
+        viewModelScope.launch {
+            _busy.value = true
+            val outcome = runCatching {
+                withContext(Dispatchers.IO) {
+                    val content = getApplication<Application>().contentResolver
+                        .openInputStream(uri)?.use { stream ->
+                            stream.readBytes().toString(Charsets.UTF_8)
+                        } ?: return@withContext null
+                    val parsed = PlaylistImport.parse(content, displayName)
+                    val (songs, missing) = PlaylistImport.match(parsed.entries, library.value.songs)
+                    Triple(parsed.name, songs, missing)
+                }
+            }.getOrNull()
+            _busy.value = false
+
+            if (outcome == null) {
+                _message.value = "לא הצלחתי לקרוא את הקובץ"
+                return@launch
+            }
+            val (name, songs, missing) = outcome
+            if (songs.isEmpty()) {
+                _message.value = "לא נמצאו שירים מהרשימה בספרייה שלך"
+                return@launch
+            }
+            val id = repo.createPlaylist(name)
+            repo.bulkAddToPlaylist(id, songs.map { it.id })
+            _message.value = if (missing > 0) {
+                "יובאו ${songs.size} שירים · $missing לא נמצאו"
+            } else {
+                "יובאה הרשימה \"$name\" עם ${songs.size} שירים"
+            }
         }
     }
 
