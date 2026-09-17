@@ -207,6 +207,18 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_SEARCH_LYRICS, true)
         set(value) = sp.edit { putBoolean(KEY_SEARCH_LYRICS, value) }
 
+    /**
+     * Whether starting a song opens the full player.
+     *
+     * Off, which is what the app does today: playback starts and the mini
+     * player appears at the bottom, leaving the list you were browsing where it
+     * was. Turning it on suits someone who plays one song at a time; leaving it
+     * off suits someone working through a list.
+     */
+    var openPlayerOnPlay: Boolean
+        get() = sp.getBoolean(KEY_OPEN_ON_PLAY, false)
+        set(value) = sp.edit { putBoolean(KEY_OPEN_ON_PLAY, value) }
+
     /** Which library tab opens first. Playlists unless the user says otherwise. */
     var libraryFirstTab: String
         get() = sp.getString(KEY_LIBRARY_TAB, "PLAYLISTS").orEmpty().ifBlank { "PLAYLISTS" }
@@ -321,6 +333,7 @@ class Prefs(context: Context) {
         const val KEY_PLAYER_ACTIONS = "player_actions"
         const val KEY_SEARCH_PERSONAL = "search_personalized"
         const val KEY_SEARCH_LYRICS = "search_lyrics"
+        const val KEY_OPEN_ON_PLAY = "open_player_on_play"
         const val KEY_RESUME_PROMPT = "resume_prompt"
         const val KEY_RESUME_POINTS = "resume_points"
         const val KEY_WELCOME = "welcome_seen"

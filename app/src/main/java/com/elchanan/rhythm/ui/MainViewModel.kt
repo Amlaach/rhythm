@@ -26,7 +26,11 @@ import com.elchanan.rhythm.engine.Mix
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.Recommender
 import com.elchanan.rhythm.engine.ScoreTerm
+import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.ShelfKind
+import com.elchanan.rhythm.engine.StyleLearner
+import com.elchanan.rhythm.engine.StyleTraining
+import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.engine.TasteReport
 import com.elchanan.rhythm.engine.Versions
 import com.elchanan.rhythm.playback.PlayerConnection
@@ -820,6 +824,90 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val _homeTopSignal = MutableStateFlow(0)
     val homeTopSignal: StateFlow<Int> = _homeTopSignal.asStateFlow()
+
+    /**
+     * How the last style-learning run went, so the screen can say something
+     * honest rather than just "done".
+     */
+    data class LearnResult(
+        val accuracy: Double?,
+        val trained: Int,
+        val labelled: Int,
+        val applied: Int
+    )
+
+    private val _learnResult = MutableStateFlow<LearnResult?>(null)
+    val learnResult: StateFlow<LearnResult?> = _learnResult.asStateFlow()
+
+    /**
+     * Learns the user's own style words from their own library and fills in the
+     * songs they never tagged.
+     *
+     * Measured before it is trusted. The model is fitted on half the tagged
+     * songs and scored on the other half, and if it cannot beat a coin toss by
+     * a clear margin nothing is written - a library quietly filled with wrong
+     * labels is worse than one with no labels, because the wrong ones then feed
+     * the recommender as though somebody had confirmed them.
+     */
+    fun learnStyles() {
+        viewModelScope.launch {
+            _busy.value = true
+            val outcome = runCatching {
+                withContext(Dispatchers.Default) {
+                    val features = repo.featureMap()
+                    val tagsBySong = features.mapValues { it.value.tags }
+                    val lib = library.value
+                    val stylesByArtist = lib.artists.associate { it.key to it.styles }
+
+                    val rows = StyleTraining.rows(lib.songs, tagsBySong, stylesByArtist)
+                    if (rows.isEmpty()) return@withContext LearnResult(null, 0, 0, 0)
+
+                    val accuracy = StyleLearner.crossValidate(rows)
+                    val model = StyleLearner.fit(rows)
+                        ?: return@withContext LearnResult(accuracy, 0, rows.size, 0)
+
+                    // Only worth applying when the held-out score says the model
+                    // actually generalises.
+                    if (accuracy == null || accuracy < 0.70) {
+                        return@withContext LearnResult(accuracy, rows.size, rows.size, 0)
+                    }
+
+                    // Written only where the user left a blank. Their own words
+                    // are the ground truth this was trained on and must never be
+                    // overwritten by something derived from them.
+                    var applied = 0
+                    for (song in lib.songs) {
+                        if (Styles.parse(lib.stats[song.id]?.styles.orEmpty()).isNotEmpty()) continue
+                        if (Styles.parse(stylesByArtist[song.artistKey].orEmpty()).isNotEmpty()) continue
+                        val stored = tagsBySong[song.id].orEmpty()
+                        if (stored.isBlank()) continue
+                        val predicted = model.predict(AudioTags.decompress(stored))
+                        if (predicted.isEmpty()) continue
+                        repo.setSongStyles(song.id, Styles.join(predicted))
+                        applied++
+                    }
+                    LearnResult(accuracy, rows.size, rows.size, applied)
+                }
+            }.getOrNull()
+            _busy.value = false
+            _learnResult.value = outcome
+
+            _message.value = when {
+                outcome == null -> "הלמידה נכשלה"
+                outcome.labelled == 0 ->
+                    "אין עדיין מספיק מידע. צריך שירים מנותחים ואמנים עם תגיות סגנון."
+                outcome.accuracy == null ->
+                    "יש רק ${outcome.labelled} דוגמאות — מעט מדי כדי לבדוק אם הלמידה נכונה"
+                outcome.applied == 0 ->
+                    "דיוק נמדד: ${percent(outcome.accuracy)} — נמוך מדי, לא שיניתי כלום"
+                else ->
+                    "דיוק נמדד: ${percent(outcome.accuracy)} · תויגו ${outcome.applied} שירים"
+            }
+            if (outcome != null && outcome.applied > 0) refreshFeed()
+        }
+    }
+
+    private fun percent(value: Double): String = "${(value * 100).toInt()}%"
 
     /** Switching a shelf on or off rebuilds the feed so the change is immediate. */
     fun setHomeShelves(keys: Set<String>) {

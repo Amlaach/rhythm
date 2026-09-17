@@ -112,6 +112,7 @@ fun SettingsScreen(
     var searchPersonal by remember { mutableStateOf(vm.prefs.searchPersonalized) }
     var searchLyrics by remember { mutableStateOf(vm.prefs.searchLyrics) }
     var resumePrompt by remember { mutableStateOf(vm.prefs.resumePrompt) }
+    var openOnPlay by remember { mutableStateOf(vm.prefs.openPlayerOnPlay) }
     var shelves by remember { mutableStateOf(vm.prefs.homeShelves) }
     var firstTab by remember { mutableStateOf(vm.prefs.libraryFirstTab) }
     var hideDupes by remember { mutableStateOf(vm.prefs.hideDuplicates) }
@@ -345,6 +346,30 @@ fun SettingsScreen(
                 }
             }
 
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("למידת סגנונות מהספרייה", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "לומד איך הסגנונות שהגדרת נשמעים — מהשירים של האמנים " +
+                                "שתייגת — ומשלים תגיות לשירים שלא תויגו. האפליקציה " +
+                                "בודקת את עצמה על חצי מהספרייה, ואם הדיוק נמוך היא " +
+                                "לא משנה כלום",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = { vm.learnStyles() },
+                        enabled = !busy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("למד") }
+                }
+            }
+
             // ---------------------------------------------------------------
             // החיפוש
             // ---------------------------------------------------------------
@@ -471,6 +496,33 @@ fun SettingsScreen(
                                 )
                             }
                         }
+                    }
+                }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("לחיצה על שיר פותחת את הנגן", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "כבוי: השיר מתחיל והנגן נשאר מכווץ למטה, כמו היום. " +
+                                    "דלוק: מסך הנגן נפתח מיד",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = openOnPlay,
+                            onCheckedChange = {
+                                openOnPlay = it
+                                vm.prefs.openPlayerOnPlay = it
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Accent,
+                                checkedTrackColor = Accent.copy(alpha = 0.4f)
+                            )
+                        )
                     }
                 }
                 item {
