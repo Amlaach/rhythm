@@ -131,8 +131,13 @@ dependencies {
     implementation("com.google.guava:guava:32.1.3-android")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
-    // On-device audio tagging. The task library reads the model's own metadata
-    // for its sample rate and buffer length, which is the part of a TensorFlow
-    // Lite integration that is easiest to get quietly wrong.
-    implementation("org.tensorflow:tensorflow-lite-task-audio:0.4.4")
+    // On-device audio tagging.
+    //
+    // The bare interpreter rather than the audio task library: that one
+    // declares minSdk 23 and would have taken Android 5 back off the table,
+    // which is a live requirement here. Nothing is lost by dropping it - this
+    // model takes a raw waveform, so the metadata handling the task library
+    // exists to provide is not needed, and resampling is already in the
+    // analyser.
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
 }
