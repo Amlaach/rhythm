@@ -146,7 +146,20 @@ class MusicRepository(
             bump(songId, other, w, now)
             bump(other, songId, w, now)
         }
+
+        // These two tables have a row per pair of songs heard together, so they
+        // grow with how much someone listens rather than with how much music
+        // they own - and nothing was trimming them. Checked rarely because the
+        // count query is not free and the tables only ever grow slowly.
+        playsSinceTrim++
+        if (playsSinceTrim >= TRIM_EVERY) {
+            playsSinceTrim = 0
+            dao.trimAffinity(EDGE_LIMIT)
+            dao.trimTransitions(EDGE_LIMIT)
+        }
     }
+
+    private var playsSinceTrim = 0
 
     private suspend fun bump(a: Long, b: Long, w: Double, now: Long) {
         val current = dao.affinityWeight(a, b) ?: 0.0
@@ -607,6 +620,14 @@ class MusicRepository(
     }
 
     companion object {
+        /**
+         * Edges kept per table. Twenty thousand is far more than the engine
+         * ever reads and about a megabyte on disk, so the ceiling is generous
+         * enough never to lose anything that matters.
+         */
+        private const val EDGE_LIMIT = 20_000
+        private const val TRIM_EVERY = 200
+
         fun create(context: Context): MusicRepository {
             val db = RhythmDatabase.get(context)
             return MusicRepository(context.applicationContext, db.musicDao(), Prefs(context))

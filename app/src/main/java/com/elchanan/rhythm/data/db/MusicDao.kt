@@ -97,6 +97,27 @@ interface MusicDao {
     @Query("DELETE FROM transitions")
     suspend fun clearTransitions()
 
+    /**
+     * Drops the weakest edges once the table has grown past what the engine can
+     * use.
+     *
+     * Both of these tables have one row per pair of songs that followed each
+     * other, so they grow with listening rather than with the library, and
+     * nothing was ever removing them. An edge seen once years ago carries no
+     * signal the engine misses; the strong ones are the whole point.
+     */
+    @Query(
+        "DELETE FROM transitions WHERE rowid NOT IN " +
+            "(SELECT rowid FROM transitions ORDER BY weight DESC LIMIT :keep)"
+    )
+    suspend fun trimTransitions(keep: Int)
+
+    @Query(
+        "DELETE FROM affinity WHERE rowid NOT IN " +
+            "(SELECT rowid FROM affinity ORDER BY weight DESC LIMIT :keep)"
+    )
+    suspend fun trimAffinity(keep: Int)
+
     // ---------- tag overrides ----------
 
     @Query("SELECT * FROM tag_overrides")

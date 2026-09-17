@@ -505,12 +505,22 @@ object AudioAnalyzer {
         // very distribution the key detector weighs; a held chord is not an
         // onset but drifts enough to look like a stream of them.
         runCatching {
-            val split = Separation.split(spectrogram)
+            // Only the bins that feed a measurement are separated. Chroma stops
+            // at 5 kHz and onsets carry no useful information above it either,
+            // so filtering the top half of the spectrum is work whose result is
+            // then thrown away - and this filter is the most expensive thing in
+            // the analyser, several times the cost of the transform that
+            // produced the spectrogram.
+            val usefulBins = ((5000.0 * WINDOW / sampleRate).toInt() + 1).coerceIn(1, bins)
+            val band = Array(frameCount) { f ->
+                java.util.Arrays.copyOf(spectrogram[f], usefulBins)
+            }
+            val split = Separation.split(band)
             java.util.Arrays.fill(chroma, 0.0)
             java.util.Arrays.fill(chroma24, 0.0)
             for (frame in 0 until frameCount) {
                 val row = split.harmonic[frame]
-                for (k in 0 until bins) {
+                for (k in 0 until usefulBins) {
                     val m = row[k]
                     if (m <= 0.0) continue
                     val pc = binPitchClass[k]
@@ -524,12 +534,12 @@ object AudioAnalyzer {
             for (frame in 0 until frameCount) {
                 val row = split.percussive[frame]
                 var positive = 0.0
-                for (k in 0 until bins) {
+                for (k in 0 until usefulBins) {
                     val d = row[k] - previous[k]
                     if (d > 0) positive += d
                 }
                 flux[frame] = positive
-                System.arraycopy(row, 0, previous, 0, bins)
+                System.arraycopy(row, 0, previous, 0, usefulBins)
             }
         }
 
