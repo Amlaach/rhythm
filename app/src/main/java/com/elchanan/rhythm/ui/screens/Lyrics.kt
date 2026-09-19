@@ -47,6 +47,7 @@ import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Surface1
+import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import com.elchanan.rhythm.ui.theme.TextTertiary
 
@@ -152,7 +153,10 @@ fun LyricsView(
             OutlinedButton(onClick = { vm.refreshLyrics(song) }) { Text("חפש שוב") }
             Button(
                 onClick = { editorOpen = true },
-                colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Surface1,
+                    contentColor = TextPrimary
+                )
             ) { Text("ערוך / הדבק") }
         }
     }

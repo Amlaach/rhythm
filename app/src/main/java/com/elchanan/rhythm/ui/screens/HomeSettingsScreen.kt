@@ -40,7 +40,6 @@ import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.BgElevated
-import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextSecondary
 
 /**
@@ -123,7 +122,7 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             }
             Button(
                 onClick = { shelvesOpen = true },
-                colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                colors = ButtonDefaults.buttonColors(containerColor = Accent)
             ) { Text("ערוך") }
         }
     }

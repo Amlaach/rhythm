@@ -57,6 +57,7 @@ import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.Surface1
+import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
 
 /**
@@ -701,7 +702,7 @@ fun SettingsScreen(
                     Button(
                         onClick = { exportLauncher.launch(null) },
                         enabled = !busy,
-                        colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
                     ) { Text("בחר תיקייה") }
                 }
             }
@@ -835,7 +836,10 @@ fun SettingsScreen(
                         ) { Text(if (analysis.running) "עצור" else "נתח עכשיו") }
                         Button(
                             onClick = { vm.resetAnalysis() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Surface1,
+                                contentColor = TextPrimary
+                            )
                         ) { Text("אפס ניתוח") }
                     }
                 }
@@ -887,7 +891,7 @@ fun SettingsScreen(
                     }
                     Button(
                         onClick = { foldersOpen = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
                     ) { Text("ערוך") }
                 }
             }
@@ -1010,7 +1014,7 @@ fun SettingsScreen(
                     }
                     Button(
                         onClick = { separationsOpen = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
                     ) { Text("ערוך") }
                 }
             }
@@ -1026,7 +1030,10 @@ fun SettingsScreen(
                     ) { Text("סרוק מחדש") }
                     Button(
                         onClick = { vm.resetLearning() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Surface1,
+                            contentColor = TextPrimary
+                        )
                     ) { Text("אפס למידה") }
                 }
             }
@@ -1059,7 +1066,10 @@ fun SettingsScreen(
                         if (lyricsFolder != null) {
                             Button(
                                 onClick = { vm.setLyricsFolder(null) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Surface1,
+                                    contentColor = TextPrimary
+                                )
                             ) { Text("נקה") }
                         }
                     }
