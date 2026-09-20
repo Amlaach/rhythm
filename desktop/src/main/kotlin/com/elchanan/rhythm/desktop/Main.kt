@@ -79,6 +79,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.elchanan.rhythm.data.db.ArtistEntity
@@ -139,7 +140,18 @@ fun main() = application {
     Window(
         onCloseRequest = ::exitApplication,
         title = "Rhythm",
-        state = rememberWindowState(width = 1100.dp, height = 760.dp)
+        // The mark, on the window itself: the title bar, Alt-Tab and the
+        // taskbar all read it from here. The installed program's icon is a
+        // separate thing and comes from the .ico jpackage puts in the exe.
+        icon = WindowIcon.painter,
+        // Centred. The platform default cascades new windows down and to the
+        // side of wherever the last one opened, which on a wide monitor puts
+        // a first launch off towards an edge for no reason anyone asked for.
+        state = rememberWindowState(
+            width = 1100.dp,
+            height = 760.dp,
+            position = WindowPosition(Alignment.Center)
+        )
     ) {
         // The app is Hebrew. Right to left is the default here exactly as it
         // is on the phone, not a setting.
