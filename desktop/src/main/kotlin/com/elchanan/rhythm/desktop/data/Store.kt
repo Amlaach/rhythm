@@ -1,0 +1,333 @@
+package com.elchanan.rhythm.desktop.data
+
+import com.elchanan.rhythm.data.db.ArtistEntity
+import com.elchanan.rhythm.data.db.SongEntity
+import com.elchanan.rhythm.data.db.SongStatsEntity
+import java.io.File
+import java.sql.Connection
+import java.sql.DriverManager
+import java.sql.ResultSet
+
+/**
+ * Everything the desktop build remembers between launches.
+ *
+ * Room is Android only, so this is plain SQLite through JDBC with the SQL
+ * written out. The rows it reads and writes are the same entity classes the
+ * phone uses - they live in :engine - so the recommender, when it is wired
+ * up, will be handed exactly what it expects.
+ *
+ * The split between the two main tables is the important part and is copied
+ * from the phone deliberately. `songs` is rebuilt from scratch on every scan,
+ * because the disk is the truth about what exists. `song_stats` is never
+ * touched by a scan: ratings, likes and play counts are the user's, they took
+ * months to accumulate, and a rescan must not be able to lose them. They stay
+ * joined by the song id, which is why that id has to be derived from
+ * something stable - see LibraryScan.idOf.
+ */
+class Store private constructor(private val conn: Connection) {
+
+    companion object {
+
+        /**
+         * Opens the database, creating it if this is the first launch.
+         *
+         * Beside the user's own data rather than beside the program, because
+         * an installed application's own folder is not writable without
+         * elevation on Windows, and because reinstalling should not take
+         * someone's ratings with it.
+         */
+        fun open(): Store {
+            val dir = dataDir()
+            dir.mkdirs()
+            val conn = DriverManager.getConnection("jdbc:sqlite:${File(dir, "rhythm.db").absolutePath}")
+            conn.createStatement().use { st ->
+                // Write ahead logging, so a play count being recorded does not
+                // block the scan that is running behind it.
+                st.execute("PRAGMA journal_mode=WAL")
+                st.execute("PRAGMA foreign_keys=ON")
+                for (ddl in SCHEMA) st.execute(ddl)
+            }
+            return Store(conn)
+        }
+
+        private fun dataDir(): File {
+            val os = System.getProperty("os.name").orEmpty().lowercase()
+            if (os.contains("win")) {
+                val local = System.getenv("LOCALAPPDATA")
+                if (!local.isNullOrBlank()) return File(local, "Rhythm")
+            }
+            val xdg = System.getenv("XDG_DATA_HOME")
+            if (!xdg.isNullOrBlank()) return File(xdg, "Rhythm")
+            return File(System.getProperty("user.home"), ".local/share/Rhythm")
+        }
+
+        private val SCHEMA = listOf(
+            """
+            CREATE TABLE IF NOT EXISTS songs (
+                id INTEGER PRIMARY KEY, title TEXT NOT NULL, titleLower TEXT NOT NULL,
+                artistName TEXT NOT NULL, artistKey TEXT NOT NULL, albumName TEXT NOT NULL,
+                albumId INTEGER NOT NULL, durationMs INTEGER NOT NULL, trackNumber INTEGER NOT NULL,
+                year INTEGER NOT NULL, genre TEXT, path TEXT NOT NULL, folder TEXT NOT NULL,
+                dateAddedSec INTEGER NOT NULL, sizeBytes INTEGER NOT NULL
+            )
+            """.trimIndent(),
+            "CREATE INDEX IF NOT EXISTS songs_artistKey ON songs(artistKey)",
+            """
+            CREATE TABLE IF NOT EXISTS song_stats (
+                songId INTEGER PRIMARY KEY, playCount INTEGER NOT NULL DEFAULT 0,
+                skipCount INTEGER NOT NULL DEFAULT 0, completeCount INTEGER NOT NULL DEFAULT 0,
+                listenedMs INTEGER NOT NULL DEFAULT 0, lastPlayedAt INTEGER NOT NULL DEFAULT 0,
+                liked INTEGER NOT NULL DEFAULT 0, likedAt INTEGER NOT NULL DEFAULT 0,
+                rating INTEGER NOT NULL DEFAULT 0, styles TEXT NOT NULL DEFAULT '',
+                stylesAuto INTEGER NOT NULL DEFAULT 0, b0 INTEGER NOT NULL DEFAULT 0,
+                b1 INTEGER NOT NULL DEFAULT 0, b2 INTEGER NOT NULL DEFAULT 0,
+                b3 INTEGER NOT NULL DEFAULT 0, dWeekend INTEGER NOT NULL DEFAULT 0,
+                dWeekday INTEGER NOT NULL DEFAULT 0, genre TEXT NOT NULL DEFAULT '',
+                spoken INTEGER NOT NULL DEFAULT -1
+            )
+            """.trimIndent(),
+            """
+            CREATE TABLE IF NOT EXISTS artists (
+                artistKey TEXT PRIMARY KEY, displayName TEXT NOT NULL,
+                rating INTEGER NOT NULL DEFAULT 0, styles TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '', updatedAt INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent(),
+            "CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)"
+        )
+
+        private const val KEY_FOLDERS = "folders"
+    }
+
+    // ---------------------------------------------------------------------
+    // The library
+    // ---------------------------------------------------------------------
+
+    /**
+     * Replaces the song table with what the scan found.
+     *
+     * One transaction, so a scan interrupted half way leaves the previous
+     * library intact rather than a fragment of the new one. Stats are not
+     * touched: a song that disappears keeps its row in song_stats, which is
+     * what makes moving a folder and moving it back a non event.
+     */
+    fun replaceSongs(songs: List<SongEntity>) {
+        conn.autoCommit = false
+        try {
+            conn.createStatement().use { it.execute("DELETE FROM songs") }
+            conn.prepareStatement(
+                "INSERT INTO songs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            ).use { ps ->
+                for (s in songs) {
+                    ps.setLong(1, s.id)
+                    ps.setString(2, s.title)
+                    ps.setString(3, s.titleLower)
+                    ps.setString(4, s.artistName)
+                    ps.setString(5, s.artistKey)
+                    ps.setString(6, s.albumName)
+                    ps.setLong(7, s.albumId)
+                    ps.setLong(8, s.durationMs)
+                    ps.setInt(9, s.trackNumber)
+                    ps.setInt(10, s.year)
+                    ps.setString(11, s.genre)
+                    ps.setString(12, s.path)
+                    ps.setString(13, s.folder)
+                    ps.setLong(14, s.dateAddedSec)
+                    ps.setLong(15, s.sizeBytes)
+                    ps.addBatch()
+                }
+                ps.executeBatch()
+            }
+            // Every artist the scan saw, without disturbing one the user has
+            // already rated - the rating and the styles are the whole reason
+            // this table exists.
+            conn.prepareStatement(
+                "INSERT INTO artists (artistKey, displayName) VALUES (?,?) " +
+                    "ON CONFLICT(artistKey) DO UPDATE SET displayName = excluded.displayName"
+            ).use { ps ->
+                for ((key, name) in songs.associate { it.artistKey to it.artistName }) {
+                    ps.setString(1, key)
+                    ps.setString(2, name)
+                    ps.addBatch()
+                }
+                ps.executeBatch()
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = true
+        }
+    }
+
+    fun songs(): List<SongEntity> {
+        val out = ArrayList<SongEntity>()
+        conn.createStatement().use { st ->
+            val rs = st.executeQuery("SELECT * FROM songs ORDER BY titleLower")
+            while (rs.next()) out.add(readSong(rs))
+        }
+        return out
+    }
+
+    private fun readSong(rs: ResultSet) = SongEntity(
+        id = rs.getLong("id"),
+        title = rs.getString("title"),
+        titleLower = rs.getString("titleLower"),
+        artistName = rs.getString("artistName"),
+        artistKey = rs.getString("artistKey"),
+        albumName = rs.getString("albumName"),
+        albumId = rs.getLong("albumId"),
+        durationMs = rs.getLong("durationMs"),
+        trackNumber = rs.getInt("trackNumber"),
+        year = rs.getInt("year"),
+        genre = rs.getString("genre"),
+        path = rs.getString("path"),
+        folder = rs.getString("folder"),
+        dateAddedSec = rs.getLong("dateAddedSec"),
+        sizeBytes = rs.getLong("sizeBytes")
+    )
+
+    // ---------------------------------------------------------------------
+    // What the user thinks of it
+    // ---------------------------------------------------------------------
+
+    fun stats(): Map<Long, SongStatsEntity> {
+        val out = HashMap<Long, SongStatsEntity>()
+        conn.createStatement().use { st ->
+            val rs = st.executeQuery("SELECT * FROM song_stats")
+            while (rs.next()) {
+                val row = SongStatsEntity(
+                    songId = rs.getLong("songId"),
+                    playCount = rs.getInt("playCount"),
+                    skipCount = rs.getInt("skipCount"),
+                    completeCount = rs.getInt("completeCount"),
+                    listenedMs = rs.getLong("listenedMs"),
+                    lastPlayedAt = rs.getLong("lastPlayedAt"),
+                    liked = rs.getInt("liked"),
+                    likedAt = rs.getLong("likedAt"),
+                    rating = rs.getInt("rating"),
+                    styles = rs.getString("styles"),
+                    stylesAuto = rs.getInt("stylesAuto"),
+                    b0 = rs.getInt("b0"),
+                    b1 = rs.getInt("b1"),
+                    b2 = rs.getInt("b2"),
+                    b3 = rs.getInt("b3"),
+                    dWeekend = rs.getInt("dWeekend"),
+                    dWeekday = rs.getInt("dWeekday"),
+                    genre = rs.getString("genre"),
+                    spoken = rs.getInt("spoken")
+                )
+                out[row.songId] = row
+            }
+        }
+        return out
+    }
+
+    /**
+     * Marks a song liked, disliked, or neither.
+     *
+     * Pressing the mark a song already carries clears it, which is the same
+     * rule the phone uses: the button is a toggle, not a setting, and there
+     * has to be a way back from a press that was a mistake.
+     */
+    fun setLike(songId: Long, value: Int) {
+        ensureStats(songId)
+        conn.prepareStatement(
+            "UPDATE song_stats SET liked = CASE WHEN liked = ? THEN 0 ELSE ? END, " +
+                "likedAt = CASE WHEN liked = ? THEN 0 ELSE ? END WHERE songId = ?"
+        ).use { ps ->
+            ps.setInt(1, value)
+            ps.setInt(2, value)
+            ps.setInt(3, value)
+            ps.setLong(4, System.currentTimeMillis())
+            ps.setLong(5, songId)
+            ps.executeUpdate()
+        }
+    }
+
+    /** Records that a song was played, and whether it was heard out. */
+    fun notePlay(songId: Long, listenedMs: Long, completed: Boolean) {
+        ensureStats(songId)
+        conn.prepareStatement(
+            "UPDATE song_stats SET playCount = playCount + 1, " +
+                "completeCount = completeCount + ?, skipCount = skipCount + ?, " +
+                "listenedMs = listenedMs + ?, lastPlayedAt = ? WHERE songId = ?"
+        ).use { ps ->
+            ps.setInt(1, if (completed) 1 else 0)
+            ps.setInt(2, if (completed) 0 else 1)
+            ps.setLong(3, listenedMs.coerceAtLeast(0L))
+            ps.setLong(4, System.currentTimeMillis())
+            ps.setLong(5, songId)
+            ps.executeUpdate()
+        }
+    }
+
+    private fun ensureStats(songId: Long) {
+        conn.prepareStatement(
+            "INSERT INTO song_stats (songId) VALUES (?) ON CONFLICT(songId) DO NOTHING"
+        ).use { ps ->
+            ps.setLong(1, songId)
+            ps.executeUpdate()
+        }
+    }
+
+    fun artists(): List<ArtistEntity> {
+        val out = ArrayList<ArtistEntity>()
+        conn.createStatement().use { st ->
+            val rs = st.executeQuery("SELECT * FROM artists")
+            while (rs.next()) {
+                out.add(
+                    ArtistEntity(
+                        artistKey = rs.getString("artistKey"),
+                        displayName = rs.getString("displayName"),
+                        rating = rs.getInt("rating"),
+                        styles = rs.getString("styles"),
+                        note = rs.getString("note"),
+                        updatedAt = rs.getLong("updatedAt")
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    // ---------------------------------------------------------------------
+    // Where the music is
+    // ---------------------------------------------------------------------
+
+    /**
+     * The folders the user picked, so they are not asked again every launch.
+     *
+     * Stored as newline separated paths. A path cannot contain a newline on
+     * either Windows or Linux, which makes this the one separator that needs
+     * no escaping.
+     */
+    var folders: List<File>
+        get() = setting(KEY_FOLDERS)
+            .orEmpty()
+            .split('\n')
+            .filter { it.isNotBlank() }
+            .map { File(it) }
+        set(value) = putSetting(KEY_FOLDERS, value.joinToString("\n") { it.absolutePath })
+
+    private fun setting(key: String): String? {
+        conn.prepareStatement("SELECT v FROM settings WHERE k = ?").use { ps ->
+            ps.setString(1, key)
+            val rs = ps.executeQuery()
+            return if (rs.next()) rs.getString("v") else null
+        }
+    }
+
+    private fun putSetting(key: String, value: String) {
+        conn.prepareStatement(
+            "INSERT INTO settings (k, v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v = excluded.v"
+        ).use { ps ->
+            ps.setString(1, key)
+            ps.setString(2, value)
+            ps.executeUpdate()
+        }
+    }
+
+    fun close() = runCatching { conn.close() }.let { }
+}
