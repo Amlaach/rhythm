@@ -1241,7 +1241,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         /** Songs whose artist carries style tags: the labels to learn from. */
         val withStyles: Int = 0,
         /** Songs with something measured or heard: the evidence to learn from. */
-        val withEvidence: Int = 0
+        val withEvidence: Int = 0,
+        /** How many tagged songs carry each style, most common first. */
+        val counts: List<Pair<String, Int>> = emptyList()
     )
 
     private val _learnResult = MutableStateFlow<LearnResult?>(null)
@@ -1289,6 +1291,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
 
                     val rows = StyleTraining.rows(lib.songs, tagsBySong, stylesByArtist, space)
+                    // Kept for the message: which styles are present and how
+                    // big each one is, which is what separates "not enough
+                    // songs" from "not enough variety".
+                    val counts = StyleLearner.styleCounts(rows)
                     if (rows.isEmpty()) {
                         return@withContext LearnResult(
                             null, 0, 0, 0, withStyles, withEvidence
@@ -1302,14 +1308,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     val accuracy = validation?.accuracy
                     val model = StyleLearner.fit(rows, l2 = validation?.l2 ?: 0.1)
                         ?: return@withContext LearnResult(
-                            accuracy, 0, rows.size, 0, withStyles, withEvidence
+                            accuracy, 0, rows.size, 0, withStyles, withEvidence, counts
                         )
 
                     // Only worth applying when the held-out score says the model
                     // actually generalises.
                     if (accuracy == null || accuracy < 0.70) {
                         return@withContext LearnResult(
-                            accuracy, rows.size, rows.size, 0, withStyles, withEvidence
+                            accuracy, rows.size, rows.size, 0, withStyles, withEvidence, counts
                         )
                     }
 
@@ -1338,7 +1344,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         applied++
                     }
                     LearnResult(
-                        accuracy, rows.size, rows.size, applied, withStyles, withEvidence
+                        accuracy, rows.size, rows.size, applied, withStyles, withEvidence, counts
                     )
                 }
             }.getOrNull()
@@ -1355,12 +1361,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 outcome.labelled == 0 ->
                     "${outcome.withStyles} שירים מתויגים ו-${outcome.withEvidence} מנותחים, " +
                         "אבל אלה לא אותם שירים."
-                outcome.accuracy == null ->
-                    "יש ${outcome.labelled} שירים מתויגים. צריך לפחות " +
-                        "${StyleLearner.MIN_ROWS_TO_VALIDATE} כדי לבדוק אם הלמידה נכונה."
-                outcome.trained == 0 ->
-                    "יש ${outcome.labelled} שירים מתויגים, אבל אף סגנון לא הגיע ל-" +
-                        "${StyleLearner.DEFAULT_MIN_PER_STYLE} דוגמאות עם מספיק דוגמאות נגדיות."
+                outcome.accuracy == null || outcome.trained == 0 -> whyNotLearned(outcome)
                 outcome.applied == 0 ->
                     "דיוק נמדד: ${percent(outcome.accuracy)} — נמוך מדי, לא שיניתי כלום"
                 else ->
@@ -1368,6 +1369,42 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             if (outcome != null && outcome.applied > 0) refreshFeed()
         }
+    }
+
+    /**
+     * Why learning produced nothing usable, in terms the user can act on.
+     *
+     * Four different dead ends used to share one sentence about needing more
+     * tagged songs, and for three of them that sentence was simply false. A
+     * library can be past every count and still unlearnable because almost
+     * every song carries the same style word: with nothing outside it there
+     * is no contrast to learn from, and the classifier is dropped before it
+     * is ever fitted. Telling someone with fifty six tagged songs that
+     * thirty two are needed is advice they followed long ago, and it points
+     * them at the one thing that would not have helped.
+     */
+    private fun whyNotLearned(r: LearnResult): String {
+        val floor = StyleLearner.DEFAULT_MIN_PER_STYLE
+        if (r.labelled < StyleLearner.MIN_ROWS_TO_VALIDATE) {
+            return "יש ${r.labelled} שירים מתויגים. צריך לפחות " +
+                "${StyleLearner.MIN_ROWS_TO_VALIDATE} כדי לבדוק אם הלמידה נכונה."
+        }
+        val top = r.counts.firstOrNull()
+            ?: return "יש ${r.labelled} שירים מתויגים, אבל אין בהם אף סגנון."
+        if (r.trained > 0) {
+            // Enough to fit on everything, not enough to fit on half and be
+            // scored on the other half - and nothing is written without that
+            // score, so this still ends with no labels.
+            return "נלמדו סגנונות, אבל לא היה אפשר לבדוק את הדיוק על חצי מהשירים. " +
+                "עוד אמנים מתויגים יאפשרו את הבדיקה."
+        }
+        if (top.second > r.labelled - floor) {
+            return "${top.second} מתוך ${r.labelled} השירים המתויגים מסומנים \"${top.first}\". " +
+                "כדי ללמוד מה מייחד סגנון צריך גם שירים שאינם בו — תייג אמנים " +
+                "בסגנונות אחרים, ולא עוד אמנים באותו סגנון."
+        }
+        return "אף סגנון לא הגיע ל-$floor שירים. הנפוץ ביותר, \"${top.first}\", " +
+            "מופיע ב-${top.second}."
     }
 
     /**

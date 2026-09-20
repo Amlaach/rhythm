@@ -104,6 +104,42 @@ class StyleLearner private constructor(
         private val L2_CANDIDATES = doubleArrayOf(0.02, 0.1, 0.5, 2.0)
 
         /**
+         * How many labelled songs carry each style, most common first.
+         *
+         * Public because these counts are the entire diagnosis when learning
+         * refuses to run. Too few rows and a library that is all one style
+         * both end as "no model", and they need opposite things from the
+         * user - more songs in the first case, more variety in the second.
+         * Without the counts the screen cannot tell them apart and has to
+         * guess, which is how it came to tell someone with fifty six tagged
+         * songs that thirty two were needed.
+         */
+        fun styleCounts(labelled: List<Pair<FloatArray, List<String>>>): List<Pair<String, Int>> {
+            val counts = HashMap<String, Int>()
+            for ((_, tags) in labelled) {
+                for (tag in tags.distinct()) counts[tag] = (counts[tag] ?: 0) + 1
+            }
+            return counts.map { it.key to it.value }
+                .sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+        }
+
+        /**
+         * The styles there is any point fitting.
+         *
+         * A style needs examples, and it equally needs counter-examples: if
+         * everything in the library is tagged "חסידי" then "חסידי" separates
+         * nothing, and a model that always answers yes looks perfect while
+         * having learned nothing at all.
+         */
+        fun eligibleStyles(
+            labelled: List<Pair<FloatArray, List<String>>>,
+            minPerStyle: Int = DEFAULT_MIN_PER_STYLE
+        ): List<String> = styleCounts(labelled)
+            .filter { it.second >= minPerStyle && it.second <= labelled.size - minPerStyle }
+            .map { it.first }
+            .sorted()
+
+        /**
          * Fits a model, or returns null when there is not enough to learn from.
          *
          * The thresholds are deliberately conservative. A style with three
@@ -123,17 +159,7 @@ class StyleLearner private constructor(
         ): StyleLearner? {
             if (labelled.size < minPerStyle * 2) return null
 
-            val counts = HashMap<String, Int>()
-            for ((_, tags) in labelled) {
-                for (tag in tags.distinct()) counts[tag] = (counts[tag] ?: 0) + 1
-            }
-            // A style also needs counter-examples: if everything in the library
-            // is tagged "חסידי" then "חסידי" separates nothing, and a model
-            // that always answers yes looks perfect while knowing nothing.
-            val styles = counts
-                .filter { it.value >= minPerStyle && it.value <= labelled.size - minPerStyle }
-                .keys
-                .sorted()
+            val styles = eligibleStyles(labelled, minPerStyle)
             if (styles.isEmpty()) return null
 
             val dimension = labelled.first().first.size
