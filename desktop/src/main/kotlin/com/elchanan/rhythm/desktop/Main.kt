@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -63,6 +66,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -470,11 +474,11 @@ private fun RhythmApp() {
 }
 
 @Composable
-private fun androidx.compose.foundation.layout.RowScope.NavTab(
+private fun RowScope.NavTab(
     current: Int,
     index: Int,
     label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     onClick: () -> Unit
 ) {
     NavigationBarItem(
@@ -627,9 +631,9 @@ private fun FeedPane(
 }
 
 @Composable
-private fun Shelf(content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
+private fun Shelf(content: LazyListScope.() -> Unit) {
     LazyRow(
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = GUTTER - 4.dp),
+        contentPadding = PaddingValues(horizontal = GUTTER - 4.dp),
         modifier = Modifier.padding(top = 4.dp),
         content = content
     )
@@ -1277,32 +1281,33 @@ private fun EqualizerPanel(equalizer: Equalizer, open: Boolean, onOpen: (Boolean
                 ) { Text("אפס") }
             }
         }
-        if (!open) return@Column
-        for (band in Equalizer.FREQUENCIES.indices) {
-            val hz = Equalizer.FREQUENCIES[band].toInt()
-            val label = if (hz >= 1000) "${hz / 1000}kHz" else "${hz}Hz"
-            var live by remember(version, band) { mutableStateOf(equalizer.gain(band)) }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.width(56.dp)
-                )
-                Slider(
-                    value = live,
-                    valueRange = -Equalizer.MAX_DB..Equalizer.MAX_DB,
-                    onValueChange = {
-                        live = it
-                        equalizer.setGain(band, it)
-                    },
-                    enabled = on,
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-                )
-                Text(
-                    "${live.toInt()} dB",
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.width(52.dp)
-                )
+        if (open) {
+            for (band in Equalizer.FREQUENCIES.indices) {
+                val hz = Equalizer.FREQUENCIES[band].toInt()
+                val label = if (hz >= 1000) "${hz / 1000}kHz" else "${hz}Hz"
+                var live by remember(version, band) { mutableStateOf(equalizer.gain(band)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.width(56.dp)
+                    )
+                    Slider(
+                        value = live,
+                        valueRange = -Equalizer.MAX_DB..Equalizer.MAX_DB,
+                        onValueChange = {
+                            live = it
+                            equalizer.setGain(band, it)
+                        },
+                        enabled = on,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                    )
+                    Text(
+                        "${live.toInt()} dB",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.width(52.dp)
+                    )
+                }
             }
         }
     }

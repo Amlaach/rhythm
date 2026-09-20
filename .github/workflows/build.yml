@@ -64,12 +64,20 @@ jobs:
           set -o pipefail
           ./gradlew --no-daemon :desktop:compileKotlin 2>&1 | tee desktop.log
 
+      # One grep over both logs put the Android build's output first and the
+      # head cut the Kotlin errors off the end, which is how the last run
+      # reported a compilation failure without saying what failed. Each log
+      # gets its own pass now, and the "e:" lines come before anything else.
       - name: Show the compile errors
         if: failure()
         run: |
-          echo "=============== errors ==============="
-          grep -E "^e: |^Caused by: |^\* What went wrong:" -A 3 build.log desktop.log | head -60 || true
-          echo "======================================"
+          for f in build.log desktop.log; do
+            [ -f "$f" ] || continue
+            echo "=============== $f ==============="
+            grep -E "^e: " "$f" | head -40 || true
+            grep -E "^\* What went wrong:" -A 4 "$f" | head -10 || true
+          done
+          echo "=================================="
 
       - name: Collect APKs
         if: always()
