@@ -56,8 +56,10 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.elchanan.rhythm.data.db.ArtistEntity
+import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
+import com.elchanan.rhythm.desktop.audio.Analyzer
 import com.elchanan.rhythm.desktop.audio.AudioPlayer
 import com.elchanan.rhythm.desktop.data.Store
 import com.elchanan.rhythm.engine.FeedSection
@@ -123,6 +125,8 @@ private fun RhythmApp() {
     var tab by remember { mutableStateOf(0) }
     var status by remember { mutableStateOf("") }
     var scanning by remember { mutableStateOf(false) }
+    var analysing by remember { mutableStateOf(false) }
+    var features by remember { mutableStateOf<Map<Long, AudioFeatureEntity>>(emptyMap()) }
     var volume by remember { mutableStateOf(1f) }
 
     suspend fun reload() {
@@ -131,7 +135,8 @@ private fun RhythmApp() {
             val st = store.stats()
             val ar = store.artists()
             val sd = store.feedSeed
-            Loaded(s, st, ar, store.folders, sd, Feed.build(s, st, ar, sd))
+            val ft = store.features()
+            Loaded(s, st, ar, store.folders, sd, Feed.build(s, st, ar, ft, sd), ft)
         }
         songs = loaded.songs
         stats = loaded.stats
@@ -139,6 +144,7 @@ private fun RhythmApp() {
         folders = loaded.folders
         seed = loaded.seed
         feed = loaded.feed
+        features = loaded.analysed
         status = if (loaded.songs.isEmpty()) {
             "בחר תיקיית מוזיקה"
         } else {
@@ -191,6 +197,43 @@ private fun RhythmApp() {
         }
     }
 
+    /**
+     * Measures every song that has not been measured yet.
+     *
+     * Only the ones missing, because analysis is the expensive thing this
+     * app does - seconds per song, against milliseconds for everything else -
+     * and a library is scanned far more often than it changes.
+     *
+     * Each row is written as it is produced rather than all of them at the
+     * end, so a pass that is interrupted keeps what it had already measured.
+     */
+    fun analyze() {
+        val todo = songs.filter { it.id !in features }
+        if (todo.isEmpty()) return
+        analysing = true
+        scope.launch {
+            var done = 0
+            var unreadable = 0
+            for (song in todo) {
+                val row = withContext(Dispatchers.IO) {
+                    val f = Analyzer.analyze(song)
+                    if (f != null) store.putFeature(f)
+                    f
+                }
+                done++
+                if (row == null) unreadable++
+                status = "מנתח… $done מתוך ${todo.size}"
+            }
+            reload()
+            analysing = false
+            // reload() has just written the ordinary count over the status,
+            // so the files that could not be read are said afterwards or not
+            // at all - and silently skipping them is how someone ends up
+            // wondering why a shelf never mentions half their library.
+            if (unreadable > 0) status = "$status · $unreadable קבצים לא נקראו"
+        }
+    }
+
     fun like(song: SongEntity) {
         scope.launch {
             stats = withContext(Dispatchers.IO) {
@@ -233,9 +276,15 @@ private fun RhythmApp() {
             if (folders.isNotEmpty()) {
                 Button(enabled = !scanning, onClick = { scan(folders) }) { Text("סרוק מחדש") }
             }
+            if (songs.any { it.id !in features }) {
+                Button(
+                    enabled = !scanning && !analysing,
+                    onClick = { analyze() }
+                ) { Text("נתח (${songs.count { it.id !in features }})") }
+            }
             if (feed.isNotEmpty()) {
                 Button(
-                    enabled = !scanning,
+                    enabled = !scanning && !analysing,
                     onClick = {
                         scope.launch {
                             withContext(Dispatchers.IO) { store.feedSeed = store.feedSeed + 1 }
@@ -295,7 +344,8 @@ private data class Loaded(
     val artists: List<ArtistEntity>,
     val folders: List<File>,
     val seed: Long,
-    val feed: List<FeedSection>
+    val feed: List<FeedSection>,
+    val analysed: Map<Long, AudioFeatureEntity>
 )
 
 @Composable

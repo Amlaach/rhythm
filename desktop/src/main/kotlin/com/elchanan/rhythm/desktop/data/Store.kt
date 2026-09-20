@@ -1,6 +1,7 @@
 package com.elchanan.rhythm.desktop.data
 
 import com.elchanan.rhythm.data.db.ArtistEntity
+import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
 import java.io.File
@@ -91,6 +92,17 @@ class Store private constructor(private val conn: Connection) {
                 artistKey TEXT PRIMARY KEY, displayName TEXT NOT NULL,
                 rating INTEGER NOT NULL DEFAULT 0, styles TEXT NOT NULL DEFAULT '',
                 note TEXT NOT NULL DEFAULT '', updatedAt INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent(),
+            """
+            CREATE TABLE IF NOT EXISTS audio_features (
+                songId INTEGER PRIMARY KEY, analyzedAt INTEGER NOT NULL, bpm REAL NOT NULL,
+                bpmConfidence REAL NOT NULL, musicalKey INTEGER NOT NULL, mode INTEGER NOT NULL,
+                energy REAL NOT NULL, brightness REAL NOT NULL, flatness REAL NOT NULL,
+                dynamics REAL NOT NULL, onsetRate REAL NOT NULL, chroma TEXT NOT NULL,
+                timbre TEXT NOT NULL, timbreVar TEXT NOT NULL, shape TEXT NOT NULL,
+                scaleMode INTEGER NOT NULL, scaleConfidence REAL NOT NULL,
+                chroma24 TEXT NOT NULL, tags TEXT NOT NULL
             )
             """.trimIndent(),
             "CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)"
@@ -291,6 +303,76 @@ class Store private constructor(private val conn: Connection) {
             }
         }
         return out
+    }
+
+    // ---------------------------------------------------------------------
+    // What the analyser measured
+    // ---------------------------------------------------------------------
+
+    fun features(): Map<Long, AudioFeatureEntity> {
+        val out = HashMap<Long, AudioFeatureEntity>()
+        conn.createStatement().use { st ->
+            val rs = st.executeQuery("SELECT * FROM audio_features")
+            while (rs.next()) {
+                val row = AudioFeatureEntity(
+                    songId = rs.getLong("songId"),
+                    analyzedAt = rs.getLong("analyzedAt"),
+                    bpm = rs.getFloat("bpm"),
+                    bpmConfidence = rs.getFloat("bpmConfidence"),
+                    musicalKey = rs.getInt("musicalKey"),
+                    mode = rs.getInt("mode"),
+                    energy = rs.getFloat("energy"),
+                    brightness = rs.getFloat("brightness"),
+                    flatness = rs.getFloat("flatness"),
+                    dynamics = rs.getFloat("dynamics"),
+                    onsetRate = rs.getFloat("onsetRate"),
+                    chroma = rs.getString("chroma"),
+                    timbre = rs.getString("timbre"),
+                    timbreVar = rs.getString("timbreVar"),
+                    shape = rs.getString("shape"),
+                    scaleMode = rs.getInt("scaleMode"),
+                    scaleConfidence = rs.getFloat("scaleConfidence"),
+                    chroma24 = rs.getString("chroma24"),
+                    tags = rs.getString("tags")
+                )
+                out[row.songId] = row
+            }
+        }
+        return out
+    }
+
+    /**
+     * Stores one analysed song.
+     *
+     * Replaces rather than skips, because re-analysing is how a measurement
+     * improves: the code that produced the old row may simply have been worse
+     * than the code producing this one.
+     */
+    fun putFeature(f: AudioFeatureEntity) {
+        conn.prepareStatement(
+            "INSERT OR REPLACE INTO audio_features VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        ).use { ps ->
+            ps.setLong(1, f.songId)
+            ps.setLong(2, f.analyzedAt)
+            ps.setFloat(3, f.bpm)
+            ps.setFloat(4, f.bpmConfidence)
+            ps.setInt(5, f.musicalKey)
+            ps.setInt(6, f.mode)
+            ps.setFloat(7, f.energy)
+            ps.setFloat(8, f.brightness)
+            ps.setFloat(9, f.flatness)
+            ps.setFloat(10, f.dynamics)
+            ps.setFloat(11, f.onsetRate)
+            ps.setString(12, f.chroma)
+            ps.setString(13, f.timbre)
+            ps.setString(14, f.timbreVar)
+            ps.setString(15, f.shape)
+            ps.setInt(16, f.scaleMode)
+            ps.setFloat(17, f.scaleConfidence)
+            ps.setString(18, f.chroma24)
+            ps.setString(19, f.tags)
+            ps.executeUpdate()
+        }
     }
 
     // ---------------------------------------------------------------------

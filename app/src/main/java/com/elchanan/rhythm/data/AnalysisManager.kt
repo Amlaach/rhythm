@@ -1,6 +1,7 @@
 package com.elchanan.rhythm.data
 
 import android.content.Context
+import com.elchanan.rhythm.engine.Analysis
 import com.elchanan.rhythm.engine.AudioAnalyzer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,7 +60,7 @@ class AnalysisManager(
                         } else {
                             // store a blank row so a file that cannot be decoded
                             // is not retried on every pass
-                            repo.putFeature(AudioAnalyzer.blankFor(song.id))
+                            repo.putFeature(Analysis.blankFor(song.id))
                         }
                         done++
                         _progress.value = _progress.value.copy(done = done, total = total)
