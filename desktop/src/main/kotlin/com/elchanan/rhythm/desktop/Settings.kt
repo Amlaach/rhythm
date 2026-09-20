@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,10 +21,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,12 +38,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.elchanan.rhythm.desktop.audio.Equalizer
 import com.elchanan.rhythm.engine.EngineTuning
+import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface2
 import com.elchanan.rhythm.ui.theme.TextSecondary
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * The settings, reached from the home screen exactly as on the phone.
@@ -74,7 +81,11 @@ internal fun SettingsScreen(
     onResetStats: () -> Unit,
     onPickLyricsFolder: () -> Unit,
     onImportPlaylist: () -> Unit,
-    onExportPlaylists: () -> Unit
+    onExportPlaylists: () -> Unit,
+    busy: Boolean,
+    engineReport: String,
+    onEvaluate: () -> Unit,
+    onShelvesChanged: () -> Unit
 ) {
     // Read once into state so a flipped switch moves under the finger. Every
     // one of these writes through to the database as it changes; the state is
@@ -82,6 +93,10 @@ internal fun SettingsScreen(
     var autoAnalyze by remember { mutableStateOf(prefs.autoAnalyze) }
     var hideDuplicates by remember { mutableStateOf(prefs.hideDuplicates) }
     var searchPersonalized by remember { mutableStateOf(prefs.searchPersonalized) }
+    var searchLyrics by remember { mutableStateOf(prefs.searchLyrics) }
+    var shelvesOpen by remember { mutableStateOf(false) }
+    var stripForeign by remember { mutableStateOf(prefs.tagStripForeign) }
+    var writeTags by remember { mutableStateOf(prefs.writeTagsToFiles) }
     var resumeSpoken by remember { mutableStateOf(prefs.resumeSpoken) }
     var skipRecordings by remember { mutableStateOf(prefs.skipRecordings) }
     var pinMoodRow by remember { mutableStateOf(prefs.pinMoodRow) }
@@ -94,42 +109,15 @@ internal fun SettingsScreen(
         LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
 
             item {
-                SettingSection("מסכים", null)
-                LinkRow(
-                    title = "הגדרות הנגן והשמע",
-                    subtitle = "אקולייזר, רדיו אינסופי, פתיחת הנגן",
-                    onClick = onOpenPlayerSettings
-                )
-                LinkRow(
-                    title = "הגדרות האלגוריתם",
-                    subtitle = "חמש המשקולות שקובעות מה עולה למעלה",
-                    onClick = onOpenAlgorithm
-                )
-                LinkRow(
-                    title = "תיקון תגיות",
-                    subtitle = "מסדר שמות של קבצים שהורדו מהאינטרנט",
-                    onClick = onOpenTags
-                )
-            }
-
-            item {
-                SettingSection("רשימות השמעה", "m3u ו־pls, כמו בטלפון")
+                SettingSection("הגדרות דף הבית", "אילו מדפים מופיעים, ובאיזה סדר הם נבנים")
                 ActionRow(
-                    title = "ייבוא רשימת השמעה",
-                    subtitle = "קורא m3u או pls ומתאים אותו לשירים שבספרייה. " +
-                        "מה שלא נמצא נספר ונאמר, ולא נעלם בשקט",
-                    action = "בחר קובץ",
-                    enabled = true,
-                    primary = true,
-                    onClick = onImportPlaylist
-                )
-                ActionRow(
-                    title = "ייצוא כל הרשימות",
-                    subtitle = "כותב קובץ m3u לכל רשימה, כולל האהובים",
-                    action = "בחר תיקייה",
+                    title = "מדפים במסך הבית",
+                    subtitle = "כיבוי מדף לא מוחק כלום — הוא פשוט מפסיק להופיע, " +
+                        "וחוזר כמו שהיה כשמדליקים אותו בחזרה",
+                    action = "ערוך",
                     enabled = true,
                     primary = false,
-                    onClick = onExportPlaylists
+                    onClick = { shelvesOpen = true }
                 )
             }
 
@@ -173,12 +161,81 @@ internal fun SettingsScreen(
             item {
                 SettingSection("הגדרות החיפוש", "איך תוצאות מסודרות")
                 SwitchRow(
+                    title = "חיפוש גם במילות השיר",
+                    subtitle = "נקרא מתוך הקבצים עצמם, אז זה רץ אחרי תוצאות השם " +
+                        "ולעולם לא מעכב אותן",
+                    checked = searchLyrics
+                ) {
+                    searchLyrics = it
+                    prefs.searchLyrics = it
+                }
+                SwitchRow(
                     title = "התאמה אישית בתוצאות",
                     subtitle = "מה שאתה מנגן הרבה עולה למעלה בתוצאות",
                     checked = searchPersonalized
                 ) {
                     searchPersonalized = it
                     prefs.searchPersonalized = it
+                }
+            }
+
+            item {
+                LinkRow(
+                    title = "הגדרות הנגן והשמע",
+                    subtitle = "אקולייזר, רדיו אינסופי, פתיחת הנגן",
+                    onClick = onOpenPlayerSettings
+                )
+                LinkRow(
+                    title = "הגדרות האלגוריתם",
+                    subtitle = "חמש המשקולות שקובעות מה עולה למעלה",
+                    onClick = onOpenAlgorithm
+                )
+                LinkRow(
+                    title = "תיקון תגיות",
+                    subtitle = "מסדר שמות של קבצים שהורדו מהאינטרנט",
+                    onClick = onOpenTags
+                )
+            }
+
+            item {
+                SettingSection("רשימות השמעה", "m3u ו־pls, כמו בטלפון")
+                ActionRow(
+                    title = "ייבוא רשימת השמעה",
+                    subtitle = "קורא m3u או pls ומתאים אותו לשירים שבספרייה. " +
+                        "מה שלא נמצא נספר ונאמר, ולא נעלם בשקט",
+                    action = "בחר קובץ",
+                    enabled = true,
+                    primary = true,
+                    onClick = onImportPlaylist
+                )
+                ActionRow(
+                    title = "ייצוא כל הרשימות",
+                    subtitle = "כותב קובץ m3u לכל רשימה, כולל האהובים",
+                    action = "בחר תיקייה",
+                    enabled = true,
+                    primary = false,
+                    onClick = onExportPlaylists
+                )
+            }
+
+            item {
+                SwitchRow(
+                    title = "הסרת טקסט באנגלית",
+                    subtitle = "מוריד קרדיטים בסוגריים ושאריות של כותרת מיוטיוב " +
+                        "משמות השירים בתיקון התגיות",
+                    checked = stripForeign
+                ) {
+                    stripForeign = it
+                    prefs.tagStripForeign = it
+                }
+                SwitchRow(
+                    title = "כתיבת התיקון לקבצים",
+                    subtitle = "התיקון נשמר תמיד כאן. זה כותב אותו גם לתוך הקובץ " +
+                        "עצמו — שינוי שאי אפשר לבטל בלחיצה",
+                    checked = writeTags
+                ) {
+                    writeTags = it
+                    prefs.writeTagsToFiles = it
                 }
             }
 
@@ -299,6 +356,44 @@ internal fun SettingsScreen(
             }
 
             item {
+                SettingSection("בדיקת המנוע", "כמה טוב הוא מנחש מה באמת הושמע אחר כך")
+                Text(
+                    text = engineReport.ifBlank {
+                        "בודק את ההמלצות מול ההיסטוריה האמיתית שלך: לוקח מה ששמעת, " +
+                            "ושואל אם המנוע היה מציע את השיר הבא."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(horizontal = GUTTER)
+                )
+                Row(modifier = Modifier.padding(horizontal = GUTTER, vertical = 10.dp)) {
+                    Button(
+                        onClick = onEvaluate,
+                        enabled = !busy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("בדוק עכשיו") }
+                }
+            }
+
+            item {
+                SettingSection("על האפליקציה", null)
+                Text(
+                    "Rhythm — נגן מוזיקה עם מנוע המלצות מקומי.\n" +
+                        "הכל קורה על המחשב הזה. שום דבר לא נשלח לשום מקום.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(horizontal = GUTTER, vertical = 6.dp)
+                )
+            }
+
+            item {
+                SettingSection("הסריקה האחרונה", "כמה קבצים נמצאו, ומתי")
+                Fact("קבצים שנמצאו", "${prefs.lastScanCount}")
+                Fact("שירים בספרייה אחרי סינון", "$songs")
+                Fact("נסרק לאחרונה", lastScanLabel(prefs.lastScanAt))
+            }
+
+            item {
                 SettingSection("מה המנוע יודע עליך", null)
                 Fact("שירים בספרייה", "$songs")
                 Fact("שירים שנותחו", "$analysed מתוך $songs")
@@ -316,17 +411,82 @@ internal fun SettingsScreen(
                 ) { Text("אפס את כל ההיסטוריה", color = Accent) }
             }
 
-            item {
-                SettingSection("על האפליקציה", null)
-                Text(
-                    "Rhythm — נגן מוזיקה עם מנוע המלצות מקומי.\n" +
-                        "הכל קורה על המחשב הזה. שום דבר לא נשלח לשום מקום.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(horizontal = GUTTER, vertical = 6.dp)
-                )
-            }
         }
+    }
+
+    if (shelvesOpen) {
+        ShelfDialog(
+            prefs = prefs,
+            onChange = onShelvesChanged,
+            onDismiss = { shelvesOpen = false }
+        )
+    }
+}
+
+/**
+ * Which shelves the home screen may build.
+ *
+ * Turning one off deletes nothing - it stops appearing, and comes back as it
+ * was when it is switched on again. Said in the subtitle because a switch in a
+ * settings screen that looks like it might throw work away is one people leave
+ * alone.
+ */
+@Composable
+private fun ShelfDialog(prefs: Prefs, onChange: () -> Unit, onDismiss: () -> Unit) {
+    var shelves by remember { mutableStateOf(prefs.homeShelves) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("מדפים במסך הבית") },
+        text = {
+            LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+                items(ShelfKind.entries.toList()) { shelf ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(shelf.label, style = MaterialTheme.typography.bodyLarge)
+                            if (shelf.about.isNotEmpty()) {
+                                Text(
+                                    shelf.about,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = shelf.key in shelves,
+                            onCheckedChange = { on ->
+                                shelves = if (on) shelves + shelf.key else shelves - shelf.key
+                                prefs.homeShelves = shelves
+                                onChange()
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Bg,
+                                checkedTrackColor = Accent,
+                                uncheckedThumbColor = TextSecondary,
+                                uncheckedTrackColor = Surface2
+                            )
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("סגור", color = TextSecondary) }
+        }
+    )
+}
+
+/** "היום", "אתמול", or a date - which is all anyone reads off a scan report. */
+private fun lastScanLabel(at: Long): String {
+    if (at <= 0L) return "עוד לא נסרק"
+    val days = (System.currentTimeMillis() - at) / 86_400_000L
+    return when (days) {
+        0L -> "היום"
+        1L -> "אתמול"
+        else -> SimpleDateFormat("d/M/yyyy", Locale.forLanguageTag("he")).format(Date(at))
     }
 }
 

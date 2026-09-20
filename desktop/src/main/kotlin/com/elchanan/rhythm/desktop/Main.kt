@@ -31,13 +31,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
-import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.Bookmark
@@ -61,6 +60,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -119,6 +119,7 @@ import com.elchanan.rhythm.engine.RecapData
 import com.elchanan.rhythm.engine.Recommender
 import com.elchanan.rhythm.engine.Versions
 import com.elchanan.rhythm.engine.SectionKind
+import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.RhythmTheme
@@ -243,6 +244,7 @@ private fun RhythmApp() {
     // one, so the buttons that would start it again are off while it runs.
     var busy by remember { mutableStateOf(false) }
     var shuffling by remember { mutableStateOf(false) }
+    var engineReport by remember { mutableStateOf("") }
     var repeat by remember { mutableStateOf(RepeatMode.OFF) }
     // The queue as it was before it was shuffled, so turning shuffle off puts
     // it back rather than leaving a scrambled order nobody can undo.
@@ -281,7 +283,13 @@ private fun RhythmApp() {
         library = loaded.library
         folders = loaded.folders
         seed = loaded.seed
-        feed = loaded.feed
+        // Filtered here rather than inside the engine: the engine's job is to
+        // decide what is worth showing, and which of those someone wants to
+        // see is a different question with a different answer per person.
+        val wanted = prefs.homeShelves
+        feed = loaded.feed.filter { section ->
+            ShelfKind.of(section.id)?.key?.let { it in wanted } ?: true
+        }
         features = loaded.analysed
         engine = loaded.engine
         tuning = loaded.tuning
@@ -394,6 +402,8 @@ private fun RhythmApp() {
                 )
                 store.folders = roots
                 store.replaceSongs(list)
+                prefs.lastScanAt = System.currentTimeMillis()
+                prefs.lastScanCount = list.size
                 list
             }
             reload()
@@ -564,6 +574,32 @@ private fun RhythmApp() {
             RepeatMode.OFF -> RepeatMode.ALL
             RepeatMode.ALL -> RepeatMode.ONE
             RepeatMode.ONE -> RepeatMode.OFF
+        }
+    }
+
+    /**
+     * Asks the engine how often it would have guessed what was played next.
+     *
+     * Scored against the real listening history rather than a benchmark: the
+     * only question worth asking of a recommender is whether it would have
+     * picked this person's next song, and that answer exists only here.
+     */
+    fun evaluateEngine() {
+        busy = true
+        scope.launch {
+            val report = withContext(Dispatchers.Default) {
+                val order = withContext(Dispatchers.IO) {
+                    store.history().sortedBy { it.playedAt }.map { it.songId }
+                }
+                runCatching { engine?.evaluateSequence(order) }.getOrNull()
+            }
+            busy = false
+            engineReport = if (report == null) {
+                "אין עדיין מספיק היסטוריה כדי לבדוק. צריך רצף השמעות בספרייה של 20 שירים ומעלה."
+            } else {
+                "נבדקו ${report.pairs} מעברים · " +
+                    "בעשירייה הראשונה: ${(report.recallAt10 * 100).toInt()}%"
+            }
         }
     }
 
@@ -893,11 +929,7 @@ private fun RhythmApp() {
             onRepeat = { cycleRepeat() },
             sleepArmed = SleepTimer.remainingMs() != null || SleepTimer.stopAfterTrack,
             onSleep = { sleepOpen = true },
-            onBookmarks = { bookmarksOpen = true },
-            onLyrics = {
-                showPlayer = false
-                stack = stack + Route.Lyrics(current.id)
-            },
+            onMore = { options = current },
             onQueue = {
                 showPlayer = false
                 stack = stack + Route.Queue
@@ -1054,7 +1086,11 @@ private fun RhythmApp() {
                         chooseFolder()?.let { prefs.lyricsFolder = it.absolutePath }
                     },
                     onImportPlaylist = { choosePlaylistFile()?.let { importPlaylist(it) } },
-                    onExportPlaylists = { chooseFolder()?.let { exportPlaylists(it) } }
+                    onExportPlaylists = { chooseFolder()?.let { exportPlaylists(it) } },
+                    busy = busy,
+                    engineReport = engineReport,
+                    onEvaluate = { evaluateEngine() },
+                    onShelvesChanged = { scope.launch { reload() } }
                 )
 
                 Route.PlayerSettings -> PlayerSettingsScreen(
@@ -1170,7 +1206,6 @@ private fun RhythmApp() {
                                 reload()
                             }
                         },
-                        onQueue = { stack = stack + Route.Queue },
                         onRecap = {
                             loadRecap()
                             stack = stack + Route.Recap
@@ -1281,12 +1316,14 @@ private fun RhythmApp() {
             positionMs = state.positionMs,
             durationMs = state.durationMs,
             playing = state.playing,
+            liked = current?.let { stats[it.id]?.liked } ?: 0,
             volume = volume,
             onVolume = {
                 volume = it
                 player.setVolume(it)
                 prefs.volume = (it * 100).toInt()
             },
+            onLike = { current?.let { like(it) } },
             onOpen = { if (current != null) showPlayer = true },
             onToggle = { player.togglePause() },
             onNext = { play(queue, queueIndex + 1) }
@@ -1297,7 +1334,7 @@ private fun RhythmApp() {
         // in the corner of the home screen, exactly as on the phone, and a
         // tab for something opened twice a year would take a quarter of the
         // bar away from the four that are the app.
-        NavigationBar(containerColor = Surface1) {
+        NavigationBar(containerColor = Color.Transparent) {
             NavTab(tab, 0, "בית", Icons.Filled.Home) { go(0) }
             NavTab(tab, 1, "חיפוש", Icons.Filled.Search) { go(1) }
             NavTab(tab, 2, "ספרייה", Icons.Filled.LibraryMusic) { go(2) }
@@ -1332,6 +1369,11 @@ private fun RhythmApp() {
                     )
                 }
             },
+            onLyrics = {
+                showPlayer = false
+                stack = stack + Route.Lyrics(song.id)
+            },
+            onBookmarks = { bookmarksOpen = true },
             onAddTo = { addToPlaylist(it, song) },
             onCreateWith = { createPlaylistWith(it, song) },
             // Inserted after what is playing, not started: queueing something
@@ -1373,7 +1415,7 @@ private fun RowScope.NavTab(
         colors = NavigationBarItemDefaults.colors(
             selectedIconColor = Accent,
             selectedTextColor = Accent,
-            indicatorColor = Surface1,
+            indicatorColor = Color.Transparent,
             unselectedIconColor = TextSecondary,
             unselectedTextColor = TextSecondary
         )
@@ -1554,8 +1596,7 @@ private fun PlayerScreen(
     onRepeat: () -> Unit,
     sleepArmed: Boolean,
     onSleep: () -> Unit,
-    onBookmarks: () -> Unit,
-    onLyrics: () -> Unit,
+    onMore: () -> Unit,
     onQueue: () -> Unit
 ) {
     var scrub by remember { mutableStateOf<Float?>(null) }
@@ -1566,31 +1607,34 @@ private fun PlayerScreen(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             IconButton(onClick = onClose) {
-                Icon(Icons.Filled.ExpandMore, contentDescription = "סגור")
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "סגור")
             }
+            // No "now playing" caption: the cover, the title and the transport
+            // directly below already say it.
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onQueue) {
-                Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = "התור", tint = TextSecondary)
-            }
-            IconButton(onClick = onLyrics) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Subject,
-                    contentDescription = "מילות השיר",
-                    tint = TextSecondary
-                )
-            }
-            IconButton(onClick = onBookmarks) {
-                Icon(Icons.Filled.Bookmark, contentDescription = "סימניות", tint = TextSecondary)
+            // The menu is always here. It is the one control that cannot be
+            // switched off, because it is what everything not given a button
+            // of its own goes into - the words, the bookmarks, the radio.
+            IconButton(onClick = onMore) {
+                Icon(Icons.Filled.MoreVert, contentDescription = "עוד", tint = TextSecondary)
             }
             IconButton(onClick = onSleep) {
-                // Accented while armed. A timer nobody can see is one people
-                // set twice and then wonder why the music stopped.
                 Icon(
                     Icons.Filled.Bedtime,
                     contentDescription = "טיימר שינה",
                     tint = if (sleepArmed) Accent else TextSecondary
+                )
+            }
+            IconButton(onClick = onQueue) {
+                Icon(
+                    Icons.AutoMirrored.Filled.QueueMusic,
+                    contentDescription = "תור",
+                    tint = TextSecondary
                 )
             }
         }
@@ -1673,13 +1717,6 @@ private fun PlayerScreen(
                         tint = if (shuffling) Accent else TextSecondary
                     )
                 }
-                IconButton(onClick = { onSeek((positionMs - 10_000L).coerceAtLeast(0L)) }) {
-                    Icon(
-                        Icons.Filled.Replay10,
-                        contentDescription = "אחורה 10 שניות",
-                        tint = TextSecondary
-                    )
-                }
                 IconButton(onClick = onPrevious) {
                     Icon(
                         Icons.Filled.SkipPrevious,
@@ -1711,15 +1748,6 @@ private fun PlayerScreen(
                         contentDescription = "הבא",
                         tint = TextPrimary,
                         modifier = Modifier.size(40.dp)
-                    )
-                }
-                IconButton(
-                    onClick = { onSeek((positionMs + 10_000L).coerceAtMost(durationMs)) }
-                ) {
-                    Icon(
-                        Icons.Filled.Forward10,
-                        contentDescription = "קדימה 10 שניות",
-                        tint = TextSecondary
                     )
                 }
                 IconButton(onClick = onRepeat) {
@@ -1831,47 +1859,29 @@ private fun MiniPlayer(
     positionMs: Long,
     durationMs: Long,
     playing: Boolean,
+    liked: Int,
     volume: Float,
     onVolume: (Float) -> Unit,
+    onLike: () -> Unit,
     onOpen: () -> Unit,
     onToggle: () -> Unit,
     onNext: () -> Unit
 ) {
     if (song == null) return
     Column(modifier = Modifier.fillMaxWidth().background(Surface1)) {
-        // A line rather than a slider. It says how far through the song is,
-        // which is all this bar needs to say; dragging happens upstairs.
-        val fraction = if (durationMs > 0) {
-            (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
-        Box(modifier = Modifier.fillMaxWidth().height(2.dp).background(Surface1)) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(fraction)
-                    .background(Accent)
-            )
-        }
-
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpen)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(modifier = Modifier.clickable(onClick = onOpen)) {
-                Art(song = song, size = 44.dp, corner = 6.dp)
-            }
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 10.dp)
-                    .clickable(onClick = onOpen)
-            ) {
+            Art(song = song, size = 42.dp, corner = 7.dp)
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     song.title,
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onBackground,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1883,10 +1893,17 @@ private fun MiniPlayer(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+            IconButton(onClick = onLike) {
+                Icon(
+                    imageVector = if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                    contentDescription = "לייק",
+                    tint = if (liked == 1) Accent else TextSecondary
+                )
+            }
             IconButton(onClick = onToggle) {
                 Icon(
                     if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (playing) "השהה" else "נגן",
+                    contentDescription = "נגן",
                     tint = MaterialTheme.colorScheme.onBackground
                 )
             }
@@ -1897,7 +1914,7 @@ private fun MiniPlayer(
                     tint = MaterialTheme.colorScheme.onBackground
                 )
             }
-            // A volume of its own, which the phone has no need for - Android
+            // A volume of its own, which the phone has no need for: Android
             // has one set of volume keys for the whole device, and Windows
             // gives every application its own level in the mixer. Without
             // this, the only way to make this app quieter is to make
@@ -1913,10 +1930,26 @@ private fun MiniPlayer(
                 modifier = Modifier.width(110.dp).padding(start = 6.dp)
             )
         }
+        // Under the row, not over it, and matching the full player: elapsed
+        // time grows rightwards regardless of the language, so the two views
+        // never disagree about which way the song runs.
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            LinearProgressIndicator(
+                progress = {
+                    if (durationMs > 0) {
+                        (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(2.dp),
+                color = Accent,
+                trackColor = Surface1
+            )
+        }
     }
 }
 
-/** Milliseconds as m:ss, which is how long a song is said out loud. */
 private fun clock(ms: Long): String {
     if (ms <= 0) return "0:00"
     val total = ms / 1000

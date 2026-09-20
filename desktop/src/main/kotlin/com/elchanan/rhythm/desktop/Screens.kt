@@ -29,6 +29,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
 import androidx.compose.material.icons.filled.SkipNext
@@ -963,7 +965,9 @@ internal fun SongOptionsDialog(
     onAddTo: (Long) -> Unit,
     onCreateWith: (String) -> Unit,
     onPlayNext: () -> Unit,
-    onAddToQueue: () -> Unit
+    onAddToQueue: () -> Unit,
+    onLyrics: () -> Unit,
+    onBookmarks: () -> Unit
 ) {
     var picking by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf(false) }
@@ -1043,6 +1047,16 @@ internal fun SongOptionsDialog(
                 }
                 OptionRow(Icons.Filled.Radio, "רדיו מהשיר הזה") {
                     onRadio()
+                    onDismiss()
+                }
+                // The two the phone keeps in this menu rather than on the
+                // player's header, so the header stays at three icons.
+                OptionRow(Icons.Filled.FormatQuote, "מילות השיר") {
+                    onLyrics()
+                    onDismiss()
+                }
+                OptionRow(Icons.Filled.Bookmark, "סימניות") {
+                    onBookmarks()
                     onDismiss()
                 }
                 OptionRow(Icons.Filled.Person, "עבור לאמן") {

@@ -1,6 +1,7 @@
 package com.elchanan.rhythm.desktop
 
 import com.elchanan.rhythm.desktop.data.Store
+import com.elchanan.rhythm.engine.ShelfKind
 
 /**
  * Every setting the Windows build remembers, as a typed property.
@@ -133,6 +134,55 @@ class Prefs(private val store: Store) {
     var volume: Int
         get() = number("volume", 100)
         set(value) = store.put("volume", value.toString())
+
+    /**
+     * Which shelves the home screen may show.
+     *
+     * Everything on by default. Turning one off deletes nothing - it stops
+     * appearing, and comes back as it was when it is switched on again.
+     */
+    var homeShelves: Set<String>
+        get() = store.get("homeShelves")
+            ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
+            ?: ShelfKind.ALL_KEYS
+        set(value) = store.put("homeShelves", value.joinToString(","))
+
+    /**
+     * Search inside the words as well as the titles.
+     *
+     * Off by default, and deliberately: on this build the words are read out
+     * of the files themselves rather than from an index, so a search that
+     * includes them opens every file in the library. It runs behind the title
+     * matches and never delays them.
+     */
+    var searchLyrics: Boolean
+        get() = flag("searchLyrics", false)
+        set(value) = set("searchLyrics", value)
+
+    /** Show folders as a tree to walk into, rather than one flat list. */
+    var folderTree: Boolean
+        get() = flag("folderTree", true)
+        set(value) = set("folderTree", value)
+
+    /**
+     * Styles that should never be mixed into one another's shelves.
+     *
+     * Stored as the engine parses it, so the rule the user typed and the rule
+     * the recommender applies are the same string.
+     */
+    var styleSeparations: String
+        get() = store.get("styleSeparations").orEmpty()
+        set(value) = store.put("styleSeparations", value)
+
+    /** When the library was last walked, for the scan report. */
+    var lastScanAt: Long
+        get() = store.get("lastScanAt")?.toLongOrNull() ?: 0L
+        set(value) = store.put("lastScanAt", value.toString())
+
+    /** How many files the last scan found. */
+    var lastScanCount: Int
+        get() = number("lastScanCount", 0)
+        set(value) = store.put("lastScanCount", value.toString())
 
     companion object {
         const val BAND_COUNT = 6

@@ -1005,7 +1005,10 @@ class Store private constructor(private val conn: Connection) {
             artistWeight = setting("tune.artist")?.toFloatOrNull() ?: 1.0f,
             styleWeight = setting("tune.style")?.toFloatOrNull() ?: 1.0f,
             repeatGuard = setting("tune.repeat")?.toFloatOrNull() ?: 1.0f,
-            acousticWeight = setting("tune.acoustic")?.toFloatOrNull() ?: 1.0f
+            acousticWeight = setting("tune.acoustic")?.toFloatOrNull() ?: 1.0f,
+            // Part of the tuning rather than a setting beside it, because the
+            // recommender reads it from here and there is no second copy.
+            separations = setting("tune.separations").orEmpty()
         )
         @Synchronized
         set(value) {
@@ -1014,6 +1017,7 @@ class Store private constructor(private val conn: Connection) {
             putSetting("tune.style", value.styleWeight.toString())
             putSetting("tune.repeat", value.repeatGuard.toString())
             putSetting("tune.acoustic", value.acousticWeight.toString())
+            putSetting("tune.separations", value.separations)
         }
 
     /** Reads one stored setting. Public so [com.elchanan.rhythm.desktop.Prefs] can sit on it. */

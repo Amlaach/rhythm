@@ -125,6 +125,11 @@ PLAIN_USE = re.compile(r"\.([a-z][A-Za-z0-9_]*)\s*\(")
 MOD_CHAIN = re.compile(r"\bModifier\b((?:\s*\.\s*\w+\s*(?:\([^()]*(?:\([^()]*\)[^()]*)*\))?)+)")
 MOD_LINK = re.compile(r"\.\s*(\w+)")
 BARE_USE = re.compile(r"(?<![.\w])([a-z][A-Za-z0-9_]*)\s*\(")
+# Material icons are written Icons.Filled.Name, and the leaf still has to be
+# imported by name. The general type rule cannot see it, because everything
+# after a dot is a member access as far as that rule knows.
+ICON_USE = re.compile(r"\bIcons\.(?:Filled|Outlined|Rounded|Sharp|TwoTone|"
+                      r"AutoMirrored\.(?:Filled|Outlined|Rounded|Sharp|TwoTone))\.(\w+)")
 
 
 def strip_noise(text: str) -> str:
@@ -181,6 +186,9 @@ def scan(roots):
         available = imported | own | by_package.get(pkg, set()) | DEFAULT
         body_no_imports = IMPORT.sub(" ", body)
 
+        for name in sorted(set(ICON_USE.findall(body_no_imports))):
+            if name not in imported:
+                problems.append((path, name, "icon"))
         for name in sorted(set(TYPE_USE.findall(body_no_imports))):
             # A single letter is a type parameter, not a type. ALL_CAPS is an
             # enum entry or a constant, and both resolve through scopes this

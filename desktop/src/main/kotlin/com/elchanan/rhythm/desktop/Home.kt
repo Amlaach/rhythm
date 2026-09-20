@@ -24,7 +24,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Close
@@ -97,7 +96,6 @@ internal fun HomeScreen(
     singleArtist: Boolean,
     onMood: (Mood) -> Unit,
     onRefresh: () -> Unit,
-    onQueue: () -> Unit,
     onRecap: () -> Unit,
     onSettings: () -> Unit,
     onPickFolder: () -> Unit,
@@ -122,7 +120,6 @@ internal fun HomeScreen(
         ) {
             HomeTopBar(
                 onRefresh = onRefresh,
-                onQueue = onQueue,
                 onRecap = onRecap,
                 onSettings = onSettings
             )
@@ -300,7 +297,6 @@ internal fun HomeScreen(
 @Composable
 private fun HomeTopBar(
     onRefresh: () -> Unit,
-    onQueue: () -> Unit,
     onRecap: () -> Unit,
     onSettings: () -> Unit
 ) {
@@ -317,13 +313,6 @@ private fun HomeTopBar(
         )
         IconButton(onClick = onRefresh) {
             Icon(Icons.Filled.Autorenew, contentDescription = "רענון", tint = TextSecondary)
-        }
-        IconButton(onClick = onQueue) {
-            Icon(
-                Icons.AutoMirrored.Filled.QueueMusic,
-                contentDescription = "התור",
-                tint = TextSecondary
-            )
         }
         IconButton(onClick = onRecap) {
             Icon(Icons.Filled.BarChart, contentDescription = "הסיכום שלך", tint = TextSecondary)
