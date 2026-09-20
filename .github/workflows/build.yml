@@ -84,3 +84,66 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           tail -n 200 "$HOME/.gradle/daemon"/*/daemon-*.log 2>/dev/null >> "$GITHUB_STEP_SUMMARY" || echo "no daemon log" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  # The Windows installer. A separate job because jpackage can only build a
+  # package for the machine it runs on - the module itself compiles on Linux
+  # in the job above, which is what catches a code error without waiting for
+  # a runner to be handed out here.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # jpackage shells out to WiX to build an MSI, and it only speaks to WiX
+      # 3.x - the runner image ships 4 or 5, which it does not recognise and
+      # reports as WiX simply being absent. The binaries zip is enough: it
+      # carries candle.exe and light.exe, which are the two it looks for on
+      # PATH, and needs no installer of its own.
+      - name: Provide WiX 3.14 for jpackage
+        shell: pwsh
+        run: |
+          $url = "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\wix.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\wix.zip" -DestinationPath "$env:RUNNER_TEMP\wix" -Force
+          "$env:RUNNER_TEMP\wix" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          # The same run number the APK carries, so an MSI and an APK from one
+          # run are provably the same code. An MSI version has to be numeric
+          # and rise, which is exactly what a run number is.
+          .\gradlew.bat --no-daemon --stacktrace :desktop:packageMsi "-PrhythmVersion=1.0.${{ github.run_number }}"
+
+      - name: Collect the installer
+        if: always()
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem -Path desktop/build/compose/binaries/main/msi -Filter *.msi -ErrorAction SilentlyContinue
+          if ($msi) {
+            "### Windows installer"      | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            "version 1.0.${{ github.run_number }}, commit $($env:GITHUB_SHA.Substring(0,7))" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            $msi | ForEach-Object { "$($_.Name) - $([math]::Round($_.Length / 1MB, 1)) MB" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append }
+          } else {
+            "### Windows installer was not produced" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }
+
+      - name: Upload the installer
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhythm-windows-${{ github.run_number }}
+          path: desktop/build/compose/binaries/main/msi/*.msi
+          if-no-files-found: warn
