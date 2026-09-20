@@ -224,18 +224,53 @@ class StyleLearner private constructor(
  */
 object StyleTraining {
 
+    /**
+     * What the classifier sees for one song: what the model heard, and what
+     * the analyser measured.
+     *
+     * The tag scores alone were the whole input, and they are the half of the
+     * evidence that knows least about this repertoire. AudioSet was labelled
+     * from YouTube, where this music is thin on the ground, so its 521 classes
+     * describe a niggun only indirectly - some choir, some chant, a balance of
+     * instruments.
+     *
+     * The measured half knows things AudioSet has no word for. The mode is the
+     * clearest of them: [MusicalMode] separates Ahavah Rabbah and Mi Sheberach
+     * from plain major, and that distinction is most of what "חסידי" and
+     * "מזרחי" sound like. Tempo, brightness and the shape of the track over
+     * its length are in there too. None of it costs anything - every number is
+     * already measured and stored for each song.
+     *
+     * @return null when the model never ran on this song, which is the one
+     *   case there is nothing to learn from.
+     */
+    fun featuresFor(songId: Long, tags: String, space: AcousticSpace?): FloatArray? {
+        if (tags.isBlank()) return null
+        val heard = AudioTags.decompress(tags)
+        val out = FloatArray(heard.size + AcousticSpace.DIMS)
+        System.arraycopy(heard, 0, out, 0, heard.size)
+        // Left at zero when a song is not in the acoustic space. Those vectors
+        // are z-scores against the user's own library, so zero is the mean -
+        // which is the right thing to say about a value that is not known.
+        val measured = space?.vectors?.get(songId) ?: return out
+        for (i in 0 until AcousticSpace.DIMS) {
+            out[heard.size + i] = measured[i].toFloat()
+        }
+        return out
+    }
+
     fun rows(
         songs: List<SongEntity>,
         tagsBySong: Map<Long, String>,
-        stylesByArtistKey: Map<String, String>
+        stylesByArtistKey: Map<String, String>,
+        space: AcousticSpace? = null
     ): List<Pair<FloatArray, List<String>>> {
         val out = ArrayList<Pair<FloatArray, List<String>>>()
         for (song in songs) {
-            val stored = tagsBySong[song.id] ?: continue
-            if (stored.isBlank()) continue
             val styles = Styles.parse(stylesByArtistKey[song.artistKey].orEmpty())
             if (styles.isEmpty()) continue
-            out.add(AudioTags.decompress(stored) to styles)
+            val x = featuresFor(song.id, tagsBySong[song.id].orEmpty(), space) ?: continue
+            out.add(x to styles)
         }
         return out
     }

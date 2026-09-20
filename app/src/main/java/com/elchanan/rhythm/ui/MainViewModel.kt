@@ -34,6 +34,7 @@ import com.elchanan.rhythm.engine.Mix
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.Recommender
 import com.elchanan.rhythm.engine.ScoreTerm
+import com.elchanan.rhythm.engine.AcousticSpace
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.engine.StyleLearner
@@ -1259,7 +1260,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     val lib = library.value
                     val stylesByArtist = lib.artists.associate { it.key to it.styles }
 
-                    val rows = StyleTraining.rows(lib.songs, tagsBySong, stylesByArtist)
+                    // The measured half of the evidence. Built from the same
+                    // rows the recommender uses, so "loud" and "fast" mean
+                    // here exactly what they mean everywhere else in the app.
+                    val space = if (features.size >= 8) {
+                        AcousticSpace(features.values)
+                    } else {
+                        null
+                    }
+
+                    val rows = StyleTraining.rows(lib.songs, tagsBySong, stylesByArtist, space)
                     if (rows.isEmpty()) return@withContext LearnResult(null, 0, 0, 0)
 
                     val accuracy = StyleLearner.crossValidate(rows)
@@ -1279,9 +1289,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     for (song in lib.songs) {
                         if (Styles.parse(lib.stats[song.id]?.styles.orEmpty()).isNotEmpty()) continue
                         if (Styles.parse(stylesByArtist[song.artistKey].orEmpty()).isNotEmpty()) continue
-                        val stored = tagsBySong[song.id].orEmpty()
-                        if (stored.isBlank()) continue
-                        val predicted = model.predict(AudioTags.decompress(stored))
+                        // The same vector the model was fitted on. Predicting
+                        // from a different shape than it was trained on is the
+                        // easiest way to get confident nonsense.
+                        val x = StyleTraining.featuresFor(
+                            song.id,
+                            tagsBySong[song.id].orEmpty(),
+                            space
+                        ) ?: continue
+                        val predicted = model.predict(x)
                         if (predicted.isEmpty()) continue
                         repo.setSongStyles(song.id, Styles.join(predicted))
                         applied++
