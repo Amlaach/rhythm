@@ -420,6 +420,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // feed - rating an artist, for one - froze the whole interface and
             // taps simply went nowhere.
             val built = withContext(Dispatchers.Default) { e.buildFeed() to e.tasteReport() }
+            // Written back so the next feed can defend this answer instead of
+            // forming a fresh opinion about the listener every refresh.
+            e.pickedMood?.let { repo.prefs.lastMood = it }
             // Filtered here rather than inside the engine: the engine's job is to
             // decide what is worth showing, and this is the user overruling that
             // afterwards. Keeping them apart means a shelf switched off still

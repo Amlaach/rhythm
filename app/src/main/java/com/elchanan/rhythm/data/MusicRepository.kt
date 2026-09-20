@@ -498,7 +498,8 @@ class MusicRepository(
                 styleWeight = prefs.styleWeight,
                 repeatGuard = prefs.repeatGuard,
                 acousticWeight = prefs.acousticWeight,
-                separations = prefs.styleSeparations
+                separations = prefs.styleSeparations,
+                lastMood = prefs.lastMood
             ),
             now = System.currentTimeMillis(),
             feedSeed = prefs.feedSeed.toLong()
