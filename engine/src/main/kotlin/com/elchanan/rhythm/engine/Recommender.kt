@@ -1,7 +1,6 @@
 package com.elchanan.rhythm.engine
 
 import com.elchanan.rhythm.data.db.ArtistEntity
-import com.elchanan.rhythm.data.MediaScanner
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
@@ -301,7 +300,7 @@ class Recommender(
      * melody matches even when the live version was sung in another key.
      */
     private val versionKeyById: Map<Long, String> = songs.associate { song ->
-        song.id to MediaScanner.normalizeKey(
+        song.id to Names.normalizeKey(
             VERSION_NOISE.replace(song.title, " ") + " " + song.artistKey
         )
     }
@@ -647,7 +646,7 @@ class Recommender(
                 "התאמת סאונד",
                 1.15 * tuning.acousticWeight * (acousticFit ?: 0.0),
                 features[song.id]?.let { f ->
-                    "${f.bpm.toInt()} BPM · ${AudioAnalyzer.keyLabel(f.musicalKey, f.mode)}"
+                    "${f.bpm.toInt()} BPM · ${Features.keyLabel(f.musicalKey, f.mode)}"
                 } ?: "השיר עוד לא נותח"
             )
         )

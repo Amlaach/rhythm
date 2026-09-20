@@ -88,20 +88,20 @@ class AcousticSpace(features: Collection<AudioFeatureEntity>) {
         out[4] = f.dynamics.toDouble()
         out[5] = f.onsetRate.toDouble()
 
-        val timbre = AudioAnalyzer.parseVector(f.timbre, TIMBRE)
+        val timbre = Features.parseVector(f.timbre, TIMBRE)
         for (i in 0 until TIMBRE) out[CORE + i] = timbre[i]
 
-        val chroma = AudioAnalyzer.parseVector(f.chroma, HARMONY)
+        val chroma = Features.parseVector(f.chroma, HARMONY)
         for (i in 0 until HARMONY) out[CORE + TIMBRE + i] = chroma[i]
 
-        val shape = AudioAnalyzer.parseVector(f.shape, SHAPE)
+        val shape = Features.parseVector(f.shape, SHAPE)
         for (i in 0 until SHAPE) out[CORE + TIMBRE + HARMONY + i] = shape[i]
         return out
     }
 
     /** Key invariant chroma only: the notes, ignoring how they were recorded. */
     private val chromaById: Map<Long, DoubleArray> =
-        features.associate { it.songId to AudioAnalyzer.parseVector(it.chroma, HARMONY) }
+        features.associate { it.songId to Features.parseVector(it.chroma, HARMONY) }
 
     /**
      * Cosine similarity of the two chroma profiles, 0..1.

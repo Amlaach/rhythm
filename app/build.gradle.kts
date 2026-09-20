@@ -117,6 +117,9 @@ android {
 }
 
 dependencies {
+    // The music engine. Pure Kotlin, no Android - see engine/build.gradle.kts.
+    implementation(project(":engine"))
+
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
 

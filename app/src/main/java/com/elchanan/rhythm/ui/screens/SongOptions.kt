@@ -61,7 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
-import com.elchanan.rhythm.engine.AudioAnalyzer
+import com.elchanan.rhythm.engine.Features
 import com.elchanan.rhythm.engine.Capo
 import com.elchanan.rhythm.engine.MusicalMode
 import com.elchanan.rhythm.engine.Styles
@@ -136,7 +136,7 @@ fun SongOptionsSheet(
                     )
                     features[song.id]?.let { f ->
                         Text(
-                            text = "${f.bpm.toInt()} BPM · ${AudioAnalyzer.keyLabel(f.musicalKey, f.mode)}",
+                            text = "${f.bpm.toInt()} BPM · ${Features.keyLabel(f.musicalKey, f.mode)}",
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary
                         )

@@ -7,7 +7,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.elchanan.rhythm.RhythmApp
-import com.elchanan.rhythm.data.MediaScanner
+import com.elchanan.rhythm.engine.Names
 import androidx.documentfile.provider.DocumentFile
 import com.elchanan.rhythm.data.FileActions
 import com.elchanan.rhythm.data.db.BookmarkEntity
@@ -160,9 +160,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val nameForKey = HashMap<String, String>()
             for (song in songs) {
                 byArtist.getOrPut(song.artistKey) { ArrayList() }.add(song)
-                nameForKey.putIfAbsent(song.artistKey, MediaScanner.primaryArtist(song.artistName))
-                for (credit in MediaScanner.credits(song.artistName)) {
-                    val key = MediaScanner.normalizeKey(credit)
+                nameForKey.putIfAbsent(song.artistKey, Names.primaryArtist(song.artistName))
+                for (credit in Names.credits(song.artistName)) {
+                    val key = Names.normalizeKey(credit)
                     if (key == song.artistKey) continue
                     byArtist.getOrPut(key) { ArrayList() }.add(song)
                     nameForKey.putIfAbsent(key, credit)

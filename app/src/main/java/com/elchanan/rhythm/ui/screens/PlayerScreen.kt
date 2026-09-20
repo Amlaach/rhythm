@@ -114,7 +114,7 @@ import com.elchanan.rhythm.ui.components.rememberArtworkColors
 import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.components.StarRow
 import com.elchanan.rhythm.ui.components.formatDuration
-import com.elchanan.rhythm.engine.AudioAnalyzer
+import com.elchanan.rhythm.engine.Features
 import com.elchanan.rhythm.playback.SleepTimer
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AccentSoft
@@ -568,7 +568,7 @@ fun PlayerScreen(
                             // reads as jargon on screen - "אהבה רבה" beside a pop
                             // track means nothing to someone just playing music.
                             text = "${feature.bpm.toInt()} BPM · " +
-                                AudioAnalyzer.keyLabel(feature.musicalKey, feature.mode),
+                                Features.keyLabel(feature.musicalKey, feature.mode),
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary
                         )
@@ -792,7 +792,7 @@ private fun SongDetailsDialog(
                     DetailLine("קצב", "${feature.bpm.toInt()} BPM")
                     DetailLine(
                         "סולם",
-                        AudioAnalyzer.keyLabel(feature.musicalKey, feature.mode)
+                        Features.keyLabel(feature.musicalKey, feature.mode)
                     )
                 } else {
                     Spacer(Modifier.height(8.dp))

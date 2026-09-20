@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.data
 
+import com.elchanan.rhythm.engine.Names
 import android.content.Context
 import com.elchanan.rhythm.data.db.AffinityEntity
 import androidx.room.withTransaction
@@ -96,7 +97,7 @@ class MusicRepository(
             }
             .filter { song ->
                 val keep = !skipRecordings ||
-                    !MediaScanner.looksLikeRecording(
+                    !Names.looksLikeRecording(
                         song.folder,
                         song.path.substringAfterLast('/')
                     )
@@ -127,7 +128,7 @@ class MusicRepository(
             .map { (key, list) ->
                 ArtistEntity(
                     artistKey = key,
-                    displayName = MediaScanner.primaryArtist(list.first().artistName),
+                    displayName = Names.primaryArtist(list.first().artistName),
                     rating = 0,
                     styles = "",
                     note = "",
@@ -794,7 +795,7 @@ class MusicRepository(
             val name = o.optString("name").trim()
             if (name.isEmpty()) continue
             val rawKey = o.optString("key").trim()
-            val key = if (rawKey.isEmpty()) MediaScanner.normalizeKey(name) else rawKey
+            val key = if (rawKey.isEmpty()) Names.normalizeKey(name) else rawKey
             val existing = dao.artist(key)
             dao.putArtist(
                 (existing ?: ArtistEntity(artistKey = key, displayName = name)).copy(
@@ -825,7 +826,7 @@ class MusicRepository(
             if (name.isEmpty()) continue
             val rating = parts.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 5) ?: 0
             val styles = parts.getOrNull(2).orEmpty()
-            val key = MediaScanner.normalizeKey(name)
+            val key = Names.normalizeKey(name)
             val existing = dao.artist(key)
             dao.putArtist(
                 (existing ?: ArtistEntity(artistKey = key, displayName = name)).copy(
