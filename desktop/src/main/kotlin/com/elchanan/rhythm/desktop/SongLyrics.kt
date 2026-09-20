@@ -32,10 +32,19 @@ object SongLyrics {
 
     private val SIDECAR = listOf("lrc", "txt")
 
-    fun find(song: SongEntity): Words? {
+    /**
+     * @param folder an extra place to look, for collections that keep their
+     *   .lrc files together rather than beside the audio. Checked after the
+     *   file's own folder, because a file someone put next to the track is a
+     *   stronger statement than one in a shared pile.
+     */
+    fun find(song: SongEntity, folder: String = ""): Words? {
         val file = File(song.path)
         if (!file.isFile) return null
         sidecar(file)?.let { return it }
+        if (folder.isNotBlank()) {
+            beside(File(folder), file.nameWithoutExtension)?.let { return it }
+        }
         return embedded(file)
     }
 
@@ -47,10 +56,14 @@ object SongLyrics {
      */
     private fun sidecar(file: File): Words? {
         val folder = file.parentFile ?: return null
+        return beside(folder, file.nameWithoutExtension)
+    }
+
+    private fun beside(folder: File, name: String): Words? {
         for (ext in SIDECAR) {
-            val beside = File(folder, "${file.nameWithoutExtension}.$ext")
-            if (!beside.isFile) continue
-            val text = runCatching { beside.inputStream().use { Lyrics.readText(it) } }
+            val found = File(folder, "$name.$ext")
+            if (!found.isFile) continue
+            val text = runCatching { found.inputStream().use { Lyrics.readText(it) } }
                 .getOrNull()
                 ?.takeIf { it.isNotBlank() } ?: continue
             // A .txt can hold timestamps and a .lrc can hold none, so what it

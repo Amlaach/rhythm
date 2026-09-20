@@ -31,10 +31,16 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.automirrored.filled.Subject
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -77,6 +83,9 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.elchanan.rhythm.data.db.ArtistEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
+import com.elchanan.rhythm.data.db.BookmarkEntity
+import com.elchanan.rhythm.data.db.TagOverrideEntity
+import com.elchanan.rhythm.data.TagFixer
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.desktop.audio.Analyzer
@@ -86,7 +95,12 @@ import com.elchanan.rhythm.desktop.data.Store
 import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.EngineTuning
 import com.elchanan.rhythm.engine.Features
+import com.elchanan.rhythm.engine.Mood
+import com.elchanan.rhythm.engine.Names
+import com.elchanan.rhythm.engine.Recap
+import com.elchanan.rhythm.engine.RecapData
 import com.elchanan.rhythm.engine.Recommender
+import com.elchanan.rhythm.engine.Versions
 import com.elchanan.rhythm.engine.SectionKind
 import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.ui.theme.AppBackground
@@ -96,6 +110,7 @@ import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import com.elchanan.rhythm.ui.theme.gradientFor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -175,7 +190,6 @@ private fun RhythmApp() {
     var engine by remember { mutableStateOf<Recommender?>(null) }
     var tuning by remember { mutableStateOf(EngineTuning()) }
     var showPlayer by remember { mutableStateOf(false) }
-    var eqOpen by remember { mutableStateOf(false) }
     // A stack and not a single screen, because an artist page opens an album
     // and going back from that album has to land on the artist rather than on
     // the tab the artist was reached from.
@@ -183,6 +197,17 @@ private fun RhythmApp() {
     // The song the options dialog is open on, if any. Held here rather than
     // inside each screen so every list in the app opens the same one.
     var options by remember { mutableStateOf<SongEntity?>(null) }
+    val prefs = remember(store) { Prefs(store) }
+    var welcomeDone by remember { mutableStateOf(prefs.welcomeSeen) }
+    var recap by remember { mutableStateOf<RecapData?>(null) }
+    var proposals by remember { mutableStateOf<List<TagFixer.Proposal>>(emptyList()) }
+    var bookmarks by remember { mutableStateOf<List<BookmarkEntity>>(emptyList()) }
+    var resumePoints by remember { mutableStateOf<Map<Long, Long>>(emptyMap()) }
+    var bookmarksOpen by remember { mutableStateOf(false) }
+    var sleepOpen by remember { mutableStateOf(false) }
+    // Redrawn once a second while the player is on screen, which is also what
+    // keeps the sleep timer's remaining time honest in the dialog.
+    var tick by remember { mutableStateOf(0) }
 
     suspend fun reload() {
         val loaded = withContext(Dispatchers.IO) {
@@ -192,9 +217,24 @@ private fun RhythmApp() {
             val sd = store.feedSeed
             val ft = store.features()
             val tn = store.tuning
-            val eng = if (s.isEmpty()) null else Feed.engine(s, st, ar, ft, sd, tn)
-            val model = LibraryModel.build(s, ar, store.playlists(), store.playlistItems())
-            Loaded(s, st, ar, model, store.folders, sd, eng?.buildFeed().orEmpty(), ft, eng, tn)
+            val eng = if (s.isEmpty()) {
+                null
+            } else {
+                Feed.engine(
+                    filterLibrary(applyOverrides(s, store.overrides()), st, prefs),
+                    st, ar, ft, sd, tn
+                )
+            }
+            // The corrections are applied to the rows on the way out, so
+            // every screen, the engine and the player all see the repaired
+            // names without any of them knowing a repair happened.
+            val fixed = filterLibrary(applyOverrides(s, store.overrides()), st, prefs)
+            val model = LibraryModel.build(fixed, ar, store.playlists(), store.playlistItems())
+            Loaded(
+                fixed, st, ar, model, store.folders, sd,
+                eng?.buildFeed().orEmpty(), ft, eng, tn,
+                store.bookmarks(), store.positions()
+            )
         }
         songs = loaded.songs
         stats = loaded.stats
@@ -206,6 +246,8 @@ private fun RhythmApp() {
         features = loaded.analysed
         engine = loaded.engine
         tuning = loaded.tuning
+        bookmarks = loaded.bookmarks
+        resumePoints = loaded.positions
         status = if (loaded.songs.isEmpty()) {
             "בחר תיקיית מוזיקה"
         } else {
@@ -215,7 +257,15 @@ private fun RhythmApp() {
 
     // The library is on disk from the last run, so it is on screen before
     // anything is scanned.
-    LaunchedEffect(Unit) { reload() }
+    LaunchedEffect(Unit) {
+        reload()
+        volume = prefs.volume / 100f
+        player.setVolume(volume)
+        player.equalizer.enabled = prefs.eqEnabled
+        prefs.eqBands.forEachIndexed { band, gain ->
+            player.equalizer.setGain(band, gain.toFloat())
+        }
+    }
 
     /**
      * Records what happened to the song being left, then starts another.
@@ -228,34 +278,31 @@ private fun RhythmApp() {
         val leaving = queue.getOrNull(queueIndex)
         if (leaving != null) {
             val heard = player.state.value.positionMs
+            val leftAt = player.state.value.positionMs
             scope.launch {
                 stats = withContext(Dispatchers.IO) {
                     store.notePlay(leaving.id, heard, previousCompleted)
+                    // Only for the long ones. A song paused in the middle
+                    // should start again from the top next time - resuming a
+                    // four minute track two minutes in is not a convenience,
+                    // it is half a song nobody asked to skip. The store drops
+                    // the positions too near either end on top of this.
+                    if (leaving.durationMs >= LONG_FORM_MS) {
+                        store.setPosition(leaving.id, leftAt, leaving.durationMs)
+                    }
                     store.stats()
                 }
+                resumePoints = withContext(Dispatchers.IO) { store.positions() }
             }
         }
         if (index !in list.indices) return
         queue = list
         queueIndex = index
-        player.play(File(list[index].path), list[index].durationMs)
-    }
-
-    fun scan(roots: List<File>) {
-        if (roots.isEmpty()) return
-        scanning = true
-        status = "סורק…"
-        scope.launch {
-            val found = withContext(Dispatchers.IO) {
-                val list = LibraryScan.scan(roots)
-                store.folders = roots
-                store.replaceSongs(list)
-                list
-            }
-            reload()
-            scanning = false
-            if (found.isEmpty()) status = "לא נמצאו קבצי שמע בתיקייה"
-        }
+        val song = list[index]
+        player.play(File(song.path), song.durationMs)
+        val resumeAt = resumePoints[song.id]
+        if (prefs.resumeSpoken && resumeAt != null) player.seekTo(resumeAt)
+        if (prefs.openPlayerOnPlay) showPlayer = true
     }
 
     /**
@@ -292,6 +339,28 @@ private fun RhythmApp() {
             // at all - and silently skipping them is how someone ends up
             // wondering why a shelf never mentions half their library.
             if (unreadable > 0) status = "$status · $unreadable קבצים לא נקראו"
+        }
+    }
+
+    fun scan(roots: List<File>) {
+        if (roots.isEmpty()) return
+        scanning = true
+        status = "סורק…"
+        scope.launch {
+            val found = withContext(Dispatchers.IO) {
+                val list = LibraryScan.scan(
+                    roots = roots,
+                    minDurationSec = prefs.minDurationSec,
+                    excluded = prefs.excludedFolders
+                )
+                store.folders = roots
+                store.replaceSongs(list)
+                list
+            }
+            reload()
+            scanning = false
+            if (found.isEmpty()) status = "לא נמצאו קבצי שמע בתיקייה"
+            if (prefs.autoAnalyze && found.isNotEmpty()) analyze()
         }
     }
 
@@ -419,6 +488,115 @@ private fun RhythmApp() {
         }
     }
 
+    fun openSettings() {
+        stack = stack + Route.Settings
+    }
+
+    fun loadRecap() {
+        scope.launch {
+            recap = withContext(Dispatchers.IO) {
+                Recap.build(store.history(), songs.associateBy { it.id })
+            }
+        }
+    }
+
+    fun buildProposals() {
+        scope.launch {
+            proposals = withContext(Dispatchers.Default) {
+                TagFixer.propose(songs, dropForeign = prefs.tagStripForeign)
+            }
+        }
+    }
+
+    /**
+     * Saves the corrections, and optionally pushes them into the files.
+     *
+     * The database write comes first and never depends on the file write,
+     * which can fail for half a dozen ordinary Windows reasons. A repair that
+     * only half applied because a share was offline would otherwise leave the
+     * library in a state nobody can reason about.
+     */
+    fun applyTagFix(list: List<TagFixer.Proposal>) {
+        val overrides = TagFixer.toOverrides(list)
+        if (overrides.isEmpty()) {
+            status = "אין מה לתקן"
+            return
+        }
+        scope.launch {
+            val note = withContext(Dispatchers.IO) {
+                store.saveOverrides(overrides)
+                if (!prefs.writeTagsToFiles) {
+                    null
+                } else {
+                    val byId = songs.associateBy { it.id }
+                    val result = TagWriter.write(overrides, byId)
+                    if (result.failed > 0) "${result.failed} קבצים לא ניתנים לכתיבה" else null
+                }
+            }
+            reload()
+            buildProposals()
+            status = note ?: "עודכנו ${overrides.size} שירים"
+        }
+    }
+
+    fun editTags(songId: Long, title: String, artist: String) {
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                store.saveOverrides(
+                    listOf(
+                        TagOverrideEntity(
+                            songId = songId,
+                            title = title,
+                            artistName = artist
+                        )
+                    )
+                )
+            }
+            reload()
+            buildProposals()
+        }
+    }
+
+    fun addBookmark(song: SongEntity, positionMs: Long, label: String) {
+        scope.launch {
+            bookmarks = withContext(Dispatchers.IO) {
+                store.addBookmark(song.id, positionMs, label)
+                store.bookmarks()
+            }
+        }
+    }
+
+    fun deleteBookmark(id: Long) {
+        scope.launch {
+            bookmarks = withContext(Dispatchers.IO) {
+                store.deleteBookmark(id)
+                store.bookmarks()
+            }
+        }
+    }
+
+    /**
+     * A mood chip: everything the measurements put in that corner of the plane.
+     *
+     * The judgement is [Mood.filter]'s, in :engine, so a mood on the phone and
+     * the same mood here pick the same songs out of the same library.
+     */
+    fun openMood(mood: Mood) {
+        val matching = Mood.filter(library.songs, features, mood)
+        if (matching.isEmpty()) {
+            status = "אין שירים שמתאימים ל\"${mood.label}\" בספרייה הזאת"
+            return
+        }
+        stack = stack + Route.Detail(
+            DetailList(
+                title = mood.label,
+                subtitle = mood.subtitle,
+                songs = matching,
+                gradientKey = "mood:${mood.name}"
+            )
+        )
+    }
+
     fun removeFromPlaylist(id: Long, song: SongEntity) {
         scope.launch {
             withContext(Dispatchers.IO) { store.removeFromPlaylist(id, song.id) }
@@ -442,13 +620,60 @@ private fun RhythmApp() {
 
     DisposableEffect(player) {
         player.onEnded = {
-            scope.launch { play(queue, queueIndex + 1, previousCompleted = true) }
+            scope.launch {
+                // The one sleep option that is not a countdown. Asked here
+                // because the end of a track is the only moment it means
+                // anything, and consuming it disarms it.
+                if (SleepTimer.consumeAfterTrack()) {
+                    play(queue, queueIndex, previousCompleted = true)
+                    player.pause()
+                    status = "טיימר השינה עצר את הנגינה"
+                    return@launch
+                }
+                val next = queueIndex + 1
+                if (next in queue.indices) {
+                    play(queue, next, previousCompleted = true)
+                    return@launch
+                }
+                // The queue is finished. Keep going on what the engine
+                // suggests, rather than stopping dead in silence.
+                val from = queue.getOrNull(queueIndex)
+                val station = if (prefs.autoRadio && from != null) {
+                    engine?.radio(from).orEmpty().filterNot { it.id == from.id }
+                } else {
+                    emptyList()
+                }
+                if (station.isEmpty()) {
+                    play(queue, next, previousCompleted = true)
+                } else {
+                    play(station, 0, previousCompleted = true)
+                }
+            }
         }
         onDispose {
             player.onEnded = null
             player.stop()
             store.close()
         }
+    }
+
+    // Every second, so the sleep timer's remaining time and the player's
+    // position stay honest without either of them polling on its own.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1000)
+            tick++
+        }
+    }
+
+    // Shown once, before anything has been scanned. The first minutes are the
+    // worst the app ever looks and this is the only thing that says why.
+    if (!welcomeDone) {
+        WelcomeScreen(songCount = songs.size) {
+            prefs.welcomeSeen = true
+            welcomeDone = true
+        }
+        return
     }
 
     val current = queue.getOrNull(queueIndex)
@@ -467,7 +692,39 @@ private fun RhythmApp() {
             onSeek = { player.seekTo(it) },
             onLike = { like(current) },
             onDislike = { dislike(current) },
-            onRate = { rate(current, it) }
+            onRate = { rate(current, it) },
+            sleepArmed = SleepTimer.remainingMs() != null || SleepTimer.stopAfterTrack,
+            onSleep = { sleepOpen = true },
+            onBookmarks = { bookmarksOpen = true },
+            onLyrics = {
+                showPlayer = false
+                stack = stack + Route.Lyrics(current.id)
+            },
+            onQueue = {
+                showPlayer = false
+                stack = stack + Route.Queue
+            }
+        )
+        SleepAndBookmarks(
+            song = current,
+            positionMs = state.positionMs,
+            bookmarks = bookmarks.filter { it.songId == current.id },
+            sleepOpen = sleepOpen,
+            bookmarksOpen = bookmarksOpen,
+            onSleepDismiss = { sleepOpen = false },
+            onBookmarksDismiss = { bookmarksOpen = false },
+            onAddBookmark = { at, label -> addBookmark(current, at, label) },
+            onDeleteBookmark = { deleteBookmark(it) },
+            onSeek = { player.seekTo(it) },
+            onSleepMinutes = { minutes ->
+                SleepTimer.startMinutes(minutes) { player.pause() }
+                status = "הנגינה תיעצר בעוד $minutes דקות"
+            },
+            onSleepAfterTrack = {
+                SleepTimer.stopAfterCurrentTrack()
+                status = "ייעצר בסוף השיר הנוכחי"
+            },
+            onSleepCancel = { SleepTimer.cancel() }
         )
         return
     }
@@ -561,6 +818,132 @@ private fun RhythmApp() {
                     }
                 )
 
+                Route.Settings -> SettingsScreen(
+                    prefs = prefs,
+                    songs = songs.size,
+                    analysed = features.size,
+                    ratedArtists = artists.count { it.rating > 0 },
+                    taggedArtists = artists.count { it.styles.isNotBlank() },
+                    liked = stats.values.count { it.liked == 1 },
+                    played = stats.values.sumOf { it.playCount },
+                    folders = folders.map { it.absolutePath },
+                    scanning = scanning,
+                    analysing = analysing,
+                    onBack = { stack = stack.dropLast(1) },
+                    onOpenPlayerSettings = { stack = stack + Route.PlayerSettings },
+                    onOpenAlgorithm = { stack = stack + Route.Algorithm },
+                    onOpenTags = {
+                        buildProposals()
+                        stack = stack + Route.Tags
+                    },
+                    onPickFolder = { chooseFolder()?.let { scan(listOf(it)) } },
+                    onRescan = { scan(folders) },
+                    onAnalyze = { analyze() },
+                    onResetAnalysis = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) { store.clearFeatures() }
+                            reload()
+                        }
+                    },
+                    onResetStats = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) { store.clearStats() }
+                            recap = null
+                            reload()
+                        }
+                    },
+                    onPickLyricsFolder = {
+                        chooseFolder()?.let { prefs.lyricsFolder = it.absolutePath }
+                    }
+                )
+
+                Route.PlayerSettings -> PlayerSettingsScreen(
+                    prefs = prefs,
+                    equalizer = player.equalizer,
+                    onBack = { stack = stack.dropLast(1) }
+                )
+
+                Route.Algorithm -> AlgorithmSettingsScreen(
+                    tuning = tuning,
+                    onChange = { retune(it) },
+                    onBack = { stack = stack.dropLast(1) }
+                )
+
+                Route.Tags -> TagFixScreen(
+                    proposals = proposals,
+                    stripForeign = prefs.tagStripForeign,
+                    writeToFiles = prefs.writeTagsToFiles,
+                    onStripForeign = {
+                        prefs.tagStripForeign = it
+                        buildProposals()
+                    },
+                    onWriteToFiles = { prefs.writeTagsToFiles = it },
+                    onApply = { applyTagFix(it) },
+                    onEdit = { id, title, artist -> editTags(id, title, artist) },
+                    onBack = { stack = stack.dropLast(1) }
+                )
+
+                Route.Recap -> RecapScreen(
+                    recap = recap,
+                    onBack = { stack = stack.dropLast(1) }
+                )
+
+                Route.Queue -> QueueScreen(
+                    queue = queue,
+                    index = queueIndex,
+                    onBack = { stack = stack.dropLast(1) },
+                    onPlay = { play(queue, it) },
+                    onRemove = { position ->
+                        // Removing what is playing is the one case that needs
+                        // care: the index has to follow the song, not the slot.
+                        val wasCurrent = position == queueIndex
+                        val without = queue.toMutableList().also { it.removeAt(position) }
+                        queue = without
+                        if (position < queueIndex) queueIndex--
+                        when {
+                            without.isEmpty() -> {
+                                queueIndex = -1
+                                player.stop()
+                            }
+                            wasCurrent -> play(without, queueIndex.coerceIn(0, without.size - 1))
+                        }
+                    },
+                    onClear = {
+                        queue = emptyList()
+                        queueIndex = -1
+                        player.stop()
+                    }
+                )
+
+                is Route.Lyrics -> {
+                    val song = songs.firstOrNull { it.id == top.songId }
+                    if (song == null) {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            DetailTopBar("", onBack = { stack = stack.dropLast(1) })
+                            EmptyState(
+                                title = "השיר כבר לא בספרייה",
+                                body = "אפשר לחזור אחורה."
+                            )
+                        }
+                    } else {
+                        // Read off the disk, not held: a lyric sheet is a few
+                        // kilobytes and re-reading it on open is cheaper than
+                        // an index of every one of them in memory.
+                        var words by remember(song.id) { mutableStateOf<Words?>(null) }
+                        LaunchedEffect(song.id) {
+                            words = withContext(Dispatchers.IO) {
+                                SongLyrics.find(song, prefs.lyricsFolder)
+                            }
+                        }
+                        LyricsScreen(
+                            song = song,
+                            words = words,
+                            positionMs = state.positionMs,
+                            onBack = { stack = stack.dropLast(1) }
+                        )
+                    }
+                }
+
                 null -> when (tab) {
                     0 -> FeedPane(
                         feed = feed,
@@ -580,13 +963,32 @@ private fun RhythmApp() {
                             }
                         },
                         hasFolders = folders.isNotEmpty(),
-                        onPlay = { list, index -> play(list, index) }
+                        onPlay = { list, index -> play(list, index) },
+                        moods = if (prefs.pinMoodRow && features.isNotEmpty()) {
+                            Mood.entries.toList()
+                        } else {
+                            emptyList()
+                        },
+                        onMood = { openMood(it) },
+                        onRecap = {
+                            loadRecap()
+                            stack = stack + Route.Recap
+                        },
+                        onSettings = { openSettings() },
+                        onQueue = { stack = stack + Route.Queue }
                     )
                     1 -> SearchPane(
                         query = query,
                         onQuery = { query = it },
                         results = remember(query, engine) {
-                            if (query.isBlank()) emptyList() else engine?.search(query).orEmpty()
+                            if (query.isBlank()) {
+                                emptyList()
+                            } else {
+                                // Zero means text relevance alone; the
+                                // default leans on what this listener plays.
+                                val personal = if (prefs.searchPersonalized) 0.25 else 0.0
+                                engine?.search(query, personal = personal).orEmpty()
+                            }
                         },
                         stats = stats,
                         current = current?.id,
@@ -609,22 +1011,9 @@ private fun RhythmApp() {
                         onCreatePlaylist = { createPlaylist(it) },
                         onDeletePlaylist = { deletePlaylist(it) }
                     )
-                    3 -> ArtistsPane(
+                    else -> ArtistsPane(
                         artists = library.artists,
                         onOpen = { stack = stack + Route.Artist(it.key) }
-                    )
-                    else -> TuningPane(
-                        equalizer = player.equalizer,
-                        eqOpen = eqOpen,
-                        onEqOpen = { eqOpen = it },
-                        tuning = tuning,
-                        songs = songs.size,
-                        analysed = features.size,
-                        ratedArtists = artists.count { it.rating > 0 },
-                        taggedArtists = artists.count { it.styles.isNotBlank() },
-                        liked = stats.values.count { it.liked == 1 },
-                        played = stats.values.sumOf { it.playCount },
-                        onChange = { retune(it) }
                     )
                 }
             }
@@ -639,6 +1028,7 @@ private fun RhythmApp() {
             onVolume = {
                 volume = it
                 player.setVolume(it)
+                prefs.volume = (it * 100).toInt()
             },
             onOpen = { if (current != null) showPlayer = true },
             onToggle = { player.togglePause() },
@@ -646,8 +1036,10 @@ private fun RhythmApp() {
         )
 
         // The same four the phone has, in the same order, with the same icons
-        // and the same words. A fifth for tuning, which the phone reaches from
-        // inside the home screen and a window has room to show outright.
+        // and the same words. There is no fifth: settings open from the gear
+        // in the corner of the home screen, exactly as on the phone, and a
+        // tab for something opened twice a year would take a quarter of the
+        // bar away from the four that are the app.
         NavigationBar(containerColor = Surface1) {
             // Tapping a tab always lands on that tab's root, including the
             // tab already showing: a detail screen pushed on top counts as
@@ -661,7 +1053,6 @@ private fun RhythmApp() {
             NavTab(tab, 1, "חיפוש", Icons.Filled.Search) { go(1) }
             NavTab(tab, 2, "ספרייה", Icons.Filled.LibraryMusic) { go(2) }
             NavTab(tab, 3, "אמנים", Icons.Filled.Star) { go(3) }
-            NavTab(tab, 4, "כוונון", Icons.Filled.Tune) { go(4) }
         }
     }
 
@@ -693,7 +1084,26 @@ private fun RhythmApp() {
                 }
             },
             onAddTo = { addToPlaylist(it, song) },
-            onCreateWith = { createPlaylistWith(it, song) }
+            onCreateWith = { createPlaylistWith(it, song) },
+            // Inserted after what is playing, not started: queueing something
+            // for later is the opposite of interrupting, and a menu entry
+            // that says "next" and plays now is one nobody presses twice.
+            onPlayNext = {
+                if (queueIndex < 0) {
+                    play(listOf(song), 0)
+                } else {
+                    queue = queue.toMutableList().also { it.add(queueIndex + 1, song) }
+                    status = "יתנגן אחרי הנוכחי"
+                }
+            },
+            onAddToQueue = {
+                if (queueIndex < 0) {
+                    play(listOf(song), 0)
+                } else {
+                    queue = queue + song
+                    status = "נוסף לתור"
+                }
+            }
         )
     }
 }
@@ -734,7 +1144,23 @@ private sealed interface Route {
     data class Detail(val list: DetailList) : Route
     data class Artist(val key: String) : Route
     data object Albums : Route
+    data object Settings : Route
+    data object PlayerSettings : Route
+    data object Algorithm : Route
+    data object Tags : Route
+    data object Recap : Route
+    data object Queue : Route
+    data class Lyrics(val songId: Long) : Route
 }
+
+/**
+ * Long enough that stopping half way through is a place to come back to.
+ *
+ * Twelve minutes. Below it a file is a song, and a song resumes from the
+ * start; above it a file is a shiur, a story or a set, and losing your place
+ * in one means finding it again by dragging the bar until it sounds right.
+ */
+private const val LONG_FORM_MS = 12 * 60 * 1000L
 
 /** Everything one reload reads, so the composition is updated once and not six times. */
 private data class Loaded(
@@ -747,8 +1173,67 @@ private data class Loaded(
     val feed: List<FeedSection>,
     val analysed: Map<Long, AudioFeatureEntity>,
     val engine: Recommender?,
-    val tuning: EngineTuning
+    val tuning: EngineTuning,
+    val bookmarks: List<BookmarkEntity>,
+    val positions: Map<Long, Long>
 )
+
+/**
+ * The two settings that decide what counts as part of the library.
+ *
+ * Applied before anything is derived from the list, so a hidden copy is gone
+ * from the artist counts, the albums and the shelves too rather than only
+ * from the songs tab - which is what "hidden" has to mean for it to be worth
+ * having at all.
+ */
+private fun filterLibrary(
+    songs: List<SongEntity>,
+    stats: Map<Long, SongStatsEntity>,
+    prefs: Prefs
+): List<SongEntity> {
+    var out = songs
+    if (prefs.skipRecordings) {
+        out = out.filterNot {
+            Names.looksLikeRecording(it.folder, it.path.substringAfterLast(File.separatorChar))
+        }
+    }
+    if (prefs.hideDuplicates) {
+        // Indexed first: classify asks for a play count once per song, and a
+        // linear scan inside that would make building the library quadratic.
+        val plays = stats.mapValues { it.value.playCount }
+        val types = Versions.classify(out) { id -> plays[id] ?: 0 }
+        out = Versions.withoutDuplicates(out, types)
+    }
+    return out
+}
+
+/**
+ * Puts the tag repairs over the scanned rows.
+ *
+ * Applied here rather than written into the songs table, because a rescan
+ * rebuilds that table from the files and would throw every correction away.
+ * The keys are recomputed from the corrected names for the same reason they
+ * exist at all - an artist key derived from the wrong name groups the library
+ * by the wrong name.
+ */
+private fun applyOverrides(
+    songs: List<SongEntity>,
+    overrides: Map<Long, TagOverrideEntity>
+): List<SongEntity> {
+    if (overrides.isEmpty()) return songs
+    return songs.map { song ->
+        val fix = overrides[song.id] ?: return@map song
+        val title = fix.title.ifBlank { song.title }
+        val artist = fix.artistName.ifBlank { song.artistName }
+        song.copy(
+            title = title,
+            titleLower = title.lowercase(),
+            artistName = artist,
+            artistKey = Names.normalizeKey(Names.primaryArtist(artist)),
+            albumName = fix.albumName.ifBlank { song.albumName }
+        )
+    }
+}
 
 /**
  * A shelf heading: the name in full size, what it is under it in grey.
@@ -793,7 +1278,12 @@ private fun FeedPane(
     onRescan: () -> Unit,
     onAnalyze: () -> Unit,
     onShuffle: () -> Unit,
-    onPlay: (List<SongEntity>, Int) -> Unit
+    onPlay: (List<SongEntity>, Int) -> Unit,
+    moods: List<Mood>,
+    onMood: (Mood) -> Unit,
+    onRecap: () -> Unit,
+    onSettings: () -> Unit,
+    onQueue: () -> Unit
 ) {
     val visible = feed.filter { section ->
         when (section.kind) {
@@ -804,6 +1294,12 @@ private fun FeedPane(
 
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
+            HomeTopBar(
+                onRefresh = onShuffle,
+                onQueue = onQueue,
+                onRecap = onRecap,
+                onSettings = onSettings
+            )
             HomeHeader(
                 songs = songs,
                 ratedArtists = ratedArtists,
@@ -818,6 +1314,21 @@ private fun FeedPane(
                 onAnalyze = onAnalyze,
                 onShuffle = onShuffle
             )
+            // The mood chips, above the shelves. They filter on what was
+            // measured rather than on anything typed, so they are the one row
+            // that works on a library with no ratings and no history at all -
+            // which on a first run is every library.
+            if (moods.isNotEmpty()) {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = GUTTER),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 14.dp)
+                ) {
+                    items(moods) { mood ->
+                        Chip(label = mood.label, selected = false) { onMood(mood) }
+                    }
+                }
+            }
         }
         items(visible) { section ->
             Column(modifier = Modifier.padding(bottom = 14.dp)) {
@@ -885,6 +1396,45 @@ private fun Shelf(content: LazyListScope.() -> Unit) {
  * and hiding the one button a new install needs behind a settings screen is
  * how a first run ends with an empty window and no idea why.
  */
+/**
+ * The mark, the name, and the four things reached from the home screen.
+ *
+ * The gear is here and not in the navigation bar because that is where the
+ * phone puts it, and because four tabs are the app.
+ */
+@Composable
+private fun HomeTopBar(
+    onRefresh: () -> Unit,
+    onQueue: () -> Unit,
+    onRecap: () -> Unit,
+    onSettings: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RhythmMark(size = 30.dp)
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = "Rhythm",
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.weight(1f)
+        )
+        IconButton(onClick = onRefresh) {
+            Icon(Icons.Filled.Autorenew, contentDescription = "רענון", tint = TextSecondary)
+        }
+        IconButton(onClick = onQueue) {
+            Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = "התור", tint = TextSecondary)
+        }
+        IconButton(onClick = onRecap) {
+            Icon(Icons.Filled.BarChart, contentDescription = "הסיכום שלך", tint = TextSecondary)
+        }
+        IconButton(onClick = onSettings) {
+            Icon(Icons.Filled.Settings, contentDescription = "הגדרות", tint = TextSecondary)
+        }
+    }
+}
+
 @Composable
 private fun HomeHeader(
     songs: Int,
@@ -1116,7 +1666,12 @@ private fun PlayerScreen(
     onSeek: (Long) -> Unit,
     onLike: () -> Unit,
     onDislike: () -> Unit,
-    onRate: (Int) -> Unit
+    onRate: (Int) -> Unit,
+    sleepArmed: Boolean,
+    onSleep: () -> Unit,
+    onBookmarks: () -> Unit,
+    onLyrics: () -> Unit,
+    onQueue: () -> Unit
 ) {
     var scrub by remember { mutableStateOf<Float?>(null) }
     val liked = stat?.liked ?: 0
@@ -1126,9 +1681,32 @@ private fun PlayerScreen(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Row(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) {
                 Icon(Icons.Filled.ExpandMore, contentDescription = "סגור")
+            }
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onQueue) {
+                Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = "התור", tint = TextSecondary)
+            }
+            IconButton(onClick = onLyrics) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Subject,
+                    contentDescription = "מילות השיר",
+                    tint = TextSecondary
+                )
+            }
+            IconButton(onClick = onBookmarks) {
+                Icon(Icons.Filled.Bookmark, contentDescription = "סימניות", tint = TextSecondary)
+            }
+            IconButton(onClick = onSleep) {
+                // Accented while armed. A timer nobody can see is one people
+                // set twice and then wonder why the music stopped.
+                Icon(
+                    Icons.Filled.Bedtime,
+                    contentDescription = "טיימר שינה",
+                    tint = if (sleepArmed) Accent else TextSecondary
+                )
             }
         }
 
@@ -1232,173 +1810,48 @@ private fun PlayerScreen(
     }
 }
 
+/**
+ * The player's two dialogs.
+ *
+ * Together in one composable because both belong to the song on screen and
+ * both are opened from the same row of icons; splitting them would mean the
+ * player screen's caller passing eleven more parameters to say the same thing.
+ */
 @Composable
-private fun TuningPane(
-    equalizer: Equalizer,
-    eqOpen: Boolean,
-    onEqOpen: (Boolean) -> Unit,
-    tuning: EngineTuning,
-    songs: Int,
-    analysed: Int,
-    ratedArtists: Int,
-    taggedArtists: Int,
-    liked: Int,
-    played: Int,
-    onChange: (EngineTuning) -> Unit
+private fun SleepAndBookmarks(
+    song: SongEntity,
+    positionMs: Long,
+    bookmarks: List<BookmarkEntity>,
+    sleepOpen: Boolean,
+    bookmarksOpen: Boolean,
+    onSleepDismiss: () -> Unit,
+    onBookmarksDismiss: () -> Unit,
+    onAddBookmark: (Long, String) -> Unit,
+    onDeleteBookmark: (Long) -> Unit,
+    onSeek: (Long) -> Unit,
+    onSleepMinutes: (Int) -> Unit,
+    onSleepAfterTrack: () -> Unit,
+    onSleepCancel: () -> Unit
 ) {
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        item {
-            Text(
-                "מה המנוע יודע",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(vertical = 10.dp)
-            )
-            // Said in one place because every one of these is a thing the
-            // engine is waiting for more of, and none of them is visible
-            // anywhere else.
-            Fact("שירים בספרייה", "$songs")
-            Fact("שירים שנותחו", "$analysed מתוך $songs")
-            Fact("אמנים שדורגו", "$ratedArtists")
-            Fact("אמנים עם סגנון", "$taggedArtists")
-            Fact("שירים עם לייק", "$liked")
-            Fact("סך הנגינות", "$played")
-            Text(
-                "אקולייזר",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 20.dp, bottom = 4.dp)
-            )
-        }
-        item { EqualizerPanel(equalizer = equalizer, open = eqOpen, onOpen = onEqOpen) }
-        item {
-            Text(
-                "כוונון האלגוריתם",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = 20.dp, bottom = 4.dp)
-            )
-        }
-        item {
-            Knob("גילוי מול מוכר", tuning.discovery, 0f..1f,
-                "ככל שגבוה יותר, יופיעו יותר שירים שלא שמעת") {
-                onChange(tuning.copy(discovery = it))
-            }
-            Knob("משקל דירוג האמן", tuning.artistWeight, 0f..2f,
-                "כמה הדירוג שנתת לאמן משפיע על השירים שלו") {
-                onChange(tuning.copy(artistWeight = it))
-            }
-            Knob("משקל הסגנון", tuning.styleWeight, 0f..2f,
-                "כמה התאמת הסגנון מושכת שיר למעלה") {
-                onChange(tuning.copy(styleWeight = it))
-            }
-            Knob("מניעת חזרתיות", tuning.repeatGuard, 0f..2f,
-                "ככל שגבוה יותר, שיר שהתנגן לאחרונה ירד בדירוג") {
-                onChange(tuning.copy(repeatGuard = it))
-            }
-            Knob("משקל הדמיון האקוסטי", tuning.acousticWeight, 0f..2f,
-                "כמה הצליל עצמו קובע, לעומת מה שכתוב על השיר") {
-                onChange(tuning.copy(acousticWeight = it))
-            }
-        }
-    }
-}
-
-@Composable
-private fun EqualizerPanel(equalizer: Equalizer, open: Boolean, onOpen: (Boolean) -> Unit) {
-    // The sliders read from the filter and write to it directly. There is no
-    // copy of these six numbers anywhere else, which is what stops a slider
-    // and the sound it is meant to change from disagreeing.
-    var version by remember { mutableStateOf(0) }
-    var on by remember { mutableStateOf(equalizer.enabled) }
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(
-                onClick = {
-                    on = !on
-                    equalizer.enabled = on
-                }
-            ) { Text(if (on) "כבוי" else "הפעל") }
-            Button(
-                onClick = { onOpen(!open) },
-                modifier = Modifier.padding(start = 8.dp)
-            ) { Text(if (open) "סגור" else "פתח") }
-            if (on) {
-                Button(
-                    onClick = {
-                        equalizer.reset()
-                        version++
-                    },
-                    modifier = Modifier.padding(start = 8.dp)
-                ) { Text("אפס") }
-            }
-        }
-        if (open) {
-            for (band in Equalizer.FREQUENCIES.indices) {
-                val hz = Equalizer.FREQUENCIES[band].toInt()
-                val label = if (hz >= 1000) "${hz / 1000}kHz" else "${hz}Hz"
-                var live by remember(version, band) { mutableStateOf(equalizer.gain(band)) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.width(56.dp)
-                    )
-                    Slider(
-                        value = live,
-                        valueRange = -Equalizer.MAX_DB..Equalizer.MAX_DB,
-                        onValueChange = {
-                            live = it
-                            equalizer.setGain(band, it)
-                        },
-                        enabled = on,
-                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-                    )
-                    Text(
-                        "${live.toInt()} dB",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.width(52.dp)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun Fact(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+    if (bookmarksOpen) {
+        BookmarksDialog(
+            song = song,
+            bookmarks = bookmarks,
+            positionMs = positionMs,
+            onAdd = onAddBookmark,
+            onDelete = onDeleteBookmark,
+            onSeek = onSeek,
+            onDismiss = onBookmarksDismiss
         )
     }
-}
-
-@Composable
-private fun Knob(
-    label: String,
-    value: Float,
-    range: ClosedFloatingPointRange<Float>,
-    hint: String,
-    onDone: (Float) -> Unit
-) {
-    // The slider follows the finger locally and the engine is only rebuilt
-    // when it is let go. Rebuilding on every pixel would score the whole
-    // library a hundred times for one drag.
-    var live by remember(value) { mutableStateOf(value) }
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyMedium)
-        Text(
-            hint,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Slider(
-            value = live,
-            valueRange = range,
-            onValueChange = { live = it },
-            onValueChangeFinished = { onDone(live) }
+    if (sleepOpen) {
+        SleepDialog(
+            armedMs = SleepTimer.remainingMs(),
+            afterTrack = SleepTimer.stopAfterTrack,
+            onMinutes = onSleepMinutes,
+            onAfterTrack = onSleepAfterTrack,
+            onCancel = onSleepCancel,
+            onDismiss = onSleepDismiss
         )
     }
 }

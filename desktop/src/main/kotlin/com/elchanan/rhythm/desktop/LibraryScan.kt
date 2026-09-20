@@ -73,19 +73,42 @@ object LibraryScan {
      * anyway - which is exactly the case the phone handles by keeping files
      * of unknown length rather than filtering them out in the query.
      */
-    fun scan(roots: List<File>): List<SongEntity> {
+    /**
+     * @param minDurationSec files shorter than this are not music. Ringtones,
+     *   notification sounds and the two second remains of a failed download
+     *   all sit in the same folders as the music, and every one of them takes
+     *   a place on a shelf. A file whose length could not be read is kept -
+     *   an unreadable header is not evidence of anything.
+     * @param excluded folders to walk past, by absolute path. Matched by
+     *   prefix, so excluding a folder excludes what is under it.
+     */
+    fun scan(
+        roots: List<File>,
+        minDurationSec: Int = 0,
+        excluded: List<String> = emptyList()
+    ): List<SongEntity> {
         val out = ArrayList<SongEntity>()
         val seen = HashSet<String>()
-        for (root in roots) walk(root, out, seen)
-        return out
+        val skip = excluded.filter { it.isNotBlank() }.map { File(it).absolutePath }
+        for (root in roots) walk(root, out, seen, skip)
+        if (minDurationSec <= 0) return out
+        val floor = minDurationSec * 1000L
+        return out.filter { it.durationMs <= 0L || it.durationMs >= floor }
     }
 
-    private fun walk(dir: File, out: MutableList<SongEntity>, seen: MutableSet<String>) {
+    private fun walk(
+        dir: File,
+        out: MutableList<SongEntity>,
+        seen: MutableSet<String>,
+        excluded: List<String>
+    ) {
         if (!dir.isDirectory || dir.name.lowercase() in SKIP) return
+        val here = dir.absolutePath
+        if (excluded.any { here == it || here.startsWith(it + File.separator) }) return
         val children = dir.listFiles() ?: return
         for (child in children) {
             if (child.isDirectory) {
-                walk(child, out, seen)
+                walk(child, out, seen, excluded)
             } else if (child.extension.lowercase() in AUDIO) {
                 val path = child.absolutePath
                 if (seen.add(path)) out.add(read(child))

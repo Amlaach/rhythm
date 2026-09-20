@@ -30,12 +30,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.ThumbUp
@@ -442,7 +444,7 @@ internal fun LibraryPane(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    Icons.Filled.PlaylistPlay,
+                                    Icons.AutoMirrored.Filled.PlaylistPlay,
                                     contentDescription = null,
                                     tint = Color.White
                                 )
@@ -725,7 +727,9 @@ internal fun SongOptionsDialog(
     onOpenArtist: () -> Unit,
     onOpenAlbum: () -> Unit,
     onAddTo: (Long) -> Unit,
-    onCreateWith: (String) -> Unit
+    onCreateWith: (String) -> Unit,
+    onPlayNext: () -> Unit,
+    onAddToQueue: () -> Unit
 ) {
     var picking by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf(false) }
@@ -757,7 +761,7 @@ internal fun SongOptionsDialog(
                     items(playlists, key = { it.playlist.id }) { info ->
                         val already = info.songs.any { it.id == song.id }
                         OptionRow(
-                            icon = Icons.Filled.PlaylistPlay,
+                            icon = Icons.AutoMirrored.Filled.PlaylistPlay,
                             label = info.playlist.name,
                             hint = if (already) "כבר ברשימה" else "${info.songs.size} שירים",
                             enabled = !already
@@ -794,7 +798,15 @@ internal fun SongOptionsDialog(
                 Spacer(Modifier.height(6.dp))
                 StarRow(rating = stat?.rating ?: 0, onRate = onRate, size = 26)
                 Spacer(Modifier.height(14.dp))
-                OptionRow(Icons.Filled.PlaylistAdd, "הוספה לרשימה") { picking = true }
+                OptionRow(Icons.AutoMirrored.Filled.PlaylistAdd, "הוספה לרשימה") { picking = true }
+                OptionRow(Icons.Filled.SkipNext, "נגן אחרי הנוכחי") {
+                    onPlayNext()
+                    onDismiss()
+                }
+                OptionRow(Icons.AutoMirrored.Filled.PlaylistAddCheck, "הוסף לסוף התור") {
+                    onAddToQueue()
+                    onDismiss()
+                }
                 OptionRow(Icons.Filled.Radio, "רדיו מהשיר הזה") {
                     onRadio()
                     onDismiss()

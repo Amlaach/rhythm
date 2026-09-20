@@ -2,6 +2,9 @@ package com.elchanan.rhythm.desktop.data
 
 import com.elchanan.rhythm.data.db.ArtistEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
+import com.elchanan.rhythm.data.db.BookmarkEntity
+import com.elchanan.rhythm.data.db.HistoryEntity
+import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.data.db.PlaylistEntity
 import com.elchanan.rhythm.data.db.PlaylistItemEntity
 import com.elchanan.rhythm.data.db.SongEntity
@@ -138,6 +141,46 @@ class Store private constructor(private val conn: Connection) {
             """
             CREATE UNIQUE INDEX IF NOT EXISTS playlist_items_unique
                 ON playlist_items(playlistId, songId)
+            """.trimIndent(),
+            // One row per play, which the aggregate counts in song_stats
+            // cannot be rebuilt into: "how many plays" is a number, "when"
+            // is a history, and the recap is entirely about when.
+            """
+            CREATE TABLE IF NOT EXISTS history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, songId INTEGER NOT NULL,
+                playedAt INTEGER NOT NULL, completed INTEGER NOT NULL,
+                listenedMs INTEGER NOT NULL
+            )
+            """.trimIndent(),
+            "CREATE INDEX IF NOT EXISTS history_playedAt ON history(playedAt)",
+            """
+            CREATE TABLE IF NOT EXISTS bookmarks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, songId INTEGER NOT NULL,
+                positionMs INTEGER NOT NULL, label TEXT NOT NULL,
+                createdAt INTEGER NOT NULL
+            )
+            """.trimIndent(),
+            "CREATE INDEX IF NOT EXISTS bookmarks_songId ON bookmarks(songId)",
+            // Where a long recording was left. Separate from the bookmarks
+            // because there is exactly one of these per file and it is
+            // overwritten constantly, where a bookmark is made on purpose and
+            // kept.
+            """
+            CREATE TABLE IF NOT EXISTS positions (
+                songId INTEGER PRIMARY KEY, positionMs INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL
+            )
+            """.trimIndent(),
+            // A correction to what a file's own tags claim, kept beside the
+            // library rather than only written into the file. Writing into
+            // the file is optional and can fail - the file may be read only,
+            // on a network share, or open in something else - and the repair
+            // has to survive that, and survive a rescan.
+            """
+            CREATE TABLE IF NOT EXISTS tag_overrides (
+                songId INTEGER PRIMARY KEY, title TEXT NOT NULL DEFAULT '',
+                artistName TEXT NOT NULL DEFAULT '', albumName TEXT NOT NULL DEFAULT ''
+            )
             """.trimIndent(),
             "CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)"
         )
@@ -319,6 +362,15 @@ class Store private constructor(private val conn: Connection) {
     /** Records that a song was played, and whether it was heard out. */
     @Synchronized
     fun notePlay(songId: Long, listenedMs: Long, completed: Boolean) {
+        conn.prepareStatement(
+            "INSERT INTO history (songId, playedAt, completed, listenedMs) VALUES (?,?,?,?)"
+        ).use { ps ->
+            ps.setLong(1, songId)
+            ps.setLong(2, System.currentTimeMillis())
+            ps.setInt(3, if (completed) 1 else 0)
+            ps.setLong(4, listenedMs)
+            ps.executeUpdate()
+        }
         ensureStats(songId)
         conn.prepareStatement(
             "UPDATE song_stats SET playCount = playCount + 1, " +
@@ -619,6 +671,201 @@ class Store private constructor(private val conn: Connection) {
     }
 
     // ---------------------------------------------------------------------
+    // History, bookmarks and where a recording was left
+    // ---------------------------------------------------------------------
+
+    /**
+     * The play history, newest first, capped.
+     *
+     * Capped because the recap reads all of it into memory at once and a
+     * library played for years would otherwise grow that read without bound.
+     * Twenty thousand plays is several years of heavy listening.
+     */
+    @Synchronized
+    fun history(limit: Int = 20_000): List<HistoryEntity> {
+        val out = ArrayList<HistoryEntity>()
+        conn.prepareStatement(
+            "SELECT * FROM history ORDER BY playedAt DESC LIMIT ?"
+        ).use { ps ->
+            ps.setInt(1, limit)
+            val rs = ps.executeQuery()
+            while (rs.next()) {
+                out.add(
+                    HistoryEntity(
+                        id = rs.getLong("id"),
+                        songId = rs.getLong("songId"),
+                        playedAt = rs.getLong("playedAt"),
+                        completed = rs.getInt("completed") == 1,
+                        listenedMs = rs.getLong("listenedMs")
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    @Synchronized
+    fun bookmarks(): List<BookmarkEntity> {
+        val out = ArrayList<BookmarkEntity>()
+        conn.createStatement().use { st ->
+            val rs = st.executeQuery("SELECT * FROM bookmarks ORDER BY songId, positionMs")
+            while (rs.next()) {
+                out.add(
+                    BookmarkEntity(
+                        id = rs.getLong("id"),
+                        songId = rs.getLong("songId"),
+                        positionMs = rs.getLong("positionMs"),
+                        label = rs.getString("label"),
+                        createdAt = rs.getLong("createdAt")
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    @Synchronized
+    fun addBookmark(songId: Long, positionMs: Long, label: String) {
+        conn.prepareStatement(
+            "INSERT INTO bookmarks (songId, positionMs, label, createdAt) VALUES (?,?,?,?)"
+        ).use { ps ->
+            ps.setLong(1, songId)
+            ps.setLong(2, positionMs)
+            ps.setString(3, label)
+            ps.setLong(4, System.currentTimeMillis())
+            ps.executeUpdate()
+        }
+    }
+
+    @Synchronized
+    fun deleteBookmark(id: Long) {
+        conn.prepareStatement("DELETE FROM bookmarks WHERE id = ?").use { ps ->
+            ps.setLong(1, id)
+            ps.executeUpdate()
+        }
+    }
+
+    /** Where each long recording was left, by song id. */
+    @Synchronized
+    fun positions(): Map<Long, Long> {
+        val out = HashMap<Long, Long>()
+        conn.createStatement().use { st ->
+            val rs = st.executeQuery("SELECT songId, positionMs FROM positions")
+            while (rs.next()) out[rs.getLong("songId")] = rs.getLong("positionMs")
+        }
+        return out
+    }
+
+    /**
+     * Remembers, or forgets, where a recording was left.
+     *
+     * Near the start or near the end is forgotten rather than stored. Offering
+     * to resume something forty seconds in is noise, and offering to resume
+     * something that finished is worse than noise.
+     */
+    @Synchronized
+    fun setPosition(songId: Long, positionMs: Long, durationMs: Long) {
+        val tooEarly = positionMs < 60_000
+        val tooLate = durationMs > 0 && positionMs > durationMs - 60_000
+        if (tooEarly || tooLate) {
+            conn.prepareStatement("DELETE FROM positions WHERE songId = ?").use { ps ->
+                ps.setLong(1, songId)
+                ps.executeUpdate()
+            }
+            return
+        }
+        conn.prepareStatement(
+            "INSERT INTO positions (songId, positionMs, updatedAt) VALUES (?,?,?) " +
+                "ON CONFLICT(songId) DO UPDATE SET positionMs = excluded.positionMs, " +
+                "updatedAt = excluded.updatedAt"
+        ).use { ps ->
+            ps.setLong(1, songId)
+            ps.setLong(2, positionMs)
+            ps.setLong(3, System.currentTimeMillis())
+            ps.executeUpdate()
+        }
+    }
+
+    /** Throws the measured features away, so the next pass measures again. */
+    @Synchronized
+    fun clearFeatures() {
+        conn.createStatement().use { it.execute("DELETE FROM audio_features") }
+    }
+
+    /** Throws the listening history away: plays, likes, ratings, everything. */
+    @Synchronized
+    fun clearStats() {
+        conn.autoCommit = false
+        try {
+            conn.createStatement().use { st ->
+                st.execute("DELETE FROM song_stats")
+                st.execute("DELETE FROM history")
+                st.execute("DELETE FROM positions")
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = true
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Tag corrections
+    // ---------------------------------------------------------------------
+
+    @Synchronized
+    fun overrides(): Map<Long, TagOverrideEntity> {
+        val out = HashMap<Long, TagOverrideEntity>()
+        conn.createStatement().use { st ->
+            val rs = st.executeQuery("SELECT * FROM tag_overrides")
+            while (rs.next()) {
+                out[rs.getLong("songId")] = TagOverrideEntity(
+                    songId = rs.getLong("songId"),
+                    title = rs.getString("title"),
+                    artistName = rs.getString("artistName"),
+                    albumName = rs.getString("albumName")
+                )
+            }
+        }
+        return out
+    }
+
+    @Synchronized
+    fun saveOverrides(rows: List<TagOverrideEntity>) {
+        if (rows.isEmpty()) return
+        conn.autoCommit = false
+        try {
+            conn.prepareStatement(
+                "INSERT INTO tag_overrides VALUES (?,?,?,?) ON CONFLICT(songId) DO UPDATE SET " +
+                    "title = excluded.title, artistName = excluded.artistName, " +
+                    "albumName = excluded.albumName"
+            ).use { ps ->
+                for (row in rows) {
+                    ps.setLong(1, row.songId)
+                    ps.setString(2, row.title)
+                    ps.setString(3, row.artistName)
+                    ps.setString(4, row.albumName)
+                    ps.addBatch()
+                }
+                ps.executeBatch()
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = true
+        }
+    }
+
+    @Synchronized
+    fun clearOverrides() {
+        conn.createStatement().use { it.execute("DELETE FROM tag_overrides") }
+    }
+
+    // ---------------------------------------------------------------------
     // Where the music is
     // ---------------------------------------------------------------------
 
@@ -677,6 +924,13 @@ class Store private constructor(private val conn: Connection) {
             putSetting("tune.repeat", value.repeatGuard.toString())
             putSetting("tune.acoustic", value.acousticWeight.toString())
         }
+
+    /** Reads one stored setting. Public so [com.elchanan.rhythm.desktop.Prefs] can sit on it. */
+    @Synchronized
+    fun get(key: String): String? = setting(key)
+
+    @Synchronized
+    fun put(key: String, value: String) = putSetting(key, value)
 
     private fun setting(key: String): String? {
         conn.prepareStatement("SELECT v FROM settings WHERE k = ?").use { ps ->

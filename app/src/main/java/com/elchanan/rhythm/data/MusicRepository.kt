@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.data
 
+import com.elchanan.rhythm.engine.Recap
+import com.elchanan.rhythm.engine.RecapData
 import com.elchanan.rhythm.engine.Names
 import android.content.Context
 import com.elchanan.rhythm.data.db.AffinityEntity
@@ -590,81 +592,15 @@ class MusicRepository(
     // recap
     // -----------------------------------------------------------------------
 
-    data class RecapData(
-        val totalMinutes: Long,
-        val totalPlays: Int,
-        val distinctSongs: Int,
-        val distinctArtists: Int,
-        val longestStreakDays: Int,
-        val currentStreakDays: Int,
-        val byHour: List<Int>,
-        val topArtists: List<Pair<String, Int>>,
-        val topSongs: List<Pair<SongEntity, Int>>,
-        val firstPlayAt: Long,
-        val busiestDay: String
-    )
-
-    /** Everything the recap screen shows, computed from the play history. */
+    /**
+     * Everything the recap screen shows, computed from the play history.
+     *
+     * The counting itself is [Recap.build] over in :engine, so the phone and
+     * the desktop build report the same numbers from the same rows. This end
+     * only fetches them.
+     */
     suspend fun buildRecap(): RecapData = withContext(Dispatchers.IO) {
-        val history = dao.recentHistory(20_000)
-        val songs = dao.allSongs().associateBy { it.id }
-
-        val byHour = IntArray(24)
-        val perArtist = HashMap<String, Int>()
-        val perSong = HashMap<Long, Int>()
-        val days = HashSet<Long>()
-        val perWeekday = IntArray(7)
-        var totalMs = 0L
-
-        val calendar = java.util.Calendar.getInstance()
-        for (row in history) {
-            totalMs += row.listenedMs
-            calendar.timeInMillis = row.playedAt
-            byHour[calendar.get(java.util.Calendar.HOUR_OF_DAY)]++
-            perWeekday[calendar.get(java.util.Calendar.DAY_OF_WEEK) - 1]++
-            days.add(row.playedAt / 86_400_000L)
-            perSong[row.songId] = (perSong[row.songId] ?: 0) + 1
-            songs[row.songId]?.let { song ->
-                perArtist[song.artistName] = (perArtist[song.artistName] ?: 0) + 1
-            }
-        }
-
-        // longest run of consecutive days that have at least one play
-        val sortedDays = days.sorted()
-        var longest = 0
-        var run = 0
-        var previous = Long.MIN_VALUE
-        for (day in sortedDays) {
-            run = if (day == previous + 1) run + 1 else 1
-            if (run > longest) longest = run
-            previous = day
-        }
-        val today = System.currentTimeMillis() / 86_400_000L
-        var current = 0
-        var cursor = today
-        while (days.contains(cursor)) {
-            current++
-            cursor--
-        }
-
-        val weekdayNames = listOf("ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת")
-        val busiestIndex = perWeekday.indices.maxByOrNull { perWeekday[it] } ?: 0
-
-        RecapData(
-            totalMinutes = totalMs / 60_000,
-            totalPlays = history.size,
-            distinctSongs = perSong.size,
-            distinctArtists = perArtist.size,
-            longestStreakDays = longest,
-            currentStreakDays = current,
-            byHour = byHour.toList(),
-            topArtists = perArtist.entries.sortedByDescending { it.value }.take(10)
-                .map { it.key to it.value },
-            topSongs = perSong.entries.sortedByDescending { it.value }.take(15)
-                .mapNotNull { entry -> songs[entry.key]?.let { it to entry.value } },
-            firstPlayAt = history.minOfOrNull { it.playedAt } ?: 0L,
-            busiestDay = weekdayNames.getOrElse(busiestIndex) { "" }
-        )
+        Recap.build(dao.recentHistory(20_000), dao.allSongs().associateBy { it.id })
     }
 
     suspend fun bulkSetRating(songIds: List<Long>, rating: Int) = withContext(Dispatchers.IO) {

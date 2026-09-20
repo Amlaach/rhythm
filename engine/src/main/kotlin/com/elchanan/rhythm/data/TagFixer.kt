@@ -17,6 +17,12 @@ import java.util.Locale
  *
  * The split below is deliberately conservative. It only claims an artist when
  * the title really does carry one, and it never invents information.
+ *
+ * It lives in :engine because it reads two strings and writes two strings and
+ * touches nothing else - the same reasoning that moved the name parsing, the
+ * feature vectors, the DSP and the lyrics parsing here. Both builds offer this
+ * repair, and a library corrected on the phone and the same library corrected
+ * on the desktop have to come out the same.
  */
 object TagFixer {
 

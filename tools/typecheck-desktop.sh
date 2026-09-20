@@ -16,7 +16,7 @@
 set -e
 
 SRC=$(cd "$(dirname "$0")/.." && pwd)
-OUT=${1:-${TMPDIR:-/tmp}/rhythm-typecheck}
+OUT=${RHYTHM_TYPECHECK_OUT:-${TMPDIR:-/tmp}/rhythm-typecheck}
 
 rm -rf "$OUT"
 mkdir -p "$OUT"

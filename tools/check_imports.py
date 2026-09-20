@@ -82,6 +82,15 @@ MODIFIER_EXT = {
 # of RowScope, ColumnScope and BoxScope, in scope wherever a Row, Column or Box
 # puts them, and need no import at all.
 
+# Functions called by bare name, from a package that has to be imported.
+# `delay(1000)` looks like any other call and is exactly the kind of miss this
+# whole file exists for - it cost a build the first time it happened.
+BARE_FUN = {
+    "delay", "runBlocking", "coroutineScope", "supervisorScope", "withTimeout",
+    "withTimeoutOrNull", "awaitAll", "yield", "channelFlow", "callbackFlow",
+    "flowOf", "emptyFlow", "combine", "merge", "produceState", "rememberCoroutineScope",
+}
+
 # Names that are only ever an extension, wherever they appear.
 PLAIN_EXT = {
     "collectAsState", "collectAsStateWithLifecycle", "stateIn", "shareIn",
@@ -105,6 +114,7 @@ PLAIN_USE = re.compile(r"\.([a-z][A-Za-z0-9_]*)\s*\(")
 # A chain that starts at Modifier, across as many lines as it runs for.
 MOD_CHAIN = re.compile(r"\bModifier\b((?:\s*\.\s*\w+\s*(?:\([^()]*(?:\([^()]*\)[^()]*)*\))?)+)")
 MOD_LINK = re.compile(r"\.\s*(\w+)")
+BARE_USE = re.compile(r"(?<![.\w])([a-z][A-Za-z0-9_]*)\s*\(")
 
 
 def strip_noise(text: str) -> str:
@@ -169,6 +179,7 @@ def scan(roots):
         for chain in MOD_CHAIN.findall(body_no_imports):
             used_ext |= {n for n in MOD_LINK.findall(chain) if n in MODIFIER_EXT}
         used_ext |= {n for n in PLAIN_USE.findall(body_no_imports) if n in PLAIN_EXT}
+        used_ext |= {n for n in BARE_USE.findall(body_no_imports) if n in BARE_FUN}
         for name in sorted(used_ext):
             if name not in available:
                 problems.append((path, name, "extension"))

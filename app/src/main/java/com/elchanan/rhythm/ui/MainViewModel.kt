@@ -7,6 +7,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.elchanan.rhythm.RhythmApp
+import com.elchanan.rhythm.engine.RecapData
 import com.elchanan.rhythm.engine.Names
 import androidx.documentfile.provider.DocumentFile
 import com.elchanan.rhythm.data.FileActions
@@ -276,8 +277,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _lyricsFolder = MutableStateFlow<String?>(null)
     val lyricsFolder: StateFlow<String?> = _lyricsFolder.asStateFlow()
 
-    private val _recap = MutableStateFlow<MusicRepository.RecapData?>(null)
-    val recap: StateFlow<MusicRepository.RecapData?> = _recap.asStateFlow()
+    private val _recap = MutableStateFlow<RecapData?>(null)
+    val recap: StateFlow<RecapData?> = _recap.asStateFlow()
 
     val autoAddedIds: StateFlow<Set<Long>> = QueueMeta.autoAdded
 
