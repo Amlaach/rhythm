@@ -1,9 +1,9 @@
 package com.elchanan.rhythm.engine
 
+import java.io.File
 import java.io.InputStream
 import java.nio.charset.Charset
 import java.util.Locale
-
 /**
  * Reading lyrics out of bytes.
  *
@@ -18,10 +18,6 @@ import java.util.Locale
  * ContentResolver and a permission granted over a folder, a desktop opens a
  * File. The parsing between them is the same parsing.
  */
-import java.io.File
-import java.io.InputStream
-import java.nio.charset.Charset
-import java.util.Locale
 
 /** One timed line of an LRC file. */
 data class LyricLine(val timeMs: Long, val text: String)

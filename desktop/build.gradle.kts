@@ -24,7 +24,7 @@ plugins {
 // The proper home for this is a Compose Multiplatform module both depend on,
 // which needs the project on KMP; pointing a source directory at them says
 // the same thing today.
-sourceSets["main"].java.srcDir("../app/src/main/java/com/elchanan/rhythm/ui/theme")
+kotlin.sourceSets["main"].kotlin.srcDir("../app/src/main/java/com/elchanan/rhythm/ui/theme")
 
 java {
     sourceCompatibility = JavaVersion.VERSION_17
