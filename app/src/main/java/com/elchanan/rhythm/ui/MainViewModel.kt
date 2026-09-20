@@ -1295,8 +1295,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         )
                     }
 
-                    val accuracy = StyleLearner.crossValidate(rows)
-                    val model = StyleLearner.fit(rows)
+                    // The held-out half also picks how hard to regularise;
+                    // the final model is then fitted with that same strength,
+                    // not a different one.
+                    val validation = StyleLearner.crossValidate(rows)
+                    val accuracy = validation?.accuracy
+                    val model = StyleLearner.fit(rows, l2 = validation?.l2 ?: 0.1)
                         ?: return@withContext LearnResult(
                             accuracy, 0, rows.size, 0, withStyles, withEvidence
                         )
