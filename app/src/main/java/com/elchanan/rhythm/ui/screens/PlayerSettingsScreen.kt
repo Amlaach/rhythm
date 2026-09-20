@@ -15,17 +15,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +45,7 @@ import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
+import com.elchanan.rhythm.ui.theme.BgElevated
 import com.elchanan.rhythm.ui.theme.TextSecondary
 
 /**
@@ -61,7 +66,7 @@ fun PlayerSettingsScreen(
     // Every row on this screen shares the page margin, so a narrow phone gets
     // its content back instead of spending it on empty edges.
     val gutter = rememberMetrics().gutter
-    var actions by remember { mutableStateOf(vm.prefs.playerActions) }
+    var arrangementOpen by remember { mutableStateOf(false) }
     var openOnPlay by remember { mutableStateOf(vm.prefs.openPlayerOnPlay) }
     var tapArtwork by remember { mutableStateOf(vm.prefs.tapArtworkToggles) }
     var resumePrompt by remember { mutableStateOf(vm.prefs.resumePrompt) }
@@ -90,42 +95,25 @@ fun PlayerSettingsScreen(
 
         LazyColumn(contentPadding = PaddingValues(bottom = 60.dp)) {
             item {
-                Text(
-                    "לכל פעולה אפשר לבחור: כפתור משלה במסך הנגן, פריט בתפריט " +
-                        "השלוש נקודות, או מוסתרת לגמרי.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(horizontal = gutter, vertical = 4.dp)
-                )
-            }
-            items(PlayerAction.entries.toList()) { action ->
-                val current = PlayerAction.placementOf(actions, action)
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = gutter, vertical = 6.dp)
+                        .padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(action.label, style = MaterialTheme.typography.bodyLarge)
-                    if (action.about.isNotEmpty()) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("סידור הכפתורים והתפריט", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            action.about,
+                            "לאיזו פעולה יהיה כפתור משלה, לאיזו פריט בתפריט השלוש " +
+                                "נקודות, ואיזו תוסתר",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
                     }
-                    Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ActionPlacement.entries.forEach { placement ->
-                            Chip(
-                                label = placement.label,
-                                selected = current == placement,
-                                onClick = {
-                                    actions = actions + (action.key to placement.name)
-                                    vm.prefs.playerActions = actions
-                                }
-                            )
-                        }
-                    }
+                    Button(
+                        onClick = { arrangementOpen = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("פתח") }
                 }
             }
             item {
@@ -311,6 +299,88 @@ fun PlayerSettingsScreen(
                             checkedTrackColor = Accent.copy(alpha = 0.4f)
                         )
                     )
+                }
+            }
+        }
+    }
+
+    if (arrangementOpen) {
+        PlayerActionsSheet(vm = vm, onDismiss = { arrangementOpen = false })
+    }
+}
+
+/**
+ * Where every action sits: its own button on the player, an item in the three
+ * dot menu, or nowhere at all.
+ *
+ * A sheet over the page rather than the list itself, for the same reason the
+ * shelves are: sixteen actions with three choices each stand taller than a
+ * phone, and the page above it is about how the player behaves rather than
+ * about this one table. Every tap is written straight through - a placement
+ * that moved without the player following it would be a lie about what the
+ * app is doing.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlayerActionsSheet(vm: MainViewModel, onDismiss: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val gutter = rememberMetrics().gutter
+    var actions by remember { mutableStateOf(vm.prefs.playerActions) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = BgElevated
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                // Scrolls inside the sheet, so the last actions stay reachable
+                // on a short screen without the list being cut off.
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 28.dp)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = gutter, vertical = 4.dp)) {
+                Text(
+                    "סידור הכפתורים והתפריט",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    "לכל פעולה אפשר לבחור: כפתור משלה במסך הנגן, פריט בתפריט " +
+                        "השלוש נקודות, או מוסתרת לגמרי.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+
+            for (action in PlayerAction.entries) {
+                val current = PlayerAction.placementOf(actions, action)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = gutter, vertical = 6.dp)
+                ) {
+                    Text(action.label, style = MaterialTheme.typography.bodyLarge)
+                    if (action.about.isNotEmpty()) {
+                        Text(
+                            action.about,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ActionPlacement.entries.forEach { placement ->
+                            Chip(
+                                label = placement.label,
+                                selected = current == placement,
+                                onClick = {
+                                    actions = actions + (action.key to placement.name)
+                                    vm.prefs.playerActions = actions
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
