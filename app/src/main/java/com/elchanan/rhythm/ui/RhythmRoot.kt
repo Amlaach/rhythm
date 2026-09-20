@@ -108,10 +108,10 @@ fun RhythmRoot(
         }
     }
 
-    LaunchedEffect(hasPermission, library.loaded) {
-        if (hasPermission && library.loaded && vm.prefs.lastScanAt == 0L) {
-            vm.rescan(showMessage = false)
-        }
+    // Every launch, not only the first one ever. The library is a view of what
+    // is on the device, and the device changes while the app is closed.
+    LaunchedEffect(hasPermission) {
+        if (hasPermission) vm.scanOnLaunch()
     }
 
     // bring the previous session's queue back once both sides are ready

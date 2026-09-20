@@ -133,7 +133,21 @@ object MediaScanner {
         return out
     }
 
-    fun scan(context: Context, minDurationSec: Int): List<SongEntity> {
+    /**
+     * Every audio file the device says is music, whatever its length.
+     *
+     * The length filter deliberately does not happen here any more. MediaStore
+     * inserts a row the moment it notices a file and fills the metadata in
+     * afterwards, so for a while a real song has a duration of zero or none at
+     * all - and `DURATION >= 45000` is false for both, in SQL where a
+     * comparison against null is never true. A library still being indexed was
+     * therefore scanned as though most of it did not exist.
+     *
+     * Deciding what to keep is the repository's job, where a file of unknown
+     * length can be kept rather than silently dropped, and where each filter
+     * can say how much it removed.
+     */
+    fun scan(context: Context): List<SongEntity> {
         val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
 
         val projection = mutableListOf(
@@ -153,13 +167,11 @@ object MediaScanner {
             projection.add(MediaStore.Audio.Media.GENRE)
         }
 
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND " +
-            "${MediaStore.Audio.Media.DURATION} >= ?"
-        val args = arrayOf((minDurationSec * 1000).toString())
+        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
 
         val out = ArrayList<SongEntity>(512)
         val cursor: Cursor = context.contentResolver.query(
-            collection, projection.toTypedArray(), selection, args, null
+            collection, projection.toTypedArray(), selection, null, null
         ) ?: return out
 
         cursor.use { c ->

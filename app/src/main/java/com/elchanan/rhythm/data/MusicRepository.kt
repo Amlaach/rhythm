@@ -2,6 +2,7 @@ package com.elchanan.rhythm.data
 
 import android.content.Context
 import com.elchanan.rhythm.data.db.AffinityEntity
+import androidx.room.withTransaction
 import com.elchanan.rhythm.data.db.BookmarkEntity
 import com.elchanan.rhythm.data.db.PlaybackPositionEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
@@ -22,6 +23,9 @@ import com.elchanan.rhythm.engine.TransitionEdge
 import com.elchanan.rhythm.engine.Recommender
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -44,24 +48,78 @@ class MusicRepository(
     // scanning
     // -----------------------------------------------------------------------
 
+    /**
+     * What the last scan found, and what each filter removed on the way.
+     *
+     * Kept because "the app only sees 200 of my 2000 songs" is otherwise
+     * impossible to answer. Every number below is a place a file can vanish,
+     * and until they were visible the only way to tell which one had eaten a
+     * library was to guess.
+     */
+    data class ScanReport(
+        val onDevice: Int,
+        val tooShort: Int,
+        val inExcludedFolder: Int,
+        val looksLikeRecording: Int,
+        val kept: Int,
+        val at: Long
+    )
+
+    private val _lastScan = MutableStateFlow<ScanReport?>(null)
+    val lastScan: StateFlow<ScanReport?> = _lastScan.asStateFlow()
+
     suspend fun rescan(): Int = withContext(Dispatchers.IO) {
         val excluded = prefs.excludedFolders.map { it.lowercase() }
         val overrides = dao.allOverrides().associateBy { it.songId }
         val skipRecordings = prefs.skipRecordings
-        val found = MediaScanner.scan(context, prefs.minDurationSec)
+        val minMs = prefs.minDurationSec * 1000L
+
+        val onDevice = MediaScanner.scan(context)
+        var tooShort = 0
+        var inExcluded = 0
+        var recordings = 0
+
+        val found = onDevice
             .filter { song ->
-                excluded.none { pattern -> song.folder.lowercase().contains(pattern) }
+                // A length of zero means MediaStore has not read the file yet,
+                // not that the file is short. Keeping it is the safe mistake:
+                // the next scan corrects the length, whereas dropping it hides
+                // a song with nothing to point at.
+                val keep = song.durationMs <= 0L || song.durationMs >= minMs
+                if (!keep) tooShort++
+                keep
             }
             .filter { song ->
-                !skipRecordings ||
+                val keep = excluded.none { pattern -> song.folder.lowercase().contains(pattern) }
+                if (!keep) inExcluded++
+                keep
+            }
+            .filter { song ->
+                val keep = !skipRecordings ||
                     !MediaScanner.looksLikeRecording(
                         song.folder,
                         song.path.substringAfterLast('/')
                     )
+                if (!keep) recordings++
+                keep
             }
             .map { song -> applyOverride(song, overrides[song.id]) }
-        dao.clearSongs()
-        found.chunked(400).forEach { dao.insertSongs(it) }
+
+        // In one transaction, so the observers never see the moment between
+        // the old library being cleared and the new one arriving. Without it
+        // every rescan empties the home screen for an instant.
+        RhythmDatabase.get(context).withTransaction {
+            dao.clearSongs()
+            found.chunked(400).forEach { dao.insertSongs(it) }
+        }
+        _lastScan.value = ScanReport(
+            onDevice = onDevice.size,
+            tooShort = tooShort,
+            inExcludedFolder = inExcluded,
+            looksLikeRecording = recordings,
+            kept = found.size,
+            at = System.currentTimeMillis()
+        )
         // make sure every artist that exists on the device has a profile row,
         // so the rating screen can list them without inventing anything
         val artistRows = found

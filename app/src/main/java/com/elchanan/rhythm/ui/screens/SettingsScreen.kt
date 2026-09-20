@@ -86,6 +86,7 @@ fun SettingsScreen(
     onOpenEqualizer: () -> Unit = {}
 ) {
     val report by vm.report.collectAsStateWithLifecycle()
+    val scan by vm.scanReport.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     // Every row on this screen shares the page margin, so a narrow phone gets
@@ -1124,6 +1125,56 @@ fun SettingsScreen(
                                 onClick = { vm.setLyricsFolder(null) },
                                 colors = ButtonDefaults.buttonColors(containerColor = Surface1)
                             ) { Text("נקה") }
+                        }
+                    }
+                }
+            }
+
+            // Where the files went. A library that comes up short is otherwise
+            // a mystery from the inside - the filters are invisible and each
+            // one of them can be the whole explanation.
+            item {
+                SectionHeader(
+                    title = "הסריקה האחרונה",
+                    subtitle = "כמה קבצים נמצאו במכשיר, וכמה סוננו ולמה"
+                )
+            }
+            item {
+                val s = scan
+                Column(modifier = Modifier.padding(horizontal = gutter)) {
+                    if (s == null) {
+                        Text(
+                            "עוד לא רצה סריקה במחזור הנוכחי של האפליקציה.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    } else {
+                        Stat("נמצאו במכשיר", "${s.onDevice}")
+                        Stat("נכנסו לספרייה", "${s.kept}")
+                        if (s.tooShort > 0) {
+                            Stat("סוננו כקצרים מדי", "${s.tooShort}")
+                        }
+                        if (s.inExcludedFolder > 0) {
+                            Stat("בתיקייה מוחרגת", "${s.inExcludedFolder}")
+                        }
+                        if (s.looksLikeRecording > 0) {
+                            Stat("זוהו כהקלטות", "${s.looksLikeRecording}")
+                        }
+                        if (s.onDevice == 0) {
+                            Text(
+                                "המכשיר לא החזיר אף קובץ. בדרך כלל זה אומר שהמערכת עוד " +
+                                    "לא סיימה לאנדקס את הקבצים, או שיש קובץ .nomedia " +
+                                    "בתיקייה שלהם.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        } else if (s.kept < s.onDevice) {
+                            Text(
+                                "ההפרש הוא בדיוק מה שהמסננים למעלה הסירו. כל אחד מהם " +
+                                    "ניתן לכיבוי או לשינוי בהגדרות.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
                         }
                     }
                 }

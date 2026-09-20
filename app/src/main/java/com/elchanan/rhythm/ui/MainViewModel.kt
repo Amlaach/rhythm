@@ -55,9 +55,19 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+
+/**
+ * How long MediaStore has to stay quiet before the library is rebuilt.
+ *
+ * A bulk index fires change notifications continuously; rescanning on
+ * each one would rewrite the song table hundreds of times and finish with
+ * the same answer as waiting for the end.
+ */
+private const val MEDIA_SETTLE_MS = 3_000L
 
 data class AlbumInfo(
     val albumId: Long,
@@ -282,9 +292,65 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private var queueRestored = false
 
+    /** What the last scan found, and where the files it dropped went. */
+    val scanReport: StateFlow<MusicRepository.ScanReport?> = repo.lastScan
+
+    private var launchScanDone = false
+
+    /**
+     * Brings the library up to date with the device, once per launch.
+     *
+     * This used to run only when nothing had ever been scanned, which made the
+     * very first scan final. It happens moments after the permission is
+     * granted, which on a freshly filled phone is while the system is still
+     * indexing - so the app would catch a fraction of the library, write down
+     * that it had scanned, and never look again. Someone with two thousand
+     * songs could be left with two hundred and no way to tell why.
+     */
+    fun scanOnLaunch() {
+        if (launchScanDone) return
+        launchScanDone = true
+        rescan(showMessage = false)
+    }
+
+    /**
+     * Follows the device while the app is open.
+     *
+     * The library is a view of MediaStore, and MediaStore changes underneath
+     * it: the system finishes indexing, a file is copied in over USB, another
+     * app deletes one. Without this the only cure is the rescan button in
+     * settings, which is a strange thing to need on a music player.
+     */
+    private val mediaObserver = object : android.database.ContentObserver(
+        android.os.Handler(android.os.Looper.getMainLooper())
+    ) {
+        override fun onChange(selfChange: Boolean) = onMediaStoreChanged()
+    }
+
+    private var mediaChangeJob: Job? = null
+
+    /**
+     * Debounced, because a bulk index fires this hundreds of times a second
+     * and each rescan rewrites the whole song table.
+     */
+    private fun onMediaStoreChanged() {
+        mediaChangeJob?.cancel()
+        mediaChangeJob = viewModelScope.launch {
+            delay(MEDIA_SETTLE_MS)
+            if (!_busy.value) rescan(showMessage = false)
+        }
+    }
+
     init {
         player.connect()
         _lyricsFolder.value = repo.prefs.lyricsFolderUri
+        runCatching {
+            app.contentResolver.registerContentObserver(
+                android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                true,
+                mediaObserver
+            )
+        }
         viewModelScope.launch {
             analysis.refreshCounts()
             if (repo.prefs.lastScanAt == 0L) return@launch
@@ -316,6 +382,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        runCatching {
+            getApplication<Application>().contentResolver
+                .unregisterContentObserver(mediaObserver)
+        }
         player.release()
         super.onCleared()
     }
