@@ -2,6 +2,8 @@ package com.elchanan.rhythm.desktop.data
 
 import com.elchanan.rhythm.data.db.ArtistEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
+import com.elchanan.rhythm.data.db.PlaylistEntity
+import com.elchanan.rhythm.data.db.PlaylistItemEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.engine.EngineTuning
@@ -110,6 +112,32 @@ class Store private constructor(private val conn: Connection) {
                 scaleMode INTEGER NOT NULL, scaleConfidence REAL NOT NULL,
                 chroma24 TEXT NOT NULL, tags TEXT NOT NULL
             )
+            """.trimIndent(),
+            """
+            CREATE TABLE IF NOT EXISTS playlists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+                createdAt INTEGER NOT NULL
+            )
+            """.trimIndent(),
+            // The song is referenced by id and not by path, so a file that
+            // moves stays on the lists it is on - the id is derived from the
+            // tags, not from where the file sits. ON DELETE CASCADE is what
+            // makes deleting a list take its rows with it; it needs the
+            // foreign_keys pragma above, which is why that pragma is on.
+            """
+            CREATE TABLE IF NOT EXISTS playlist_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                playlistId INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+                songId INTEGER NOT NULL, position INTEGER NOT NULL
+            )
+            """.trimIndent(),
+            "CREATE INDEX IF NOT EXISTS playlist_items_playlistId ON playlist_items(playlistId)",
+            // A song can only be on a list once. Without this the same track
+            // added twice from two different screens sits there twice, and
+            // removing it once leaves the copy behind.
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS playlist_items_unique
+                ON playlist_items(playlistId, songId)
             """.trimIndent(),
             "CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)"
         )
@@ -416,15 +444,21 @@ class Store private constructor(private val conn: Connection) {
      * wrong one.
      */
     @Synchronized
-    fun setArtistRating(artistKey: String, rating: Int) {
+    fun setArtistRating(artistKey: String, displayName: String, rating: Int) {
+        // An insert and not an update, because not every artist with a page
+        // has a row here. A scan writes one per primary artist; a singer who
+        // only ever appears as a guest gets a page built from the credits and
+        // no row at all, and an UPDATE for them would quietly do nothing.
         conn.prepareStatement(
-            "UPDATE artists SET rating = CASE WHEN rating = ? THEN 0 ELSE ? END, " +
-                "updatedAt = ? WHERE artistKey = ?"
+            "INSERT INTO artists (artistKey, displayName, rating, updatedAt) VALUES (?,?,?,?) " +
+                "ON CONFLICT(artistKey) DO UPDATE SET rating = " +
+                "CASE WHEN artists.rating = excluded.rating THEN 0 ELSE excluded.rating END, " +
+                "updatedAt = excluded.updatedAt"
         ).use { ps ->
-            ps.setInt(1, rating)
-            ps.setInt(2, rating)
-            ps.setLong(3, System.currentTimeMillis())
-            ps.setString(4, artistKey)
+            ps.setString(1, artistKey)
+            ps.setString(2, displayName)
+            ps.setInt(3, rating)
+            ps.setLong(4, System.currentTimeMillis())
             ps.executeUpdate()
         }
     }
@@ -434,13 +468,152 @@ class Store private constructor(private val conn: Connection) {
      * from - every song by a tagged artist becomes a labelled example.
      */
     @Synchronized
-    fun setArtistStyles(artistKey: String, styles: String) {
+    fun setArtistStyles(artistKey: String, displayName: String, styles: String) {
         conn.prepareStatement(
-            "UPDATE artists SET styles = ?, updatedAt = ? WHERE artistKey = ?"
+            "INSERT INTO artists (artistKey, displayName, styles, updatedAt) VALUES (?,?,?,?) " +
+                "ON CONFLICT(artistKey) DO UPDATE SET styles = excluded.styles, " +
+                "updatedAt = excluded.updatedAt"
         ).use { ps ->
-            ps.setString(1, styles)
+            ps.setString(1, artistKey)
+            ps.setString(2, displayName)
+            ps.setString(3, styles)
+            ps.setLong(4, System.currentTimeMillis())
+            ps.executeUpdate()
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Playlists
+    // ---------------------------------------------------------------------
+
+    /** The lists themselves, oldest first, which is the order they were made in. */
+    @Synchronized
+    fun playlists(): List<PlaylistEntity> {
+        val out = ArrayList<PlaylistEntity>()
+        conn.createStatement().use { st ->
+            val rs = st.executeQuery("SELECT * FROM playlists ORDER BY createdAt, id")
+            while (rs.next()) {
+                out.add(
+                    PlaylistEntity(
+                        id = rs.getLong("id"),
+                        name = rs.getString("name"),
+                        createdAt = rs.getLong("createdAt")
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    /**
+     * Every membership row in the database, for every list at once.
+     *
+     * One query rather than one per list: the screen that shows the lists
+     * shows all of their counts, and asking per list would be a query per row
+     * on every reload.
+     */
+    @Synchronized
+    fun playlistItems(): List<PlaylistItemEntity> {
+        val out = ArrayList<PlaylistItemEntity>()
+        conn.createStatement().use { st ->
+            val rs = st.executeQuery("SELECT * FROM playlist_items ORDER BY playlistId, position")
+            while (rs.next()) {
+                out.add(
+                    PlaylistItemEntity(
+                        id = rs.getLong("id"),
+                        playlistId = rs.getLong("playlistId"),
+                        songId = rs.getLong("songId"),
+                        position = rs.getInt("position")
+                    )
+                )
+            }
+        }
+        return out
+    }
+
+    @Synchronized
+    fun createPlaylist(name: String): Long {
+        conn.prepareStatement("INSERT INTO playlists (name, createdAt) VALUES (?,?)").use { ps ->
+            ps.setString(1, name)
             ps.setLong(2, System.currentTimeMillis())
-            ps.setString(3, artistKey)
+            ps.executeUpdate()
+        }
+        conn.createStatement().use { st ->
+            val rs = st.executeQuery("SELECT last_insert_rowid()")
+            return if (rs.next()) rs.getLong(1) else 0L
+        }
+    }
+
+    @Synchronized
+    fun renamePlaylist(id: Long, name: String) {
+        conn.prepareStatement("UPDATE playlists SET name = ? WHERE id = ?").use { ps ->
+            ps.setString(1, name)
+            ps.setLong(2, id)
+            ps.executeUpdate()
+        }
+    }
+
+    @Synchronized
+    fun deletePlaylist(id: Long) {
+        conn.prepareStatement("DELETE FROM playlists WHERE id = ?").use { ps ->
+            ps.setLong(1, id)
+            ps.executeUpdate()
+        }
+    }
+
+    /**
+     * Puts a song at the end of a list.
+     *
+     * The position is read rather than counted, because rows removed from the
+     * middle leave gaps and a count would then hand out a position something
+     * else already has. Adding a song that is already there does nothing,
+     * which is what the unique index makes cheap to say.
+     */
+    @Synchronized
+    fun addToPlaylist(playlistId: Long, songId: Long) {
+        bulkAddToPlaylist(playlistId, listOf(songId))
+    }
+
+    @Synchronized
+    fun bulkAddToPlaylist(playlistId: Long, songIds: List<Long>) {
+        if (songIds.isEmpty()) return
+        var next = 0
+        conn.prepareStatement(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM playlist_items WHERE playlistId = ?"
+        ).use { ps ->
+            ps.setLong(1, playlistId)
+            val rs = ps.executeQuery()
+            if (rs.next()) next = rs.getInt(1)
+        }
+        conn.autoCommit = false
+        try {
+            conn.prepareStatement(
+                "INSERT OR IGNORE INTO playlist_items (playlistId, songId, position) VALUES (?,?,?)"
+            ).use { ps ->
+                for (songId in songIds) {
+                    ps.setLong(1, playlistId)
+                    ps.setLong(2, songId)
+                    ps.setInt(3, next++)
+                    ps.addBatch()
+                }
+                ps.executeBatch()
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = true
+        }
+    }
+
+    @Synchronized
+    fun removeFromPlaylist(playlistId: Long, songId: Long) {
+        conn.prepareStatement(
+            "DELETE FROM playlist_items WHERE playlistId = ? AND songId = ?"
+        ).use { ps ->
+            ps.setLong(1, playlistId)
+            ps.setLong(2, songId)
             ps.executeUpdate()
         }
     }

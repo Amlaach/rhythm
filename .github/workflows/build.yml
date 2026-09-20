@@ -33,6 +33,13 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # A second of checking against ten minutes of building. Kotlin fails a
+      # whole module over one unimported name, and that failure looks exactly
+      # like a correct file until the compiler says so - which is why this
+      # runs before the build rather than after it.
+      - name: Check every name used is imported
+        run: python3 tools/check_imports.py
+
       - name: Prepare signing key (optional)
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then

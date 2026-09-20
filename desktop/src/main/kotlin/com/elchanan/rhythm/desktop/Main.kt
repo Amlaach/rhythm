@@ -145,6 +145,11 @@ private fun RhythmApp() {
     var songs by remember { mutableStateOf<List<SongEntity>>(emptyList()) }
     var stats by remember { mutableStateOf<Map<Long, SongStatsEntity>>(emptyMap()) }
     var artists by remember { mutableStateOf<List<ArtistEntity>>(emptyList()) }
+    // The songs grouped the way the screens ask for them - by album, by
+    // artist, by folder, by list. Derived on every reload rather than stored,
+    // because anything stored can disagree with the songs table and on a
+    // rescan it would.
+    var library by remember { mutableStateOf(LibraryModel()) }
     var feed by remember { mutableStateOf<List<FeedSection>>(emptyList()) }
     // Held rather than read from the database where they are used: those reads
     // would sit in the layout, and the layout is rebuilt several times a
@@ -171,6 +176,13 @@ private fun RhythmApp() {
     var tuning by remember { mutableStateOf(EngineTuning()) }
     var showPlayer by remember { mutableStateOf(false) }
     var eqOpen by remember { mutableStateOf(false) }
+    // A stack and not a single screen, because an artist page opens an album
+    // and going back from that album has to land on the artist rather than on
+    // the tab the artist was reached from.
+    var stack by remember { mutableStateOf<List<Route>>(emptyList()) }
+    // The song the options dialog is open on, if any. Held here rather than
+    // inside each screen so every list in the app opens the same one.
+    var options by remember { mutableStateOf<SongEntity?>(null) }
 
     suspend fun reload() {
         val loaded = withContext(Dispatchers.IO) {
@@ -181,11 +193,13 @@ private fun RhythmApp() {
             val ft = store.features()
             val tn = store.tuning
             val eng = if (s.isEmpty()) null else Feed.engine(s, st, ar, ft, sd, tn)
-            Loaded(s, st, ar, store.folders, sd, eng?.buildFeed().orEmpty(), ft, eng, tn)
+            val model = LibraryModel.build(s, ar, store.playlists(), store.playlistItems())
+            Loaded(s, st, ar, model, store.folders, sd, eng?.buildFeed().orEmpty(), ft, eng, tn)
         }
         songs = loaded.songs
         stats = loaded.stats
         artists = loaded.artists
+        library = loaded.library
         folders = loaded.folders
         seed = loaded.seed
         feed = loaded.feed
@@ -315,19 +329,21 @@ private fun RhythmApp() {
         }
     }
 
-    fun rateArtist(artist: ArtistEntity, rating: Int) {
+    fun rateArtist(artist: ArtistInfo, rating: Int) {
         scope.launch {
-            withContext(Dispatchers.IO) { store.setArtistRating(artist.artistKey, rating) }
+            withContext(Dispatchers.IO) {
+                store.setArtistRating(artist.key, artist.displayName, rating)
+            }
             reload()
         }
     }
 
-    fun tagArtist(artist: ArtistEntity, style: String) {
+    fun tagArtist(artist: ArtistInfo, style: String) {
         scope.launch {
             val now = Styles.parse(artist.styles).toMutableList()
-            if (!now.remove(style)) now.add(style)
+            if (!now.removeIf { it.equals(style, ignoreCase = true) }) now.add(style)
             withContext(Dispatchers.IO) {
-                store.setArtistStyles(artist.artistKey, Styles.join(now))
+                store.setArtistStyles(artist.key, artist.displayName, Styles.join(now))
             }
             reload()
         }
@@ -339,6 +355,74 @@ private fun RhythmApp() {
                 store.setLike(song.id, 1)
                 store.stats()
             }
+        }
+    }
+
+    /**
+     * Plays a list in a random order, starting from a random song.
+     *
+     * Shuffled once into a fixed order rather than picked at random as it
+     * goes: a queue that decides its next song at the last moment cannot show
+     * what is coming and cannot go back to what just played.
+     */
+    fun shuffleList(list: List<SongEntity>) {
+        if (list.isEmpty()) return
+        play(list.shuffled(), 0)
+    }
+
+    /**
+     * A station built out from one song.
+     *
+     * The same [Recommender] the shelves come from, asked a different
+     * question - so a radio from a song and a shelf that recommended it agree
+     * about what sounds like what.
+     */
+    fun startRadio(song: SongEntity) {
+        val station = engine?.radio(song).orEmpty()
+        play(if (station.isEmpty()) listOf(song) else station, 0)
+    }
+
+    fun createPlaylist(name: String) {
+        if (name.isBlank()) return
+        scope.launch {
+            withContext(Dispatchers.IO) { store.createPlaylist(name) }
+            reload()
+        }
+    }
+
+    fun deletePlaylist(id: Long) {
+        scope.launch {
+            withContext(Dispatchers.IO) { store.deletePlaylist(id) }
+            // A list that was open when it was deleted has nothing left to
+            // show, so the screen it was on goes with it.
+            stack = stack.filterNot { it is Route.Detail && it.list.playlistId == id }
+            reload()
+        }
+    }
+
+    fun addToPlaylist(id: Long, song: SongEntity) {
+        scope.launch {
+            withContext(Dispatchers.IO) { store.addToPlaylist(id, song.id) }
+            reload()
+        }
+    }
+
+    /** A new list with one song already on it, which is how most lists start. */
+    fun createPlaylistWith(name: String, song: SongEntity) {
+        if (name.isBlank()) return
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                val id = store.createPlaylist(name)
+                store.addToPlaylist(id, song.id)
+            }
+            reload()
+        }
+    }
+
+    fun removeFromPlaylist(id: Long, song: SongEntity) {
+        scope.launch {
+            withContext(Dispatchers.IO) { store.removeFromPlaylist(id, song.id) }
+            reload()
         }
     }
 
@@ -390,64 +474,159 @@ private fun RhythmApp() {
 
     Column(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            when (tab) {
-                0 -> FeedPane(
-                    feed = feed,
-                    songs = songs.size,
-                    ratedArtists = artists.count { it.rating > 0 },
-                    scanning = scanning,
-                    analysing = analysing,
-                    unanalysed = songs.count { it.id !in features },
-                    status = status,
-                    onPick = { chooseFolder()?.let { scan(listOf(it)) } },
-                    onRescan = { scan(folders) },
-                    onAnalyze = { analyze() },
-                    onShuffle = {
-                        scope.launch {
-                            withContext(Dispatchers.IO) { store.feedSeed = store.feedSeed + 1 }
-                            reload()
+            // A drilled-into screen covers the tabs but not the player or the
+            // bar below it: what is playing should not disappear because an
+            // album was opened, and the way back out should always be visible.
+            when (val top = stack.lastOrNull()) {
+                is Route.Detail -> {
+                    // Re-read rather than shown as it was opened. A song taken
+                    // off a list, or a like taken back, changes what the list
+                    // holds, and a snapshot would go on showing the old one.
+                    val data = when {
+                        top.list.playlistId != null ->
+                            library.playlists
+                                .firstOrNull { it.playlist.id == top.list.playlistId }
+                                ?.let {
+                                    top.list.copy(
+                                        title = it.playlist.name,
+                                        subtitle = "${it.songs.size} שירים",
+                                        songs = it.songs
+                                    )
+                                } ?: top.list
+                        top.list.gradientKey == "auto:liked" ->
+                            library.liked(stats).let {
+                                top.list.copy(subtitle = "${it.size} שירים", songs = it)
+                            }
+                        else -> top.list
+                    }
+                    DetailListScreen(
+                        data = data,
+                        stats = stats,
+                        current = current?.id,
+                        onBack = { stack = stack.dropLast(1) },
+                        onPlay = { list, index -> play(list, index) },
+                        onShuffle = { shuffleList(it) },
+                        onLike = { like(it) },
+                        onDislike = { dislike(it) },
+                        onMore = { options = it },
+                        onRemove = data.playlistId?.let { id ->
+                            { song: SongEntity -> removeFromPlaylist(id, song) }
                         }
-                    },
-                    hasFolders = folders.isNotEmpty(),
-                    onPlay = { list, index -> play(list, index) }
+                    )
+                }
+
+                is Route.Artist -> {
+                    // Looked up rather than carried, so a rating or a style
+                    // word set on this screen is on it the moment it is saved.
+                    // A rescan can take an artist away while their page is
+                    // open, which is what the empty state is for.
+                    val info = library.artists.firstOrNull { it.key == top.key }
+                    if (info == null) {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            DetailTopBar("", onBack = { stack = stack.dropLast(1) })
+                            EmptyState(
+                                title = "האמן כבר לא בספרייה",
+                                body = "אפשר לחזור אחורה ולבחור אחר."
+                            )
+                        }
+                    } else {
+                        ArtistDetailScreen(
+                            artist = info,
+                            stats = stats,
+                            current = current?.id,
+                            onBack = { stack = stack.dropLast(1) },
+                            onPlay = { list, index -> play(list, index) },
+                            onRadio = { startRadio(it) },
+                            onRate = { rateArtist(info, it) },
+                            onTag = { tagArtist(info, it) },
+                            onLike = { like(it) },
+                            onDislike = { dislike(it) },
+                            onMore = { options = it }
+                        )
+                    }
+                }
+
+                Route.Albums -> AlbumsScreen(
+                    albums = library.albums,
+                    onBack = { stack = stack.dropLast(1) },
+                    onOpen = { album ->
+                        stack = stack + Route.Detail(
+                            DetailList(
+                                title = album.name,
+                                subtitle = album.artistName,
+                                songs = album.songs,
+                                gradientKey = "album:${album.albumId}"
+                            )
+                        )
+                    }
                 )
-                1 -> SearchPane(
-                    query = query,
-                    onQuery = { query = it },
-                    results = remember(query, engine) {
-                        if (query.isBlank()) emptyList() else engine?.search(query).orEmpty()
-                    },
-                    stats = stats,
-                    current = current?.id,
-                    onPlay = { list, index -> play(list, index) },
-                    onLike = { like(it) }
-                )
-                2 -> LibraryPane(
-                    songs = songs,
-                    stats = stats,
-                    current = current?.id,
-                    empty = "סרוק תיקייה כדי להתחיל",
-                    onPlay = { index -> play(songs, index) },
-                    onLike = { song -> like(song) }
-                )
-                3 -> ArtistsPane(
-                    artists = artists,
-                    onRate = { artist, rating -> rateArtist(artist, rating) },
-                    onTag = { artist, style -> tagArtist(artist, style) }
-                )
-                else -> TuningPane(
-                    equalizer = player.equalizer,
-                    eqOpen = eqOpen,
-                    onEqOpen = { eqOpen = it },
-                    tuning = tuning,
-                    songs = songs.size,
-                    analysed = features.size,
-                    ratedArtists = artists.count { it.rating > 0 },
-                    taggedArtists = artists.count { it.styles.isNotBlank() },
-                    liked = stats.values.count { it.liked == 1 },
-                    played = stats.values.sumOf { it.playCount },
-                    onChange = { retune(it) }
-                )
+
+                null -> when (tab) {
+                    0 -> FeedPane(
+                        feed = feed,
+                        songs = songs.size,
+                        ratedArtists = artists.count { it.rating > 0 },
+                        scanning = scanning,
+                        analysing = analysing,
+                        unanalysed = songs.count { it.id !in features },
+                        status = status,
+                        onPick = { chooseFolder()?.let { scan(listOf(it)) } },
+                        onRescan = { scan(folders) },
+                        onAnalyze = { analyze() },
+                        onShuffle = {
+                            scope.launch {
+                                withContext(Dispatchers.IO) { store.feedSeed = store.feedSeed + 1 }
+                                reload()
+                            }
+                        },
+                        hasFolders = folders.isNotEmpty(),
+                        onPlay = { list, index -> play(list, index) }
+                    )
+                    1 -> SearchPane(
+                        query = query,
+                        onQuery = { query = it },
+                        results = remember(query, engine) {
+                            if (query.isBlank()) emptyList() else engine?.search(query).orEmpty()
+                        },
+                        stats = stats,
+                        current = current?.id,
+                        onPlay = { list, index -> play(list, index) },
+                        onLike = { like(it) },
+                        onDislike = { dislike(it) },
+                        onMore = { options = it }
+                    )
+                    2 -> LibraryPane(
+                        library = library,
+                        stats = stats,
+                        current = current?.id,
+                        onPlay = { list, index -> play(list, index) },
+                        onLike = { like(it) },
+                        onDislike = { dislike(it) },
+                        onMore = { options = it },
+                        onOpenList = { stack = stack + Route.Detail(it) },
+                        onOpenArtist = { stack = stack + Route.Artist(it.key) },
+                        onOpenAlbums = { stack = stack + Route.Albums },
+                        onCreatePlaylist = { createPlaylist(it) },
+                        onDeletePlaylist = { deletePlaylist(it) }
+                    )
+                    3 -> ArtistsPane(
+                        artists = library.artists,
+                        onOpen = { stack = stack + Route.Artist(it.key) }
+                    )
+                    else -> TuningPane(
+                        equalizer = player.equalizer,
+                        eqOpen = eqOpen,
+                        onEqOpen = { eqOpen = it },
+                        tuning = tuning,
+                        songs = songs.size,
+                        analysed = features.size,
+                        ratedArtists = artists.count { it.rating > 0 },
+                        taggedArtists = artists.count { it.styles.isNotBlank() },
+                        liked = stats.values.count { it.liked == 1 },
+                        played = stats.values.sumOf { it.playCount },
+                        onChange = { retune(it) }
+                    )
+                }
             }
         }
 
@@ -456,6 +635,11 @@ private fun RhythmApp() {
             positionMs = state.positionMs,
             durationMs = state.durationMs,
             playing = state.playing,
+            volume = volume,
+            onVolume = {
+                volume = it
+                player.setVolume(it)
+            },
             onOpen = { if (current != null) showPlayer = true },
             onToggle = { player.togglePause() },
             onNext = { play(queue, queueIndex + 1) }
@@ -465,12 +649,52 @@ private fun RhythmApp() {
         // and the same words. A fifth for tuning, which the phone reaches from
         // inside the home screen and a window has room to show outright.
         NavigationBar(containerColor = Surface1) {
-            NavTab(tab, 0, "בית", Icons.Filled.Home) { tab = 0 }
-            NavTab(tab, 1, "חיפוש", Icons.Filled.Search) { tab = 1 }
-            NavTab(tab, 2, "ספרייה", Icons.Filled.LibraryMusic) { tab = 2 }
-            NavTab(tab, 3, "אמנים", Icons.Filled.Star) { tab = 3 }
-            NavTab(tab, 4, "כוונון", Icons.Filled.Tune) { tab = 4 }
+            // Tapping a tab always lands on that tab's root, including the
+            // tab already showing: a detail screen pushed on top counts as
+            // somewhere else, and the way back to the top of a tab should not
+            // be several presses of the back arrow.
+            fun go(index: Int) {
+                tab = index
+                stack = emptyList()
+            }
+            NavTab(tab, 0, "בית", Icons.Filled.Home) { go(0) }
+            NavTab(tab, 1, "חיפוש", Icons.Filled.Search) { go(1) }
+            NavTab(tab, 2, "ספרייה", Icons.Filled.LibraryMusic) { go(2) }
+            NavTab(tab, 3, "אמנים", Icons.Filled.Star) { go(3) }
+            NavTab(tab, 4, "כוונון", Icons.Filled.Tune) { go(4) }
         }
+    }
+
+    // One dialog for the whole app rather than one per list. Opening an
+    // artist or an album from it navigates, so it has to be able to reach the
+    // same stack every screen is drawn from.
+    options?.let { song ->
+        SongOptionsDialog(
+            song = song,
+            stat = stats[song.id],
+            playlists = library.playlists,
+            onDismiss = { options = null },
+            onRate = { rate(song, it) },
+            onRadio = { startRadio(song) },
+            onOpenArtist = {
+                stack = stack + Route.Artist(song.artistKey)
+                tab = 3
+            },
+            onOpenAlbum = {
+                library.albums.firstOrNull { it.albumId == song.albumId }?.let { album ->
+                    stack = stack + Route.Detail(
+                        DetailList(
+                            title = album.name,
+                            subtitle = album.artistName,
+                            songs = album.songs,
+                            gradientKey = "album:${album.albumId}"
+                        )
+                    )
+                }
+            },
+            onAddTo = { addToPlaylist(it, song) },
+            onCreateWith = { createPlaylistWith(it, song) }
+        )
     }
 }
 
@@ -497,11 +721,27 @@ private fun RowScope.NavTab(
     )
 }
 
+/**
+ * Where the window is, above the tabs.
+ *
+ * An artist is held by key and a list by value, and the difference is
+ * deliberate: an artist page is entirely derived from the library and can be
+ * rebuilt from a key at any moment, while "the album I tapped" has no name
+ * that survives a rescan. The two mutable lists - a playlist and the likes -
+ * are re-read where they are drawn.
+ */
+private sealed interface Route {
+    data class Detail(val list: DetailList) : Route
+    data class Artist(val key: String) : Route
+    data object Albums : Route
+}
+
 /** Everything one reload reads, so the composition is updated once and not six times. */
 private data class Loaded(
     val songs: List<SongEntity>,
     val stats: Map<Long, SongStatsEntity>,
     val artists: List<ArtistEntity>,
+    val library: LibraryModel,
     val folders: List<File>,
     val seed: Long,
     val feed: List<FeedSection>,
@@ -509,9 +749,6 @@ private data class Loaded(
     val engine: Recommender?,
     val tuning: EngineTuning
 )
-
-private val GUTTER = 16.dp
-private val CARD = 156.dp
 
 /**
  * A shelf heading: the name in full size, what it is under it in grey.
@@ -721,7 +958,9 @@ private fun SearchPane(
     stats: Map<Long, SongStatsEntity>,
     current: Long?,
     onPlay: (List<SongEntity>, Int) -> Unit,
-    onLike: (SongEntity) -> Unit
+    onLike: (SongEntity) -> Unit,
+    onDislike: (SongEntity) -> Unit,
+    onMore: (SongEntity) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         OutlinedTextField(
@@ -731,47 +970,16 @@ private fun SearchPane(
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(GUTTER)
         )
-        LibraryPane(
+        SongList(
             songs = results,
             stats = stats,
             current = current,
             empty = if (query.isBlank()) "הקלד כדי לחפש" else "לא נמצא כלום",
             onPlay = { index -> onPlay(results, index) },
-            onLike = onLike
+            onLike = onLike,
+            onDislike = onDislike,
+            onMore = onMore
         )
-    }
-}
-
-/**
- * A cover, or the panel that stands in for one.
- *
- * A flat surface rather than a placeholder picture or an empty hole: a row of
- * cards should read as a row of cards whether or not the files happen to
- * carry artwork, and most files in a library of downloads do not.
- */
-@Composable
-private fun Art(song: SongEntity?, size: Dp, corner: Dp) {
-    val image = rememberArtwork(song)
-    val (c1, c2) = gradientFor(song?.artistKey.orEmpty())
-    Box(
-        modifier = Modifier
-            .width(size)
-            .height(size)
-            .clip(RoundedCornerShape(corner))
-            .background(Brush.linearGradient(listOf(c1, c2)))
-    ) {
-        if (image != null) {
-            // Covers taken from video thumbnails are 16:9. Fitting one into a
-            // square leaves two thick bands of gradient behind it and makes
-            // the artwork small; cropping fills the tile, which is what a
-            // cover is for.
-            Image(
-                bitmap = image,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
     }
 }
 
@@ -890,165 +1098,6 @@ private fun CompactRow(song: SongEntity, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis
             )
         }
-    }
-}
-
-@Composable
-private fun LibraryPane(
-    songs: List<SongEntity>,
-    stats: Map<Long, SongStatsEntity>,
-    current: Long?,
-    empty: String,
-    onPlay: (Int) -> Unit,
-    onLike: (SongEntity) -> Unit
-) {
-    if (songs.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(empty, style = MaterialTheme.typography.bodyLarge)
-        }
-        return
-    }
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        itemsIndexed(songs) { index, song ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onPlay(index) }
-                    .background(
-                        if (song.id == current) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
-                        } else {
-                            Color.Transparent
-                        }
-                    )
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Art(song = song, size = 44.dp, corner = 4.dp)
-                Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                    Text(song.title, style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        song.artistName.ifEmpty { "ללא אמן" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                val liked = stats[song.id]?.liked ?: 0
-                IconButton(onClick = { onLike(song) }) {
-                    // Filled and accented when marked, outlined and quiet when
-                    // not: the same two states the phone's player screen draws.
-                    Icon(
-                        imageVector = if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-                        contentDescription = if (liked == 1) "בטל לייק" else "לייק",
-                        tint = if (liked == 1) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-// Twenty six style words do not fit on one line of any window, so they wrap.
-// FlowRow is the only layout in Compose that does that, and it is still
-// marked experimental, which is what the opt in is for.
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ArtistsPane(
-    artists: List<ArtistEntity>,
-    onRate: (ArtistEntity, Int) -> Unit,
-    onTag: (ArtistEntity, String) -> Unit
-) {
-    if (artists.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("סרוק תיקייה כדי להתחיל", style = MaterialTheme.typography.bodyLarge)
-        }
-        return
-    }
-    // Rated first, because the point of this screen is to work through the
-    // ones that are not rated yet, and an alphabetical list gives no sense of
-    // how far that has got.
-    val ordered = artists.sortedWith(
-        compareByDescending<ArtistEntity> { it.rating }.thenBy { it.displayName }
-    )
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        items(ordered) { artist ->
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text(
-                    artist.displayName.ifEmpty { "ללא שם" },
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    for (star in 1..5) {
-                        IconButton(onClick = { onRate(artist, star) }) {
-                            Icon(
-                                imageVector = if (star <= artist.rating) {
-                                    Icons.Filled.Star
-                                } else {
-                                    Icons.Filled.StarBorder
-                                },
-                                contentDescription = "$star",
-                                tint = if (star <= artist.rating) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
-                        }
-                    }
-                }
-                // The style words are what the learner trains on: every song
-                // by a tagged artist becomes a labelled example, which is how
-                // a few minutes here turns into a few hundred of them.
-                val chosen = Styles.parse(artist.styles)
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    for (style in Styles.SUGGESTED) {
-                        StyleChip(
-                            label = style,
-                            selected = style in chosen,
-                            onClick = { onTag(artist, style) }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun StyleChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    // Drawn by hand rather than with a chip component, because the one thing
-    // it has to do is be obviously on or off at a glance and that is a
-    // background colour.
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(
-                if (selected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant
-                }
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (selected) {
-                MaterialTheme.colorScheme.onPrimary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            }
-        )
     }
 }
 
@@ -1367,6 +1416,8 @@ private fun MiniPlayer(
     positionMs: Long,
     durationMs: Long,
     playing: Boolean,
+    volume: Float,
+    onVolume: (Float) -> Unit,
     onOpen: () -> Unit,
     onToggle: () -> Unit,
     onNext: () -> Unit
@@ -1431,6 +1482,21 @@ private fun MiniPlayer(
                     tint = MaterialTheme.colorScheme.onBackground
                 )
             }
+            // A volume of its own, which the phone has no need for - Android
+            // has one set of volume keys for the whole device, and Windows
+            // gives every application its own level in the mixer. Without
+            // this, the only way to make this app quieter is to make
+            // everything quieter.
+            Icon(
+                Icons.AutoMirrored.Filled.VolumeUp,
+                contentDescription = "עוצמה",
+                tint = TextSecondary
+            )
+            Slider(
+                value = volume,
+                onValueChange = onVolume,
+                modifier = Modifier.width(110.dp).padding(start = 6.dp)
+            )
         }
     }
 }
