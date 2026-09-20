@@ -42,7 +42,8 @@ object Feed {
         stats: Map<Long, SongStatsEntity>,
         artists: List<ArtistEntity>,
         features: Map<Long, AudioFeatureEntity>,
-        seed: Long
+        seed: Long,
+        tuning: EngineTuning = EngineTuning()
     ) = Recommender(
         songs = songs,
         stats = stats,
@@ -55,7 +56,7 @@ object Feed {
         } else {
             null
         },
-        tuning = EngineTuning(),
+        tuning = tuning,
         now = System.currentTimeMillis(),
         feedSeed = seed
     )

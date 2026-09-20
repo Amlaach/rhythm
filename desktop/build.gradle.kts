@@ -75,6 +75,20 @@ compose.desktop {
             // self-extractor with no wizard at all.
             targetFormats(TargetFormat.Msi)
             packageName = "Rhythm"
+
+            // The bundled runtime is built by jlink, which ships only the
+            // modules it is told about. Nothing here is detected: SQLite
+            // reaches for java.sql, jaudiotagger for java.logging, the
+            // decoders and the file chooser for java.desktop, and a missing
+            // one is not a build error - it is an install that works and
+            // then throws ClassNotFoundException the first time someone
+            // presses scan.
+            //
+            // Everything, rather than a list. A list is a thing to get wrong
+            // once and find out about from a user, and the difference is
+            // some tens of megabytes in a download people do once. It can be
+            // trimmed later, against a build that is known to run.
+            includeAllModules = true
             packageVersion = project.findProperty("rhythmVersion")?.toString() ?: "1.0.0"
             vendor = "Rhythm"
             // Latin on purpose, and it has to stay that way. Compose writes
@@ -103,6 +117,10 @@ compose.desktop {
                 // people expect to see in an installer.
                 dirChooser = true
                 perUserInstall = true
+                // The launcher icon the phone already uses, wrapped as an
+                // .ico rather than redrawn, because the two builds should
+                // not look like two different apps.
+                iconFile.set(project.file("icons/rhythm.ico"))
             }
         }
     }

@@ -4,6 +4,7 @@ import com.elchanan.rhythm.data.db.ArtistEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
+import com.elchanan.rhythm.engine.EngineTuning
 import java.io.File
 import java.sql.Connection
 import java.sql.DriverManager
@@ -11,6 +12,11 @@ import java.sql.ResultSet
 
 /**
  * Everything the desktop build remembers between launches.
+ *
+ * Every entry point is synchronised. A JDBC Connection cannot be used from
+ * two threads at once, and this one is: the analysis pass holds a background
+ * thread for minutes at a time while the interface writes likes and ratings
+ * from another.
  *
  * Room is Android only, so this is plain SQLite through JDBC with the SQL
  * written out. The rows it reads and writes are the same entity classes the
@@ -124,6 +130,7 @@ class Store private constructor(private val conn: Connection) {
      * touched: a song that disappears keeps its row in song_stats, which is
      * what makes moving a folder and moving it back a non event.
      */
+    @Synchronized
     fun replaceSongs(songs: List<SongEntity>) {
         conn.autoCommit = false
         try {
@@ -174,6 +181,7 @@ class Store private constructor(private val conn: Connection) {
         }
     }
 
+    @Synchronized
     fun songs(): List<SongEntity> {
         val out = ArrayList<SongEntity>()
         conn.createStatement().use { st ->
@@ -205,6 +213,7 @@ class Store private constructor(private val conn: Connection) {
     // What the user thinks of it
     // ---------------------------------------------------------------------
 
+    @Synchronized
     fun stats(): Map<Long, SongStatsEntity> {
         val out = HashMap<Long, SongStatsEntity>()
         conn.createStatement().use { st ->
@@ -244,6 +253,7 @@ class Store private constructor(private val conn: Connection) {
      * rule the phone uses: the button is a toggle, not a setting, and there
      * has to be a way back from a press that was a mistake.
      */
+    @Synchronized
     fun setLike(songId: Long, value: Int) {
         ensureStats(songId)
         conn.prepareStatement(
@@ -259,7 +269,27 @@ class Store private constructor(private val conn: Connection) {
         }
     }
 
+    /**
+     * A rating out of five, or nothing.
+     *
+     * Pressing the star a song already carries clears it, so a rating given
+     * by mistake has a way back that is not picking a different wrong one.
+     */
+    @Synchronized
+    fun setRating(songId: Long, rating: Int) {
+        ensureStats(songId)
+        conn.prepareStatement(
+            "UPDATE song_stats SET rating = CASE WHEN rating = ? THEN 0 ELSE ? END WHERE songId = ?"
+        ).use { ps ->
+            ps.setInt(1, rating)
+            ps.setInt(2, rating)
+            ps.setLong(3, songId)
+            ps.executeUpdate()
+        }
+    }
+
     /** Records that a song was played, and whether it was heard out. */
+    @Synchronized
     fun notePlay(songId: Long, listenedMs: Long, completed: Boolean) {
         ensureStats(songId)
         conn.prepareStatement(
@@ -285,6 +315,7 @@ class Store private constructor(private val conn: Connection) {
         }
     }
 
+    @Synchronized
     fun artists(): List<ArtistEntity> {
         val out = ArrayList<ArtistEntity>()
         conn.createStatement().use { st ->
@@ -309,6 +340,7 @@ class Store private constructor(private val conn: Connection) {
     // What the analyser measured
     // ---------------------------------------------------------------------
 
+    @Synchronized
     fun features(): Map<Long, AudioFeatureEntity> {
         val out = HashMap<Long, AudioFeatureEntity>()
         conn.createStatement().use { st ->
@@ -348,6 +380,7 @@ class Store private constructor(private val conn: Connection) {
      * improves: the code that produced the old row may simply have been worse
      * than the code producing this one.
      */
+    @Synchronized
     fun putFeature(f: AudioFeatureEntity) {
         conn.prepareStatement(
             "INSERT OR REPLACE INTO audio_features VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
@@ -382,6 +415,7 @@ class Store private constructor(private val conn: Connection) {
      * set by mistake otherwise has no way back except picking a different
      * wrong one.
      */
+    @Synchronized
     fun setArtistRating(artistKey: String, rating: Int) {
         conn.prepareStatement(
             "UPDATE artists SET rating = CASE WHEN rating = ? THEN 0 ELSE ? END, " +
@@ -399,6 +433,7 @@ class Store private constructor(private val conn: Connection) {
      * The style words for an artist, which is where the learner's labels come
      * from - every song by a tagged artist becomes a labelled example.
      */
+    @Synchronized
     fun setArtistStyles(artistKey: String, styles: String) {
         conn.prepareStatement(
             "UPDATE artists SET styles = ?, updatedAt = ? WHERE artistKey = ?"
@@ -422,11 +457,13 @@ class Store private constructor(private val conn: Connection) {
      * no escaping.
      */
     var folders: List<File>
+        @Synchronized
         get() = setting(KEY_FOLDERS)
             .orEmpty()
             .split('\n')
             .filter { it.isNotBlank() }
             .map { File(it) }
+        @Synchronized
         set(value) = putSetting(KEY_FOLDERS, value.joinToString("\n") { it.absolutePath })
 
     /**
@@ -438,8 +475,35 @@ class Store private constructor(private val conn: Connection) {
      * shape of. It moves when the user asks it to.
      */
     var feedSeed: Long
+        @Synchronized
         get() = setting(KEY_SEED)?.toLongOrNull() ?: 1L
+        @Synchronized
         set(value) = putSetting(KEY_SEED, value.toString())
+
+    /**
+     * The five weights the user can move.
+     *
+     * Read back as [EngineTuning] because that is what the recommender takes;
+     * there is no second representation of them anywhere, which is what keeps
+     * a slider and the score it changes from drifting apart.
+     */
+    var tuning: EngineTuning
+        @Synchronized
+        get() = EngineTuning(
+            discovery = setting("tune.discovery")?.toFloatOrNull() ?: 0.35f,
+            artistWeight = setting("tune.artist")?.toFloatOrNull() ?: 1.0f,
+            styleWeight = setting("tune.style")?.toFloatOrNull() ?: 1.0f,
+            repeatGuard = setting("tune.repeat")?.toFloatOrNull() ?: 1.0f,
+            acousticWeight = setting("tune.acoustic")?.toFloatOrNull() ?: 1.0f
+        )
+        @Synchronized
+        set(value) {
+            putSetting("tune.discovery", value.discovery.toString())
+            putSetting("tune.artist", value.artistWeight.toString())
+            putSetting("tune.style", value.styleWeight.toString())
+            putSetting("tune.repeat", value.repeatGuard.toString())
+            putSetting("tune.acoustic", value.acousticWeight.toString())
+        }
 
     private fun setting(key: String): String? {
         conn.prepareStatement("SELECT v FROM settings WHERE k = ?").use { ps ->
@@ -459,5 +523,6 @@ class Store private constructor(private val conn: Connection) {
         }
     }
 
+    @Synchronized
     fun close() = runCatching { conn.close() }.let { }
 }

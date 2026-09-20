@@ -23,10 +23,13 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -68,6 +71,8 @@ import com.elchanan.rhythm.desktop.audio.Analyzer
 import com.elchanan.rhythm.desktop.audio.AudioPlayer
 import com.elchanan.rhythm.desktop.data.Store
 import com.elchanan.rhythm.engine.FeedSection
+import com.elchanan.rhythm.engine.EngineTuning
+import com.elchanan.rhythm.engine.Features
 import com.elchanan.rhythm.engine.Recommender
 import com.elchanan.rhythm.engine.SectionKind
 import com.elchanan.rhythm.engine.Styles
@@ -139,6 +144,8 @@ private fun RhythmApp() {
     // The scored library, held so a feed and a search are two questions to one
     // engine rather than two engines.
     var engine by remember { mutableStateOf<Recommender?>(null) }
+    var tuning by remember { mutableStateOf(EngineTuning()) }
+    var showPlayer by remember { mutableStateOf(false) }
 
     suspend fun reload() {
         val loaded = withContext(Dispatchers.IO) {
@@ -147,8 +154,9 @@ private fun RhythmApp() {
             val ar = store.artists()
             val sd = store.feedSeed
             val ft = store.features()
-            val eng = if (s.isEmpty()) null else Feed.engine(s, st, ar, ft, sd)
-            Loaded(s, st, ar, store.folders, sd, eng?.buildFeed().orEmpty(), ft, eng)
+            val tn = store.tuning
+            val eng = if (s.isEmpty()) null else Feed.engine(s, st, ar, ft, sd, tn)
+            Loaded(s, st, ar, store.folders, sd, eng?.buildFeed().orEmpty(), ft, eng, tn)
         }
         songs = loaded.songs
         stats = loaded.stats
@@ -158,6 +166,7 @@ private fun RhythmApp() {
         feed = loaded.feed
         features = loaded.analysed
         engine = loaded.engine
+        tuning = loaded.tuning
         status = if (loaded.songs.isEmpty()) {
             "בחר תיקיית מוזיקה"
         } else {
@@ -247,6 +256,40 @@ private fun RhythmApp() {
         }
     }
 
+    fun rate(song: SongEntity, stars: Int) {
+        scope.launch {
+            stats = withContext(Dispatchers.IO) {
+                store.setRating(song.id, stars)
+                store.stats()
+            }
+        }
+    }
+
+    fun dislike(song: SongEntity) {
+        scope.launch {
+            stats = withContext(Dispatchers.IO) {
+                store.setLike(song.id, -1)
+                store.stats()
+            }
+        }
+    }
+
+    /**
+     * Saves a moved slider and rebuilds everything that depended on it.
+     *
+     * The rebuild is the point: a weight that does not visibly change the
+     * shelves is a weight nobody can tell they have changed, and these are
+     * exactly the settings people move once and never look at again if they
+     * see nothing happen.
+     */
+    fun retune(next: EngineTuning) {
+        tuning = next
+        scope.launch {
+            withContext(Dispatchers.IO) { store.tuning = next }
+            reload()
+        }
+    }
+
     fun rateArtist(artist: ArtistEntity, rating: Int) {
         scope.launch {
             withContext(Dispatchers.IO) { store.setArtistRating(artist.artistKey, rating) }
@@ -288,11 +331,33 @@ private fun RhythmApp() {
         }
     }
 
+    val current = queue.getOrNull(queueIndex)
+    if (showPlayer && current != null) {
+        PlayerScreen(
+            song = current,
+            feature = features[current.id],
+            stat = stats[current.id],
+            positionMs = state.positionMs,
+            durationMs = state.durationMs,
+            playing = state.playing,
+            onClose = { showPlayer = false },
+            onToggle = { player.togglePause() },
+            onPrevious = { play(queue, queueIndex - 1) },
+            onNext = { play(queue, queueIndex + 1) },
+            onSeek = { player.seekTo(it) },
+            onLike = { like(current) },
+            onDislike = { dislike(current) },
+            onRate = { rate(current, it) }
+        )
+        return
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         TabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("בית") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("ספרייה") })
             Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("אמנים") })
+            Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("כוונון") })
         }
 
         Row(
@@ -371,16 +436,27 @@ private fun RhythmApp() {
                     onPlay = { index -> play(songs, index) },
                     onLike = { song -> like(song) }
                 )
-                else -> ArtistsPane(
+                tab == 2 -> ArtistsPane(
                     artists = artists,
                     onRate = { artist, rating -> rateArtist(artist, rating) },
                     onTag = { artist, style -> tagArtist(artist, style) }
+                )
+                else -> TuningPane(
+                    tuning = tuning,
+                    songs = songs.size,
+                    analysed = features.size,
+                    ratedArtists = artists.count { it.rating > 0 },
+                    taggedArtists = artists.count { it.styles.isNotBlank() },
+                    liked = stats.values.count { it.liked == 1 },
+                    played = stats.values.sumOf { it.playCount },
+                    onChange = { retune(it) }
                 )
             }
         }
 
         NowPlaying(
-            song = queue.getOrNull(queueIndex),
+            song = current,
+            onOpen = { if (current != null) showPlayer = true },
             positionMs = state.positionMs,
             durationMs = state.durationMs,
             playing = state.playing,
@@ -406,7 +482,8 @@ private data class Loaded(
     val seed: Long,
     val feed: List<FeedSection>,
     val analysed: Map<Long, AudioFeatureEntity>,
-    val engine: Recommender?
+    val engine: Recommender?,
+    val tuning: EngineTuning
 )
 
 @Composable
@@ -726,8 +803,244 @@ private fun StyleChip(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
+private fun PlayerScreen(
+    song: SongEntity,
+    feature: AudioFeatureEntity?,
+    stat: SongStatsEntity?,
+    positionMs: Long,
+    durationMs: Long,
+    playing: Boolean,
+    onClose: () -> Unit,
+    onToggle: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onLike: () -> Unit,
+    onDislike: () -> Unit,
+    onRate: (Int) -> Unit
+) {
+    var scrub by remember { mutableStateOf<Float?>(null) }
+    val liked = stat?.liked ?: 0
+    val rating = stat?.rating ?: 0
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(modifier = Modifier.fillMaxWidth()) {
+            IconButton(onClick = onClose) {
+                Icon(Icons.Filled.ExpandMore, contentDescription = "סגור")
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .width(300.dp)
+                .height(300.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        )
+
+        Text(
+            song.title,
+            style = MaterialTheme.typography.headlineSmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 20.dp)
+        )
+        Text(
+            song.artistName.ifEmpty { "ללא אמן" },
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        // What the analyser measured, said plainly. The engine reasons about
+        // these numbers constantly and never shows them, which makes a shelf
+        // it built out of them look like a guess.
+        feature?.let { f ->
+            Text(
+                "${f.bpm.toInt()} BPM · ${Features.modeLabel(f)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
+        ) {
+            Text(clock(positionMs), style = MaterialTheme.typography.labelSmall)
+            Slider(
+                value = scrub ?: positionMs.toFloat(),
+                valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
+                onValueChange = { scrub = it },
+                onValueChangeFinished = {
+                    scrub?.let { onSeek(it.toLong()) }
+                    scrub = null
+                },
+                modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+            )
+            Text(clock(durationMs), style = MaterialTheme.typography.labelSmall)
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onPrevious) {
+                Icon(Icons.Filled.SkipPrevious, contentDescription = "הקודם")
+            }
+            IconButton(onClick = onToggle) {
+                Icon(
+                    if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (playing) "השהה" else "נגן"
+                )
+            }
+            IconButton(onClick = onNext) {
+                Icon(Icons.Filled.SkipNext, contentDescription = "הבא")
+            }
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+            IconButton(onClick = onDislike) {
+                Icon(
+                    if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
+                    contentDescription = if (liked == -1) "בטל דיסלייק" else "דיסלייק",
+                    tint = if (liked == -1) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+            for (star in 1..5) {
+                IconButton(onClick = { onRate(star) }) {
+                    Icon(
+                        if (star <= rating) Icons.Filled.Star else Icons.Filled.StarBorder,
+                        contentDescription = "$star",
+                        tint = if (star <= rating) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+            }
+            IconButton(onClick = onLike) {
+                Icon(
+                    if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                    contentDescription = if (liked == 1) "בטל לייק" else "לייק",
+                    tint = if (liked == 1) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TuningPane(
+    tuning: EngineTuning,
+    songs: Int,
+    analysed: Int,
+    ratedArtists: Int,
+    taggedArtists: Int,
+    liked: Int,
+    played: Int,
+    onChange: (EngineTuning) -> Unit
+) {
+    LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        item {
+            Text(
+                "מה המנוע יודע",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(vertical = 10.dp)
+            )
+            // Said in one place because every one of these is a thing the
+            // engine is waiting for more of, and none of them is visible
+            // anywhere else.
+            Fact("שירים בספרייה", "$songs")
+            Fact("שירים שנותחו", "$analysed מתוך $songs")
+            Fact("אמנים שדורגו", "$ratedArtists")
+            Fact("אמנים עם סגנון", "$taggedArtists")
+            Fact("שירים עם לייק", "$liked")
+            Fact("סך הנגינות", "$played")
+            Text(
+                "כוונון האלגוריתם",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 20.dp, bottom = 4.dp)
+            )
+        }
+        item {
+            Knob("גילוי מול מוכר", tuning.discovery, 0f..1f,
+                "ככל שגבוה יותר, יופיעו יותר שירים שלא שמעת") {
+                onChange(tuning.copy(discovery = it))
+            }
+            Knob("משקל דירוג האמן", tuning.artistWeight, 0f..2f,
+                "כמה הדירוג שנתת לאמן משפיע על השירים שלו") {
+                onChange(tuning.copy(artistWeight = it))
+            }
+            Knob("משקל הסגנון", tuning.styleWeight, 0f..2f,
+                "כמה התאמת הסגנון מושכת שיר למעלה") {
+                onChange(tuning.copy(styleWeight = it))
+            }
+            Knob("מניעת חזרתיות", tuning.repeatGuard, 0f..2f,
+                "ככל שגבוה יותר, שיר שהתנגן לאחרונה ירד בדירוג") {
+                onChange(tuning.copy(repeatGuard = it))
+            }
+            Knob("משקל הדמיון האקוסטי", tuning.acousticWeight, 0f..2f,
+                "כמה הצליל עצמו קובע, לעומת מה שכתוב על השיר") {
+                onChange(tuning.copy(acousticWeight = it))
+            }
+        }
+    }
+}
+
+@Composable
+private fun Fact(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun Knob(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    hint: String,
+    onDone: (Float) -> Unit
+) {
+    // The slider follows the finger locally and the engine is only rebuilt
+    // when it is let go. Rebuilding on every pixel would score the whole
+    // library a hundred times for one drag.
+    var live by remember(value) { mutableStateOf(value) }
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            hint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Slider(
+            value = live,
+            valueRange = range,
+            onValueChange = { live = it },
+            onValueChangeFinished = { onDone(live) }
+        )
+    }
+}
+
+@Composable
 private fun NowPlaying(
     song: SongEntity?,
+    onOpen: () -> Unit,
     positionMs: Long,
     durationMs: Long,
     playing: Boolean,
@@ -745,12 +1058,14 @@ private fun NowPlaying(
 
     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Text(song?.title ?: "לא מנוגן כלום", style = MaterialTheme.typography.titleSmall)
-            Text(
-                song?.artistName?.ifEmpty { "ללא אמן" }.orEmpty(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Column(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+                Text(song?.title ?: "לא מנוגן כלום", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    song?.artistName?.ifEmpty { "ללא אמן" }.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(clock(positionMs), style = MaterialTheme.typography.labelSmall)
