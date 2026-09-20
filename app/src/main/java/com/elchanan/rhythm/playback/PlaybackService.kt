@@ -36,7 +36,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
@@ -136,6 +139,8 @@ class PlaybackService : MediaSessionService() {
             .setCallback(SessionCallback())
             .build()
         mediaSession?.setCustomLayout(customLayout(likedNow))
+        watchLikeState()
+        refreshLikeButtons()
 
         registerVolumeWatcher()
 
@@ -233,6 +238,15 @@ class PlaybackService : MediaSessionService() {
     private var likedNow: Int = 0
 
     /**
+     * Which song the buttons are currently drawn for.
+     *
+     * A field rather than a read of the player because the thing that decides
+     * what the thumbs look like is a database row, and watching a row means a
+     * flow to combine it with.
+     */
+    private val shownSongId = MutableStateFlow<Long?>(null)
+
+    /**
      * The three buttons, drawn for the state the track is actually in.
      *
      * They were fixed icons set once at startup, so pressing like recorded the
@@ -267,17 +281,51 @@ class PlaybackService : MediaSessionService() {
     )
 
     /**
-     * Reads what the current track is marked and redraws the buttons.
+     * Points the buttons at whatever is playing now.
      *
-     * Called when the track changes and after either thumb is pressed, which
-     * are the only two moments the answer can differ.
+     * It no longer reads the mark itself. The mark is a database row, and the
+     * row changes from two places - the notification's own thumbs and the
+     * player screen inside the app - so reading it once at the moment of a
+     * press only ever caught one of them. Liking a song in the app left the
+     * notification showing an outline until the track changed.
      */
     private fun refreshLikeButtons() {
-        val id = player.currentMediaItem?.mediaId?.toLongOrNull()
+        shownSongId.value = player.currentMediaItem?.mediaId?.toLongOrNull()
+    }
+
+    /**
+     * Draws the buttons for [liked] and puts the result on screen.
+     *
+     * setCustomLayout on its own tells the connected controllers, which is
+     * what the app itself listens to. The notification in the shade is drawn
+     * from a posted notification and is only rebuilt when one is posted, so
+     * without the second call the command ran, the like was recorded, and the
+     * thumb on screen stayed exactly as it was - which is what a press that
+     * looks ignored actually is.
+     */
+    private fun applyLikeButtons(liked: Int) {
+        likedNow = liked
+        val session = mediaSession ?: return
+        runCatching { session.setCustomLayout(customLayout(liked)) }
+        runCatching { onUpdateNotification(session, player.isPlaying) }
+    }
+
+    /**
+     * Keeps the thumbs in step with the row they describe.
+     *
+     * Combined rather than read on demand: the stats table is written by the
+     * notification, by the player screen and by playback itself, and the only
+     * way for one set of buttons to be right for all three is to watch the
+     * row. distinctUntilChanged keeps that cheap - play counts land in the
+     * same table constantly and almost none of them change a thumb.
+     */
+    private fun watchLikeState() {
         scope.launch {
-            val liked = if (id == null) 0 else runCatching { repo.likeOf(id) }.getOrDefault(0)
-            likedNow = liked
-            runCatching { mediaSession?.setCustomLayout(customLayout(liked)) }
+            combine(shownSongId, repo.stats) { id, rows ->
+                if (id == null) 0 else rows.firstOrNull { it.songId == id }?.liked ?: 0
+            }
+                .distinctUntilChanged()
+                .collect { applyLikeButtons(it) }
         }
     }
 
@@ -330,10 +378,7 @@ class PlaybackService : MediaSessionService() {
             if (id != null) {
                 scope.launch {
                     when (customCommand.customAction) {
-                        ACTION_LIKE -> {
-                            repo.setLike(id, 1)
-                            refreshLikeButtons()
-                        }
+                        ACTION_LIKE -> repo.setLike(id, 1)
                         ACTION_DISLIKE -> {
                             repo.setLike(id, -1)
                             // The skip redraws them on its own through the
