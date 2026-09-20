@@ -156,6 +156,7 @@ class Recommender(
 ) {
 
     private val hourBucket: Int = bucketOf(now)
+    private val weekendNow: Boolean = isWeekend(now)
     private val maxPlays: Int = stats.values.maxOfOrNull { it.playCount } ?: 0
 
     /** The styles the user has said must not be mixed, ready to consult. */
@@ -529,6 +530,24 @@ class Recommender(
         return ((share - 0.25) / 0.75).coerceIn(-0.4, 1.0)
     }
 
+    /**
+     * How much this song belongs to the kind of day it is now.
+     *
+     * The same shape as [timeFit] and deliberately weaker. Two buckets means
+     * a strong claim can be made from few plays, which is exactly when a
+     * strong claim is least warranted, so the ceiling is lower and the floor
+     * shallower. Silent until a song has been heard enough times for the
+     * split to mean anything.
+     */
+    private fun dayFit(st: SongStatsEntity?): Double {
+        if (st == null) return 0.0
+        val total = st.dWeekend + st.dWeekday
+        if (total < 4) return 0.0
+        val here = if (weekendNow) st.dWeekend else st.dWeekday
+        val share = here.toDouble() / total
+        return ((share - 0.5) / 0.5).coerceIn(-0.3, 1.0)
+    }
+
     private fun ratingTerm(song: SongEntity): Double {
         val songRating = stats[song.id]?.rating ?: 0
         val artistRating = artists[song.artistKey]?.rating ?: 0
@@ -586,6 +605,7 @@ class Recommender(
         }
 
         score += 0.75 * timeFit(st)
+        score += 0.45 * dayFit(st)
         score += 0.6 * sessionFit(song.id)
         score -= 2.6 * tuning.repeatGuard * exp(-hoursSince(st?.lastPlayedAt ?: 0L) / 9.0)
         score += 0.35 * exp(-daysSince(song.dateAddedSec * 1000L) / 21.0)
@@ -699,6 +719,16 @@ class Recommender(
                 bucketName(hourBucket)
             )
         )
+        val day = dayFit(st)
+        if (day != 0.0) {
+            out.add(
+                ScoreTerm(
+                    "התאמה ליום",
+                    0.45 * day,
+                    if (weekendNow) "שישי-שבת" else "אמצע השבוע"
+                )
+            )
+        }
         val hours = hoursSince(st?.lastPlayedAt ?: 0L)
         out.add(
             ScoreTerm(
@@ -1627,6 +1657,114 @@ class Recommender(
         return acc
     }
 
+    /**
+     * How well the engine would have guessed what actually came next.
+     *
+     * Every change to the ranking until now has been an argument. This turns
+     * them into a number: walk the recent history, and for each song that was
+     * followed by another, ask where the engine ranks that other song out of
+     * the whole library. If a change to the scoring is an improvement, the
+     * true next song moves up.
+     *
+     * Two honest limits, and they matter.
+     *
+     * It is optimistic. The statistics it ranks with already include the plays
+     * being predicted, so the engine has seen the answer. That makes the
+     * absolute numbers flattering and says nothing about them. What it does
+     * not do is favour one version of the scoring over another, which is what
+     * this is for - the comparison between two runs is sound even though
+     * neither is an unbiased estimate of anything.
+     *
+     * And it measures agreement with what was listened to under the old
+     * recommendations, not what the listener would have enjoyed most. A
+     * change that scores worse here is not necessarily worse; it is
+     * differently. It is a guard against regressions, not a verdict.
+     *
+     * The random baseline is returned alongside for exactly that reason: a
+     * recall of 0.30 means nothing until it is set against the 0.025 that
+     * guessing would have produced.
+     */
+    data class SequenceReport(
+        val pairs: Int,
+        val librarySize: Int,
+        val recallAt10: Double,
+        val recallAt50: Double,
+        val meanReciprocalRank: Double,
+        val medianRank: Int
+    ) {
+        /** What pure chance would score on a library this size. */
+        val randomRecallAt10: Double get() = 10.0 / librarySize.coerceAtLeast(1)
+        val randomRecallAt50: Double get() = 50.0 / librarySize.coerceAtLeast(1)
+    }
+
+    /**
+     * @param recent song ids in the order they were played, oldest first.
+     * @param maxPairs a ceiling on the work: each pair is scored against the
+     *   whole library, so this is the difference between a second and a minute.
+     */
+    fun evaluateSequence(recent: List<Long>, maxPairs: Int = 60): SequenceReport? {
+        val pool = songs.filter { (stats[it.id]?.liked ?: 0) != -1 }
+        if (pool.size < 20) return null
+
+        val pairs = ArrayList<Pair<Long, Long>>()
+        for (i in 0 until recent.size - 1) {
+            val from = recent[i]
+            val to = recent[i + 1]
+            if (from == to || from <= 0L || to <= 0L) continue
+            if (tokensBySong[from] == null || tokensBySong[to] == null) continue
+            pairs.add(from to to)
+        }
+        if (pairs.isEmpty()) return null
+        val sample = pairs.takeLast(maxPairs)
+
+        var hits10 = 0
+        var hits50 = 0
+        var reciprocal = 0.0
+        val ranks = ArrayList<Int>(sample.size)
+
+        for ((from, to) in sample) {
+            val target = continuationScore(from, to)
+            // The rank is how many candidates the engine put in front of the
+            // song that actually came next. Counting beats sorting: the whole
+            // ordering is not needed, only one position in it.
+            var ahead = 1
+            for (candidate in pool) {
+                if (candidate.id == from || candidate.id == to) continue
+                if (continuationScore(from, candidate.id) > target) ahead++
+            }
+            ranks.add(ahead)
+            if (ahead <= 10) hits10++
+            if (ahead <= 50) hits50++
+            reciprocal += 1.0 / ahead
+        }
+
+        ranks.sort()
+        return SequenceReport(
+            pairs = sample.size,
+            librarySize = pool.size,
+            recallAt10 = hits10.toDouble() / sample.size,
+            recallAt50 = hits50.toDouble() / sample.size,
+            meanReciprocalRank = reciprocal / sample.size,
+            medianRank = ranks[ranks.size / 2]
+        )
+    }
+
+    /**
+     * The same arithmetic [continuation] ranks by, for one candidate.
+     *
+     * Shared deliberately: an evaluation that scores with a different formula
+     * than the one being shipped measures nothing about the one being shipped.
+     */
+    private fun continuationScore(from: Long, candidate: Long): Double {
+        var s = baseScores[candidate] ?: 0.0
+        s += 1.6 * affinityTo(listOf(from), candidate)
+        s += 2.6 * transitionScore(from, candidate)
+        s += 1.2 * acousticSimilarity(from, candidate)
+        s += 0.9 * styleSimilarity(from, candidate)
+        s -= 0.4 * tempoDistance(from, candidate)
+        return s
+    }
+
     fun tasteReport(): TasteReport {
         val bpms = features.values.map { it.bpm }.filter { it > 20f }.sorted()
         return TasteReport(
@@ -1737,6 +1875,24 @@ class Recommender(
          * which a single play cannot manufacture.
          */
         private const val MOOD_MARGIN = 0.10
+
+        /**
+         * Friday or Saturday.
+         *
+         * The week this library is listened to across is not flat. What is
+         * played coming into Shabbat, through it, and on a Tuesday afternoon
+         * are three different things, and hour-of-day buckets cannot see any
+         * of it - Friday evening and Monday evening land in the same bucket.
+         *
+         * Drawn on the device's own calendar, so it follows whatever week the
+         * phone is set to rather than assuming one.
+         */
+        fun isWeekend(timeMs: Long): Boolean {
+            val c = Calendar.getInstance()
+            c.timeInMillis = timeMs
+            val day = c.get(Calendar.DAY_OF_WEEK)
+            return day == Calendar.FRIDAY || day == Calendar.SATURDAY
+        }
 
         /** 0 night, 1 morning, 2 afternoon, 3 evening */
         fun bucketOf(timeMs: Long): Int {

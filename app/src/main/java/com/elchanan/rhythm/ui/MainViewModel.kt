@@ -1362,6 +1362,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private val _sequenceReport = MutableStateFlow<Recommender.SequenceReport?>(null)
+    val sequenceReport: StateFlow<Recommender.SequenceReport?> = _sequenceReport.asStateFlow()
+
+    /**
+     * Measures the ranking against what was actually played next.
+     *
+     * Exists so that changes to the scoring stop being arguments. The number
+     * is optimistic in absolute terms - the statistics it ranks with already
+     * contain the plays being predicted - but it is biased the same way on
+     * every run, which is what makes two runs comparable.
+     */
+    fun evaluateEngine() {
+        viewModelScope.launch {
+            _busy.value = true
+            val report = runCatching {
+                val order = repo.playOrder()
+                val e = repo.buildRecommender()
+                withContext(Dispatchers.Default) { e.evaluateSequence(order) }
+            }.getOrNull()
+            _busy.value = false
+            _sequenceReport.value = report
+            _message.value = when {
+                report == null ->
+                    "אין עדיין מספיק היסטוריה כדי לבדוק. צריך רצף השמעות בספרייה של 20 שירים ומעלה."
+                else ->
+                    "נבדקו ${report.pairs} מעברים · " +
+                        "בעשירייה הראשונה: ${percent(report.recallAt10)}"
+            }
+        }
+    }
+
     private fun percent(value: Double): String = "${(value * 100).toInt()}%"
 
     /** Switching a shelf on or off rebuilds the feed so the change is immediate. */

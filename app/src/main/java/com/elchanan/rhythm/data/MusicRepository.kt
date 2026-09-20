@@ -321,7 +321,9 @@ class MusicRepository(
                 b0 = current.b0 + if (bucket == 0) 1 else 0,
                 b1 = current.b1 + if (bucket == 1) 1 else 0,
                 b2 = current.b2 + if (bucket == 2) 1 else 0,
-                b3 = current.b3 + if (bucket == 3) 1 else 0
+                b3 = current.b3 + if (bucket == 3) 1 else 0,
+                dWeekend = current.dWeekend + if (Recommender.isWeekend(now)) 1 else 0,
+                dWeekday = current.dWeekday + if (Recommender.isWeekend(now)) 0 else 1
             )
         )
         dao.insertHistory(HistoryEntity(songId = songId, playedAt = now, completed = completed, listenedMs = listenedMs))
@@ -464,6 +466,16 @@ class MusicRepository(
         val index = ((sorted.size - 1) * 0.65).toInt().coerceIn(0, sorted.size - 1)
         val reference = sorted[index]
         measured.associate { f -> f.songId to (reference / f.energy).coerceIn(0.45f, 1f) }
+    }
+
+    /**
+     * The songs recently played, oldest first, for the engine's own check.
+     *
+     * recentHistory returns newest first because every screen that shows
+     * history wants it that way; a sequence has to be read forwards.
+     */
+    suspend fun playOrder(limit: Int = 300): List<Long> = withContext(Dispatchers.IO) {
+        dao.recentHistory(limit).asReversed().map { it.songId }
     }
 
     suspend fun songCount(): Int = withContext(Dispatchers.IO) { dao.songCount() }

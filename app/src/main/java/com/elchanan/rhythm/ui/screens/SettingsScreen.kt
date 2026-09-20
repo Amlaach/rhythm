@@ -60,6 +60,7 @@ import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
+import com.elchanan.rhythm.ui.theme.TextTertiary
 
 /**
  * The name the picker shows for a document, which is where the playlist gets
@@ -89,6 +90,7 @@ fun SettingsScreen(
 ) {
     val report by vm.report.collectAsStateWithLifecycle()
     val scan by vm.scanReport.collectAsStateWithLifecycle()
+    val evaluation by vm.sequenceReport.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     // Every row on this screen shares the page margin, so a narrow phone gets
@@ -1082,6 +1084,58 @@ fun SettingsScreen(
             // an install from a month ago from one made five minutes ago, and
             // no way to answer "does your copy have the fix in it" - which is
             // the first question any report needs settled.
+            // The engine's own mark. Every change to the ranking is otherwise
+            // an argument, and this is the only thing in the app that can
+            // settle one.
+            item {
+                SectionHeader(
+                    title = "בדיקת המנוע",
+                    subtitle = "כמה טוב הוא מנחש מה באמת הושמע אחר כך"
+                )
+            }
+            item {
+                Column(modifier = Modifier.padding(horizontal = gutter)) {
+                    Text(
+                        "עובר על ההיסטוריה ושואל, לכל מעבר בין שני שירים, באיזה מקום " +
+                            "מכל הספרייה המנוע היה מדרג את השיר שבאמת בא אחריו. " +
+                            "שינוי באלגוריתם שמשפר — מעלה את המספרים האלה.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    val e = evaluation
+                    if (e != null) {
+                        Spacer(Modifier.height(10.dp))
+                        Stat("מעברים שנבדקו", "${e.pairs}")
+                        Stat(
+                            "בעשירייה הראשונה",
+                            "${(e.recallAt10 * 100).toInt()}% " +
+                                "(אקראי: ${(e.randomRecallAt10 * 100).toInt()}%)"
+                        )
+                        Stat(
+                            "בחמישים הראשונים",
+                            "${(e.recallAt50 * 100).toInt()}% " +
+                                "(אקראי: ${(e.randomRecallAt50 * 100).toInt()}%)"
+                        )
+                        Stat("דירוג חציוני", "${e.medianRank} מתוך ${e.librarySize}")
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "המספרים אופטימיים: הסטטיסטיקה שהמנוע מדרג לפיה כוללת כבר " +
+                                "את ההשמעות שהוא מנסה לנחש. הם מוטים באותו אופן בכל " +
+                                "ריצה, ולכן ההשוואה בין שתי ריצות תקפה גם אם אף אחת " +
+                                "מהן אינה הערכה נקייה.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextTertiary
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Button(
+                        onClick = { vm.evaluateEngine() },
+                        enabled = !busy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("בדוק עכשיו") }
+                }
+            }
+
             item { SectionHeader(title = "על האפליקציה") }
             item {
                 Column(modifier = Modifier.padding(horizontal = gutter)) {

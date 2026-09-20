@@ -56,6 +56,18 @@ data class SongStatsEntity(
     val b2: Int = 0,
     val b3: Int = 0,
     /**
+     * Plays on a Friday or a Saturday, and plays on the other five days.
+     *
+     * Two counters rather than seven. Seven would be the general answer and
+     * would almost never reach significance - a song needs plays in a bucket
+     * before the bucket means anything, and dividing a few dozen plays seven
+     * ways leaves nothing anywhere. The split that carries the signal in a
+     * library like this one is the weekend against the week, and two buckets
+     * fill four times faster than seven.
+     */
+    val dWeekend: Int = 0,
+    val dWeekday: Int = 0,
+    /**
      * A genre the user set, replacing whatever the file said.
      *
      * The genre in a downloaded file is whoever tagged it's opinion, and on a
