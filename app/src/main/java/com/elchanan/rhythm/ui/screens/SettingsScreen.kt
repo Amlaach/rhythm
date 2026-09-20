@@ -50,7 +50,6 @@ import com.elchanan.rhythm.BuildConfig
 import com.elchanan.rhythm.ui.ActionPlacement
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.PlayerAction
-import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.SectionHeader
 import com.elchanan.rhythm.ui.components.rememberMetrics
@@ -59,6 +58,7 @@ import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.Surface1
+import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
 
 /**
@@ -84,7 +84,8 @@ fun SettingsScreen(
     vm: MainViewModel,
     onBack: () -> Unit,
     onOpenTagFix: () -> Unit = {},
-    onOpenEqualizer: () -> Unit = {}
+    onOpenEqualizer: () -> Unit = {},
+    onOpenHomeSettings: () -> Unit = {}
 ) {
     val report by vm.report.collectAsStateWithLifecycle()
     val scan by vm.scanReport.collectAsStateWithLifecycle()
@@ -107,7 +108,6 @@ fun SettingsScreen(
     var skipSilence by remember { mutableStateOf(vm.prefs.skipSilence) }
     var normalizeVolume by remember { mutableStateOf(vm.prefs.normalizeVolume) }
     var algorithmOpen by remember { mutableStateOf(false) }
-    var homeOpen by remember { mutableStateOf(false) }
     var libraryOpen by remember { mutableStateOf(false) }
     var playerOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
@@ -115,7 +115,6 @@ fun SettingsScreen(
     var searchLyrics by remember { mutableStateOf(vm.prefs.searchLyrics) }
     var resumePrompt by remember { mutableStateOf(vm.prefs.resumePrompt) }
     var openOnPlay by remember { mutableStateOf(vm.prefs.openPlayerOnPlay) }
-    var shelves by remember { mutableStateOf(vm.prefs.homeShelves) }
     var firstTab by remember { mutableStateOf(vm.prefs.libraryFirstTab) }
     var hideDupes by remember { mutableStateOf(vm.prefs.hideDuplicates) }
     var pauseSilent by remember { mutableStateOf(vm.prefs.pauseOnSilence) }
@@ -127,7 +126,6 @@ fun SettingsScreen(
     var folderTree by remember { mutableStateOf(vm.prefs.folderTree) }
     var skipRecordings by remember { mutableStateOf(vm.prefs.skipRecordings) }
     var resumeSpoken by remember { mutableStateOf(vm.prefs.resumeSpoken) }
-    var pinMoods by remember { mutableStateOf(vm.prefs.pinMoodRow) }
     var tapArtwork by remember { mutableStateOf(vm.prefs.tapArtworkToggles) }
     val analysis by vm.analysisProgress.collectAsStateWithLifecycle()
     val lyricsFolder by vm.lyricsFolder.collectAsStateWithLifecycle()
@@ -253,84 +251,24 @@ fun SettingsScreen(
             // דף הבית
             // ---------------------------------------------------------------
             item {
-                SectionToggleRow(
-                    title = "הגדרות דף הבית",
-                    subtitle = "אילו מדפים יופיעו, ובאיזה סדר הם נבנים",
-                    open = homeOpen,
-                    onToggle = { homeOpen = !homeOpen }
-                )
-            }
-            if (homeOpen) {
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = gutter, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "פס מצבי הרוח נשאר למעלה",
-                                style = MaterialTheme.typography.titleSmall
-                            )
-                            Text(
-                                "דלוק: הצ'יפים נשארים מתחת לכותרת והדף נגלל מתחתיהם. " +
-                                    "כבוי: הם נגללים למעלה יחד עם כל השאר",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                        }
-                        Switch(
-                            checked = pinMoods,
-                            onCheckedChange = {
-                                pinMoods = it
-                                vm.prefs.pinMoodRow = it
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Accent,
-                                checkedTrackColor = Accent.copy(alpha = 0.4f)
-                            )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("הגדרות דף הבית", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "אילו מדפים יופיעו, ופס מצבי הרוח",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
                         )
                     }
-                }
-                item {
-                    Text(
-                        "כיבוי מדף לא מוחק כלום — הוא פשוט מפסיק להופיע, וחוזר כמו " +
-                            "שהיה כשמדליקים אותו בחזרה.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                        modifier = Modifier.padding(horizontal = gutter, vertical = 4.dp)
-                    )
-                }
-                items(ShelfKind.entries.toList()) { shelf ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = gutter, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(shelf.label, style = MaterialTheme.typography.bodyLarge)
-                            if (shelf.about.isNotEmpty()) {
-                                Text(
-                                    shelf.about,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextSecondary
-                                )
-                            }
-                        }
-                        Switch(
-                            checked = shelf.key in shelves,
-                            onCheckedChange = { on ->
-                                shelves = if (on) shelves + shelf.key else shelves - shelf.key
-                                vm.setHomeShelves(shelves)
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Accent,
-                                checkedTrackColor = Accent.copy(alpha = 0.4f)
-                            )
-                        )
-                    }
+                    Button(
+                        onClick = onOpenHomeSettings,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("פתח") }
                 }
             }
 
@@ -766,7 +704,7 @@ fun SettingsScreen(
                     Button(
                         onClick = { exportLauncher.launch(null) },
                         enabled = !busy,
-                        colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
                     ) { Text("בחר תיקייה") }
                 }
             }
@@ -900,7 +838,10 @@ fun SettingsScreen(
                         ) { Text(if (analysis.running) "עצור" else "נתח עכשיו") }
                         Button(
                             onClick = { vm.resetAnalysis() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Surface1,
+                                contentColor = TextPrimary
+                            )
                         ) { Text("אפס ניתוח") }
                     }
                 }
@@ -952,7 +893,7 @@ fun SettingsScreen(
                     }
                     Button(
                         onClick = { foldersOpen = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
                     ) { Text("ערוך") }
                 }
             }
@@ -1075,7 +1016,7 @@ fun SettingsScreen(
                     }
                     Button(
                         onClick = { separationsOpen = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
                     ) { Text("ערוך") }
                 }
             }
@@ -1091,7 +1032,10 @@ fun SettingsScreen(
                     ) { Text("סרוק מחדש") }
                     Button(
                         onClick = { vm.resetLearning() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Surface1,
+                            contentColor = TextPrimary
+                        )
                     ) { Text("אפס למידה") }
                 }
             }
@@ -1124,7 +1068,10 @@ fun SettingsScreen(
                         if (lyricsFolder != null) {
                             Button(
                                 onClick = { vm.setLyricsFolder(null) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Surface1,
+                                    contentColor = TextPrimary
+                                )
                             ) { Text("נקה") }
                         }
                     }

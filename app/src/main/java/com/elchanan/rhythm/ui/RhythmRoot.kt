@@ -48,6 +48,7 @@ import com.elchanan.rhythm.ui.screens.ArtistRatingsScreen
 import com.elchanan.rhythm.ui.screens.DetailListScreen
 import com.elchanan.rhythm.ui.screens.EqualizerScreen
 import com.elchanan.rhythm.ui.screens.HomeScreen
+import com.elchanan.rhythm.ui.screens.HomeSettingsScreen
 import com.elchanan.rhythm.ui.screens.LibraryScreen
 import com.elchanan.rhythm.ui.screens.MiniPlayer
 import com.elchanan.rhythm.ui.screens.PlayerScreen
@@ -68,6 +69,7 @@ object Routes {
     const val LIBRARY = "library"
     const val RATINGS = "ratings"
     const val SETTINGS = "settings"
+    const val HOME_SETTINGS = "homesettings"
     const val DETAIL = "detail"
     const val ARTIST = "artist"
     const val ALBUMS = "albums"
@@ -273,8 +275,12 @@ fun RhythmRoot(
                         vm = vm,
                         onBack = { navController.popBackStack() },
                         onOpenTagFix = { navController.navigate(Routes.TAGS) },
-                        onOpenEqualizer = { navController.navigate(Routes.EQUALIZER) }
+                        onOpenEqualizer = { navController.navigate(Routes.EQUALIZER) },
+                        onOpenHomeSettings = { navController.navigate(Routes.HOME_SETTINGS) }
                     )
+                }
+                composable(Routes.HOME_SETTINGS) {
+                    HomeSettingsScreen(vm = vm, onBack = { navController.popBackStack() })
                 }
                 composable(Routes.TAGS) {
                     TagFixScreen(vm = vm, onBack = { navController.popBackStack() })

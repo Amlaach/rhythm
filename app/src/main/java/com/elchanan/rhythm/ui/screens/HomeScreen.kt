@@ -1,7 +1,9 @@
 package com.elchanan.rhythm.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.BarChart
@@ -49,12 +53,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.SectionKind
+import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.ui.MainViewModel
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.text.style.TextOverflow
@@ -512,26 +518,39 @@ private fun FeedSectionView(
                 actionLabel = "נגן הכל",
                 onAction = { vm.playList(section.songs) }
             )
-            // Four rows to a column, scrolling sideways - the shape YouTube
-            // Music gives its own quick picks. The grid that replaced this
-            // showed sleeves and almost no words, which is right for albums
-            // and mixes and wrong here: these are individual songs, and a
-            // song is identified by its title. It also took only the first
-            // nine, so most of what the ranker chose could not be reached.
-            val columns = section.songs.chunked(4)
-            LazyRow(contentPadding = PaddingValues(horizontal = gutter)) {
-                items(columns) { column ->
-                    Column(modifier = Modifier.width(quickPickColumnWidth())) {
-                        column.forEach { song ->
-                            QuickPickRow(
-                                song = song,
-                                liked = library.stats[song.id]?.liked ?: 0,
-                                onClick = {
-                                    val index = section.songs.indexOf(song)
-                                    vm.playList(section.songs, if (index >= 0) index else 0)
-                                },
-                                onMore = { onMore(song) }
-                            )
+            // Two shelves share this kind, and each gets the shape that does
+            // its own job. Speed dial is the handful you keep returning to, and
+            // a returning song is known by its sleeve - the tile grid. Quick
+            // picks are the ranker's wider choice, where the title and the
+            // artist carry the identification and the tile grid cut the list
+            // at nine - the columns of four, scrolling through everything the
+            // engine chose.
+            if (ShelfKind.SPEED_DIAL == ShelfKind.of(section.id)) {
+                QuickPickTiles(
+                    songs = section.songs.take(9),
+                    gutter = gutter,
+                    onPlay = { song ->
+                        val index = section.songs.indexOf(song)
+                        vm.playList(section.songs, if (index >= 0) index else 0)
+                    },
+                    onMore = onMore
+                )
+            } else {
+                val columns = section.songs.chunked(4)
+                LazyRow(contentPadding = PaddingValues(horizontal = gutter)) {
+                    items(columns) { column ->
+                        Column(modifier = Modifier.width(quickPickColumnWidth())) {
+                            column.forEach { song ->
+                                QuickPickRow(
+                                    song = song,
+                                    liked = library.stats[song.id]?.liked ?: 0,
+                                    onClick = {
+                                        val index = section.songs.indexOf(song)
+                                        vm.playList(section.songs, if (index >= 0) index else 0)
+                                    },
+                                    onMore = { onMore(song) }
+                                )
+                            }
                         }
                     }
                 }
@@ -585,10 +604,118 @@ private fun FeedSectionView(
 }
 
 /**
- * One track in the quick picks column.
+ * The speed dial, as covers with the title written across them.
  *
- * A row rather than a tile: these are individual songs, chosen one at a time,
- * and the title is what identifies them. A liked track carries a small dot -
+ * These are the songs you keep returning to, and a returning song is known
+ * by its sleeve long before its name is read. Two arrangements of the same
+ * tile, because which one is right depends on the shape of the window rather
+ * than on a preference: a phone is tall and narrow, so three columns fill it
+ * and nine tiles are in view at once, while a wide screen has room lengthways
+ * and little to spare downwards, so the same tiles run sideways in one strip.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun QuickPickTiles(
+    songs: List<SongEntity>,
+    gutter: Dp,
+    onPlay: (SongEntity) -> Unit,
+    onMore: (SongEntity) -> Unit
+) {
+    if (songs.isEmpty()) return
+    val metrics = rememberMetrics()
+
+    if (metrics.isCompact) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = gutter),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            songs.chunked(3).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    row.forEach { song ->
+                        QuickPickTile(
+                            song = song,
+                            modifier = Modifier.weight(1f),
+                            onPlay = { onPlay(song) },
+                            onMore = { onMore(song) }
+                        )
+                    }
+                    // Keeps a short last row aligned with the ones above rather
+                    // than letting two tiles stretch across the whole width.
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    } else {
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = gutter),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            items(songs, key = { it.id }) { song ->
+                QuickPickTile(
+                    song = song,
+                    modifier = Modifier.width(metrics.cardWidth),
+                    onPlay = { onPlay(song) },
+                    onMore = { onMore(song) }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun QuickPickTile(
+    song: SongEntity,
+    modifier: Modifier = Modifier,
+    onPlay: () -> Unit,
+    onMore: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(10.dp))
+            .combinedClickable(onClick = onPlay, onLongClick = onMore)
+    ) {
+        Artwork(
+            songId = song.id,
+            albumId = song.albumId,
+            seed = song.artistKey,
+            modifier = Modifier.fillMaxSize(),
+            corner = 0
+        )
+        // Without this the title lands on whatever the sleeve happens to be and
+        // is unreadable on about half of them. The scrim darkens only the strip
+        // the words sit on, leaving the artwork above it alone.
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .fillMaxHeight(0.45f)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f))
+                    )
+                )
+        )
+        Text(
+            text = song.title,
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 8.dp, vertical = 7.dp)
+        )
+    }
+}
+
+/**
+ * One track in a quick-pick column.
+ *
+ * The shape the quick picks shelf keeps: the title and the artist carry the
+ * identification, so every row reads as text, and the whole ranked list stays
+ * scrollable rather than cut at nine. A liked track carries a small dot -
  * enough to spot at a glance, and quieter than repeating the thumb here when
  * it is already on every other row in the app.
  */
