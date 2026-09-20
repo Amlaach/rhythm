@@ -12,7 +12,13 @@
 1. יצירת ריפו חדש והעלאת כל התוכן של ה-ZIP לשורש שלו.
 2. ה-workflow שב-`.github/workflows/build.yml` רץ אוטומטית על כל push ל-`main`,
    ואפשר גם להריץ ידנית דרך Actions → Build Rhythm APK → Run workflow.
-3. בסיום, ה-APK מחכה תחת Artifacts בשם `rhythm-apk` (גם release וגם debug).
+3. בסיום, ה-APK מחכה תחת Artifacts בשם `rhythm-apk-<מספר הריצה>`.
+
+הגרסה נגזרת ממספר הריצה של ה-workflow: ריצה 87 מייצרת `1.0.87` עם
+`versionCode` 87. הגרסה, מספר הבנייה, המהדורה (מלאה/קלה) והקומיט שממנו
+נבנתה מוצגים באפליקציה עצמה תחת הגדרות ← על האפליקציה, כדי שאפשר יהיה
+לדעת מה מותקן בלי לנחש. בנייה מקומית מקבלת `1.0.0-dev`, כי אין לה מספר
+ריצה להשוות אליו.
 
 בלי סודות מוגדרים, ה-release נחתם במפתח ה-debug — הוא מותקן ועובד, אבל
 המפתח משתנה בין ריצות, ולכן עדכון מעל התקנה קיימת ידרוש הסרה קודם.
@@ -214,23 +220,37 @@ seed נותן אותו פיד; לחיצה על רענון מקדמת אותו.
 
 ## מבנה הקוד
 
+שני מודולים. `:engine` הוא ספריית Kotlin רגילה בלי Android — כל מה שהאפליקציה
+יודעת על מוזיקה יושב שם, וזה מה שיאפשר לגרסת שולחן העבודה לרוץ על אותו קוד
+בדיוק במקום על עותק שיתחיל להתבדר. הקומפיילר אוכף את זה: `import android.`
+במודול הזה הוא שגיאת בנייה.
+
 ```
-app/src/main/java/com/elchanan/rhythm/
+engine/src/main/kotlin/com/elchanan/rhythm/     ← Kotlin טהור, ללא Android
+├── engine/
+│   ├── Styles.kt             אוצר המילים של הסגנונות
+│   ├── Names.kt              נרמול שמות אמנים, פיצול "א feat. ב", זיהוי הקלטות
+│   ├── Dsp.kt                FFT, בנק מל, DCT, אוטוקורלציה
+│   ├── Features.kt           קריאת שורת ניתוח שמורה, שמות סולמות בעברית
+│   ├── Modes.kt              אהבה רבה, מי שברך, והמודוסים המערביים
+│   ├── AcousticSpace.kt      נרמול, דמיון, kNN
+│   ├── StyleLearner.kt       רגרסיה לוגיסטית על הסגנונות של המשתמש
+│   └── Recommender.kt        הליבה: ניקוד, מיקסים, רדיו, רצף, חיפוש
+└── data/db/Entities.kt       ישויות Room (אנוטציות בלבד — jar טהור ל-JVM)
+
+app/src/main/java/com/elchanan/rhythm/          ← אנדרואיד, תלוי ב-:engine
 ├── RhythmApp.kt              Application + מופע יחיד של ה-repository
 ├── MainActivity.kt           הרשאות + נקודת הכניסה ל-Compose
 ├── data/
-│   ├── MediaScanner.kt       קריאת MediaStore, נרמול שמות אמנים
+│   ├── MediaScanner.kt       שאילתת MediaStore
 │   ├── Prefs.kt              כל ידיות הכוונון של המנוע
 │   ├── AnalysisManager.kt    מעבר ניתוח האודיו ברקע, עם התקדמות
 │   ├── LyricsSource.kt       פרסור ID3v2/Vorbis, קבצי LRC, ואינדוקס תיקייה
 │   ├── MusicRepository.kt    כל הגישה לנתונים + ייבוא/ייצוא
-│   └── db/                   Room: ישויות, DAO, מסד + מיגרציה 1→2
+│   └── db/                   Room: DAO, מסד ומיגרציות
 ├── engine/
-│   ├── Styles.kt             אוצר המילים של הסגנונות
-│   ├── Dsp.kt                FFT, בנק מל, DCT, אוטוקורלציה
 │   ├── AudioAnalyzer.kt      פענוח MediaCodec + חילוץ מאפיינים
-│   ├── AcousticSpace.kt      נרמול, דמיון, kNN
-│   └── Recommender.kt        הליבה: ניקוד, מיקסים, רדיו, רצף, חיפוש
+│   └── AudioTagger.kt        YAMNet דרך TensorFlow Lite
 ├── playback/
 │   ├── MediaItems.kt         המרה בין SongEntity ל-MediaItem
 │   ├── PlaybackService.kt    ExoPlayer + MediaSession + מדידת האזנה + שמירת תור
@@ -243,6 +263,10 @@ app/src/main/java/com/elchanan/rhythm/
     ├── theme/                צבעים, טיפוגרפיה, RTL
     └── screens/              בית, חיפוש, ספרייה, דירוגים, פרטים, נגן, הגדרות
 ```
+
+שני הקבצים שנשארו ב-`app/engine/` נשארו שם מסיבה אמיתית: אחד מפענח אודיו דרך
+`MediaCodec` והשני מריץ TFLite מתוך asset. שניהם דברים שלמערכת ההפעלה יש דעה
+עליהם.
 
 ---
 

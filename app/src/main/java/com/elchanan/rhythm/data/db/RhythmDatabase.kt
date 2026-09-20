@@ -23,7 +23,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlaybackPositionEntity::class,
         BookmarkEntity::class
     ],
-    version = 9,
+    version = 11,
     exportSchema = false
 )
 abstract class RhythmDatabase : RoomDatabase() {
@@ -120,6 +120,35 @@ abstract class RhythmDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v9 -> v10 splits listening by the day of the week.
+         *
+         * Plays recorded before this land in neither bucket, so the term stays
+         * silent for a song until it is heard a few more times - which is
+         * correct. Back-filling would mean inventing days for plays whose day
+         * was never written down.
+         */
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE song_stats ADD COLUMN dWeekend INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE song_stats ADD COLUMN dWeekday INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /**
+         * v10 -> v11 records which style tags the app guessed.
+         *
+         * Everything already there defaults to 0, which reads as "typed by
+         * the user". That is the safe direction: the worst it does is protect
+         * an old automatic tag from being revised, whereas the other default
+         * would let the learner overwrite words the user chose.
+         */
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE song_stats ADD COLUMN stylesAuto INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE song_stats ADD COLUMN rating INTEGER NOT NULL DEFAULT 0")
@@ -148,7 +177,7 @@ abstract class RhythmDatabase : RoomDatabase() {
             ).addMigrations(
                 MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
                 MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-                MIGRATION_8_9
+                MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11
             )
                 .fallbackToDestructiveMigration()
                 .build()

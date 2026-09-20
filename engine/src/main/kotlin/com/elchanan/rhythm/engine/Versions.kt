@@ -1,6 +1,5 @@
 package com.elchanan.rhythm.engine
 
-import com.elchanan.rhythm.data.MediaScanner
 import com.elchanan.rhythm.data.db.SongEntity
 
 /**
@@ -44,7 +43,7 @@ object Versions {
 
     /** The song as written, with nothing in it that identifies a performance. */
     fun pieceKey(title: String): String =
-        MediaScanner.normalizeKey(NOISE.replace(title, " "))
+        Names.normalizeKey(NOISE.replace(title, " "))
 
     /**
      * Classifies every song, using the shape of the library as evidence.

@@ -43,6 +43,13 @@ interface MusicDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putStats(stats: SongStatsEntity)
 
+    @Query("SELECT COUNT(*) FROM song_stats WHERE stylesAuto = 1 AND styles != ''")
+    suspend fun autoStyledCount(): Int
+
+    /** Drops the guessed tags only; anything typed has stylesAuto = 0. */
+    @Query("UPDATE song_stats SET styles = '', stylesAuto = 0 WHERE stylesAuto = 1")
+    suspend fun clearAutoStyles()
+
     @Query("UPDATE song_stats SET liked = 0, likedAt = 0")
     suspend fun clearAllLikes()
 
@@ -61,7 +68,8 @@ interface MusicDao {
         """
         UPDATE song_stats
         SET playCount = 0, skipCount = 0, completeCount = 0, listenedMs = 0,
-            lastPlayedAt = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0
+            lastPlayedAt = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0,
+            dWeekend = 0, dWeekday = 0
         WHERE songId = :id
         """
     )
@@ -71,7 +79,8 @@ interface MusicDao {
         """
         UPDATE song_stats
         SET playCount = 0, skipCount = 0, completeCount = 0, listenedMs = 0,
-            lastPlayedAt = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0
+            lastPlayedAt = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0,
+            dWeekend = 0, dWeekday = 0
         WHERE songId IN (:ids)
         """
     )

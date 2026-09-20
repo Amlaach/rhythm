@@ -50,11 +50,37 @@ data class SongStatsEntity(
     val rating: Int = 0,
     /** style tags attached to this song alone, overriding the artist's */
     val styles: String = "",
+    /**
+     * Whether [styles] was written by the style learner rather than typed.
+     *
+     * The two have to be told apart because they deserve opposite treatment.
+     * What the user typed is ground truth and must never be overwritten by
+     * something derived from it. What the learner guessed is only as good as
+     * the model that produced it, and that model gets better every time more
+     * artists are tagged - so a guess made on the first run, when it had a
+     * dozen examples, should not outlive the model that made it.
+     *
+     * Without this they were the same field, so the learner skipped every
+     * song it had ever labelled and its own early mistakes were permanent.
+     */
+    val stylesAuto: Int = 0,
     /** play counts per time-of-day bucket: 0 night, 1 morning, 2 afternoon, 3 evening */
     val b0: Int = 0,
     val b1: Int = 0,
     val b2: Int = 0,
     val b3: Int = 0,
+    /**
+     * Plays on a Friday or a Saturday, and plays on the other five days.
+     *
+     * Two counters rather than seven. Seven would be the general answer and
+     * would almost never reach significance - a song needs plays in a bucket
+     * before the bucket means anything, and dividing a few dozen plays seven
+     * ways leaves nothing anywhere. The split that carries the signal in a
+     * library like this one is the weekend against the week, and two buckets
+     * fill four times faster than seven.
+     */
+    val dWeekend: Int = 0,
+    val dWeekday: Int = 0,
     /**
      * A genre the user set, replacing whatever the file said.
      *
@@ -175,9 +201,9 @@ data class AudioFeatureEntity(
      * kilobytes of mostly zeros per song - for music the distribution is
      * sharply peaked, so the top slice holds everything a classifier can use.
      *
-     * Empty in the lite build, which ships without the model, and empty for
-     * anything analysed before the model arrived. Both cases have to read as
-     * "not known" rather than "nothing there".
+     * Empty where the model failed to load, and empty for anything analysed
+     * before the model arrived. Both cases have to read as "not known" rather
+     * than "nothing there".
      */
     val tags: String = ""
 )

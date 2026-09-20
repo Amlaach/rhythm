@@ -167,6 +167,44 @@ object AudioTags {
         return out
     }
 
+    /**
+     * One number per group in [ALL]: the strongest class each one contains.
+     *
+     * This is what a classifier trained on a few dozen songs should be given,
+     * rather than all 521 classes. With 521 inputs and forty examples there
+     * are more parameters than observations by an order of magnitude, and a
+     * model in that position fits noise - it has enough freedom to explain the
+     * training set exactly without learning anything that transfers. Almost
+     * all of those inputs are zero for music anyway: the classes that ever
+     * fire on this repertoire are the ones already named above.
+     *
+     * Twenty five numbers carrying the same information, and the groups are
+     * chosen rather than learned, which is the cheapest regularisation there
+     * is - the knowledge that Choir and Chant mean one thing here is put in by
+     * hand instead of being paid for in examples.
+     */
+    fun groupStrengths(stored: String): FloatArray {
+        val out = FloatArray(ALL.size)
+        if (stored.isBlank()) return out
+        val scores = HashMap<Int, Float>()
+        for (pair in stored.split(',')) {
+            val colon = pair.indexOf(':')
+            if (colon <= 0) continue
+            val index = pair.substring(0, colon).toIntOrNull() ?: continue
+            val value = pair.substring(colon + 1).toFloatOrNull() ?: continue
+            scores[index] = value
+        }
+        for (g in ALL.indices) {
+            var best = 0f
+            for (classIndex in ALL[g].indices) {
+                val v = scores[classIndex] ?: 0f
+                if (v > best) best = v
+            }
+            out[g] = best
+        }
+        return out
+    }
+
     /** Rebuilds a sparse score vector written by [compress]. */
     fun decompress(stored: String, size: Int = 521): FloatArray {
         val out = FloatArray(size)

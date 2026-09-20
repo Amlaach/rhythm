@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.data
 
+import com.elchanan.rhythm.engine.Names
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.TagOverrideEntity
 import java.util.Locale
@@ -208,7 +209,7 @@ fun applyOverride(song: SongEntity, override: TagOverrideEntity?): SongEntity {
         title = title,
         titleLower = title.lowercase(Locale.ROOT),
         artistName = artist,
-        artistKey = MediaScanner.normalizeKey(MediaScanner.primaryArtist(artist)),
+        artistKey = Names.normalizeKey(Names.primaryArtist(artist)),
         albumName = album
     )
 }

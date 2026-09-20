@@ -1,4 +1,4 @@
-name: Build Rhythm APK
+name: Build Rhythm
 
 on:
   push:
@@ -49,9 +49,12 @@ jobs:
       - name: Build release APK
         run: ./gradlew --no-daemon --stacktrace assembleRelease
 
-      - name: Build debug APK
-        if: always()
-        run: ./gradlew --no-daemon assembleDebug
+      # Compiles on Linux even though it ships as a Windows MSI - Compose
+      # Desktop is cross platform, and only jpackage needs the target OS. So
+      # a broken desktop build is caught here on every run rather than at
+      # packaging time on a runner we do not start yet.
+      - name: Compile the desktop module
+        run: ./gradlew --no-daemon --stacktrace :desktop:compileKotlin
 
       - name: Collect APKs
         if: always()
@@ -59,14 +62,18 @@ jobs:
           mkdir -p out
           find app/build/outputs/apk -name "*.apk" -exec cp {} out/ \; || true
           ls -lh out || true
-          echo "### APKs" >> "$GITHUB_STEP_SUMMARY"
+          echo "### APK" >> "$GITHUB_STEP_SUMMARY"
+          echo "version 1.0.${{ github.run_number }} (build ${{ github.run_number }}), commit ${GITHUB_SHA:0:7}" >> "$GITHUB_STEP_SUMMARY"
           ls -lh out >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: Upload APKs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rhythm-apk
+          # Numbered, so a download sitting in a folder still says which build
+          # it is. A file called rhythm-apk tells you nothing a month later,
+          # and the version inside the APK is only readable once installed.
+          name: rhythm-apk-${{ github.run_number }}
           path: out/*.apk
           if-no-files-found: warn
 

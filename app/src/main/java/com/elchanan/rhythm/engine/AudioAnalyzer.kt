@@ -87,8 +87,6 @@ object AudioAnalyzer {
         6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17
     )
 
-    val KEY_NAMES = arrayOf("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
-
     /**
      * Returns null when the file cannot be decoded - a corrupt file simply
      * stays unanalysed instead of stopping the whole pass.
@@ -912,24 +910,6 @@ object AudioAnalyzer {
         return peaks.toDouble()
     }
 
-    fun keyLabel(key: Int, mode: Int): String = when {
-        key < 0 -> "לא זוהה"
-        mode == 1 -> "${KEY_NAMES[key]} מז'ור"
-        mode == 0 -> "${KEY_NAMES[key]} מינור"
-        else -> KEY_NAMES[key]
-    }
-
-    /**
-     * Prefers the modal name over "major"/"minor" when the estimate was clear.
-     * "D אהבה רבה" tells a listener here far more than "D מינור" does.
-     */
-    fun modeLabel(f: AudioFeatureEntity): String {
-        if (f.musicalKey < 0) return "לא זוהה"
-        val mode = MusicalMode.byOrdinalOrNull(f.scaleMode)
-        if (mode == null || f.scaleConfidence < 0.2f) return keyLabel(f.musicalKey, f.mode)
-        return "${KEY_NAMES[f.musicalKey]} ${mode.label}"
-    }
-
     /**
      * Placeholder row for a file that could not be decoded, so the analysis
      * pass does not retry it forever. bpm 0 keeps it out of every tempo based
@@ -953,10 +933,5 @@ object AudioAnalyzer {
             timbre = zeros,
             timbreVar = zeros
         )
-    }
-
-    fun parseVector(csv: String, expected: Int): DoubleArray {
-        val parts = csv.split(',')
-        return DoubleArray(expected) { parts.getOrNull(it)?.toDoubleOrNull() ?: 0.0 }
     }
 }

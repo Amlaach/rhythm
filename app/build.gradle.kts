@@ -9,6 +9,23 @@ plugins {
 // so a plain `gradlew assembleRelease` still produces an installable APK.
 val ciKeystorePath: String? = System.getenv("RHYTHM_KEYSTORE_FILE")
 
+// The version has to change between builds or it cannot answer the only
+// question ever asked of it: is this the one with the fix in it. It was
+// pinned at 1 / "1.0.0", so every APK ever produced claimed to be the same
+// release and there was no way to tell an install from last month from one
+// built five minutes ago.
+//
+// CI supplies a run number that only ever goes up, which is exactly what a
+// version code is meant to be, and the commit it was built from. A build made
+// on someone's own machine has neither and says so rather than borrowing a
+// number it has no right to.
+//
+// Deliberately no build timestamp: it would differ on every configuration and
+// so invalidate the build cache this project turns on, and the commit answers
+// the same question more precisely anyway.
+val ciBuildNumber: Int? = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+val ciCommit: String = System.getenv("GITHUB_SHA").orEmpty().take(7)
+
 android {
     namespace = "com.elchanan.rhythm"
     compileSdk = 34
@@ -21,8 +38,11 @@ android {
         // exactly where a local player with no streaming still earns its place.
         minSdk = 21
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = ciBuildNumber ?: 1
+        versionName = if (ciBuildNumber != null) "1.0.$ciBuildNumber" else "1.0.0-dev"
+        // Carried into the app so the about screen can name the exact commit
+        // rather than a version number that only says which day it was.
+        buildConfigField("String", "GIT_SHA", "\"$ciCommit\"")
         vectorDrawables { useSupportLibrary = true }
 
         // TensorFlow Lite ships a native library per architecture, and carrying
@@ -43,22 +63,6 @@ android {
                 keyAlias = System.getenv("RHYTHM_KEY_ALIAS")
                 keyPassword = System.getenv("RHYTHM_KEY_PASSWORD")
             }
-        }
-    }
-
-    // Two builds of the same app. The tagging model is four megabytes of
-    // weights plus a native runtime, and that is a real cost for someone on a
-    // slow connection or a full phone - so it is a separate download rather
-    // than something everybody carries. The lite build keeps every measured
-    // feature; what it does not have is the model that names what it hears.
-    flavorDimensions += "engine"
-    productFlavors {
-        create("lite") {
-            dimension = "engine"
-            versionNameSuffix = "-lite"
-        }
-        create("full") {
-            dimension = "engine"
         }
     }
 
@@ -113,6 +117,9 @@ android {
 }
 
 dependencies {
+    // The music engine. Pure Kotlin, no Android - see engine/build.gradle.kts.
+    implementation(project(":engine"))
+
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
 
@@ -147,7 +154,7 @@ dependencies {
     implementation("com.google.guava:guava:32.1.3-android")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
-    // On-device audio tagging, in the full build only.
+    // On-device audio tagging.
     //
     // The bare interpreter rather than the audio task library: that one
     // declares minSdk 23 and would have taken Android 5 back off the table,
@@ -155,5 +162,5 @@ dependencies {
     // model takes a raw waveform, so the metadata handling the task library
     // exists to provide is not needed, and resampling is already in the
     // analyser.
-    "fullImplementation"("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
 }

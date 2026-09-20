@@ -1,7 +1,6 @@
 package com.elchanan.rhythm.engine
 
 import com.elchanan.rhythm.data.db.ArtistEntity
-import com.elchanan.rhythm.data.MediaScanner
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
@@ -90,7 +89,14 @@ data class EngineTuning(
     val repeatGuard: Float = 1.0f,
     val acousticWeight: Float = 1.0f,
     /** Styles the user has said never belong in the same mix, one rule a line. */
-    val separations: String = ""
+    val separations: String = "",
+    /**
+     * The mood the feed last told the user they lean towards.
+     *
+     * Carried in so the shelf can defend its previous answer rather than
+     * recomputing an opinion about someone from scratch every refresh.
+     */
+    val lastMood: String = ""
 )
 
 data class TransitionEdge(val weight: Double, val penalty: Double)
@@ -149,6 +155,7 @@ class Recommender(
 ) {
 
     private val hourBucket: Int = bucketOf(now)
+    private val weekendNow: Boolean = isWeekend(now)
     private val maxPlays: Int = stats.values.maxOfOrNull { it.playCount } ?: 0
 
     /** The styles the user has said must not be mixed, ready to consult. */
@@ -260,6 +267,30 @@ class Recommender(
     private val tokensBySong: Map<Long, List<String>> = songs.associate { it.id to tokensFor(it) }
 
     /**
+     * How much each token actually distinguishes one song from another.
+     *
+     * Every token used to weigh the same. A song carries its style words plus
+     * a length bucket, a tempo bucket and a mode, so "len:mid" - which sits on
+     * half the library and separates nothing - counted exactly as much as
+     * "חזנות", which sits on a handful and separates everything. The words the
+     * user typed were left holding well under half the vector, and the more
+     * the analyser measured the less they held.
+     *
+     * Inverse document frequency is the standard answer: a token on every song
+     * carries no information and is worth almost nothing, a rare one is worth
+     * a great deal. Smoothed with the 1 + so that a universal token fades
+     * rather than vanishing outright.
+     */
+    private val tokenWeight: Map<String, Double> = run {
+        val df = HashMap<String, Int>()
+        for (tokens in tokensBySong.values) {
+            for (t in tokens.distinct()) df[t] = (df[t] ?: 0) + 1
+        }
+        val total = songs.size.coerceAtLeast(1).toDouble()
+        df.mapValues { (_, count) -> ln(1.0 + total / count) }
+    }
+
+    /**
      * Groups recordings of the same piece.
      *
      * A library built from downloads is full of them - a studio cut, a live take
@@ -269,7 +300,7 @@ class Recommender(
      * melody matches even when the live version was sung in another key.
      */
     private val versionKeyById: Map<Long, String> = songs.associate { song ->
-        song.id to MediaScanner.normalizeKey(
+        song.id to Names.normalizeKey(
             VERSION_NOISE.replace(song.title, " ") + " " + song.artistKey
         )
     }
@@ -404,10 +435,13 @@ class Recommender(
         return out.map { it.lowercase(Locale.ROOT) }.distinct()
     }
 
+    /** The song's tokens, weighted by how much each one tells us, then L2 normalised. */
     private fun unitVector(tokens: List<String>): Map<String, Double> {
         if (tokens.isEmpty()) return emptyMap()
-        val v = 1.0 / sqrt(tokens.size.toDouble())
-        return tokens.associateWith { v }
+        val raw = tokens.associateWith { tokenWeight[it] ?: 1.0 }
+        val norm = sqrt(raw.values.sumOf { it * it })
+        if (norm < 1e-9) return emptyMap()
+        return raw.mapValues { it.value / norm }
     }
 
     /**
@@ -442,10 +476,10 @@ class Recommender(
             val styles = Styles.parse(artist.styles)
             if (styles.isEmpty()) continue
             val w = (artist.rating - 3) * 1.1
-            val per = w / sqrt(styles.size.toDouble())
-            for (s in styles) {
-                val k = s.lowercase(Locale.ROOT)
-                acc[k] = (acc[k] ?: 0.0) + per
+            // Through the same weighting the songs get, or the two sides of
+            // the cosine would be measuring on different scales.
+            for ((k, value) in unitVector(styles.map { it.lowercase(Locale.ROOT) })) {
+                acc[k] = (acc[k] ?: 0.0) + w * value
             }
         }
 
@@ -453,10 +487,9 @@ class Recommender(
         for (song in songs) {
             val w = behaviour[song.id] ?: 0.0
             if (abs(w) < 1e-6) continue
-            val tokens = tokensBySong[song.id].orEmpty()
-            if (tokens.isEmpty()) continue
-            val per = w / sqrt(tokens.size.toDouble())
-            for (t in tokens) acc[t] = (acc[t] ?: 0.0) + per
+            for ((t, value) in unitVector(tokensBySong[song.id].orEmpty())) {
+                acc[t] = (acc[t] ?: 0.0) + w * value
+            }
         }
 
         val norm = sqrt(acc.values.sumOf { it * it })
@@ -496,6 +529,24 @@ class Recommender(
         return ((share - 0.25) / 0.75).coerceIn(-0.4, 1.0)
     }
 
+    /**
+     * How much this song belongs to the kind of day it is now.
+     *
+     * The same shape as [timeFit] and deliberately weaker. Two buckets means
+     * a strong claim can be made from few plays, which is exactly when a
+     * strong claim is least warranted, so the ceiling is lower and the floor
+     * shallower. Silent until a song has been heard enough times for the
+     * split to mean anything.
+     */
+    private fun dayFit(st: SongStatsEntity?): Double {
+        if (st == null) return 0.0
+        val total = st.dWeekend + st.dWeekday
+        if (total < 4) return 0.0
+        val here = if (weekendNow) st.dWeekend else st.dWeekday
+        val share = here.toDouble() / total
+        return ((share - 0.5) / 0.5).coerceIn(-0.3, 1.0)
+    }
+
     private fun ratingTerm(song: SongEntity): Double {
         val songRating = stats[song.id]?.rating ?: 0
         val artistRating = artists[song.artistKey]?.rating ?: 0
@@ -527,7 +578,16 @@ class Recommender(
 
         val skips = st?.skipCount ?: 0
         val attempts = plays + skips
-        if (attempts >= 3) score -= 1.25 * (skips.toDouble() / attempts)
+        // Smoothed rather than taken raw. One play and two skips is a ratio of
+        // 0.67 on three observations, and charging the full penalty for that
+        // condemned songs on evidence far too thin to carry it. The prior it
+        // is pulled towards is how often this listener skips anything at all,
+        // so a library that is skipped through constantly does not read every
+        // song in it as bad.
+        if (attempts > 0) {
+            val rate = (skips + SKIP_PRIOR * restlessness) / (attempts + SKIP_PRIOR)
+            score -= 1.25 * rate
+        }
 
         // How much of the track actually gets heard. A skip count alone is blunt:
         // it cannot tell a song abandoned after four seconds from one left at the
@@ -544,6 +604,7 @@ class Recommender(
         }
 
         score += 0.75 * timeFit(st)
+        score += 0.45 * dayFit(st)
         score += 0.6 * sessionFit(song.id)
         score -= 2.6 * tuning.repeatGuard * exp(-hoursSince(st?.lastPlayedAt ?: 0L) / 9.0)
         score += 0.35 * exp(-daysSince(song.dateAddedSec * 1000L) / 21.0)
@@ -585,7 +646,7 @@ class Recommender(
                 "התאמת סאונד",
                 1.15 * tuning.acousticWeight * (acousticFit ?: 0.0),
                 features[song.id]?.let { f ->
-                    "${f.bpm.toInt()} BPM · ${AudioAnalyzer.keyLabel(f.musicalKey, f.mode)}"
+                    "${f.bpm.toInt()} BPM · ${Features.keyLabel(f.musicalKey, f.mode)}"
                 } ?: "השיר עוד לא נותח"
             )
         )
@@ -604,15 +665,52 @@ class Recommender(
             )
         }
         val skips = st?.skipCount ?: 0
-        if (plays + skips >= 3) {
+        val attempts = plays + skips
+        if (attempts > 0) {
+            val rate = (skips + SKIP_PRIOR * restlessness) / (attempts + SKIP_PRIOR)
+            out.add(
+                ScoreTerm("דילוגים", -1.25 * rate, "$skips דילוגים מתוך $attempts")
+            )
+        }
+        // Four terms used to be missing from this list, so the numbers on
+        // screen could not add up to the total printed above them - which is
+        // the one thing a breakdown has to do.
+        if (plays >= 2) {
+            val finished = (st?.completeCount ?: 0).toDouble() / plays
             out.add(
                 ScoreTerm(
-                    "דילוגים",
-                    -1.25 * (skips.toDouble() / (plays + skips)),
-                    "$skips דילוגים מתוך ${plays + skips}"
+                    "השלמת השיר",
+                    0.9 * (finished - 0.5),
+                    "${(finished * 100).toInt()}% מההשמעות הושלמו"
                 )
             )
         }
+        if (attempts >= 2 && song.durationMs > 0) {
+            val expected = song.durationMs.toDouble() * attempts
+            val heard = ((st?.listenedMs ?: 0L).toDouble() / expected).coerceIn(0.0, 1.0)
+            out.add(
+                ScoreTerm(
+                    "כמה נשמע בפועל",
+                    0.7 * (heard - 0.5),
+                    "${(heard * 100).toInt()}% מהאורך, בממוצע"
+                )
+            )
+        }
+        val session = sessionFit(song.id)
+        if (session != 0.0) {
+            out.add(
+                ScoreTerm("מה שמתנגן עכשיו", 0.6 * session, "לפי הסשן ב-45 הדקות האחרונות")
+            )
+        }
+        val daysOnDevice = daysSince(song.dateAddedSec * 1000L)
+        out.add(
+            ScoreTerm(
+                "נוסף לאחרונה",
+                0.35 * exp(-daysOnDevice / 21.0),
+                if (daysOnDevice > 9_000) "לא ידוע מתי נוסף"
+                else "במכשיר כבר ${daysOnDevice.toInt()} ימים"
+            )
+        )
         out.add(
             ScoreTerm(
                 "התאמה לשעה",
@@ -620,6 +718,16 @@ class Recommender(
                 bucketName(hourBucket)
             )
         )
+        val day = dayFit(st)
+        if (day != 0.0) {
+            out.add(
+                ScoreTerm(
+                    "התאמה ליום",
+                    0.45 * day,
+                    if (weekendNow) "שישי-שבת" else "אמצע השבוע"
+                )
+            )
+        }
         val hours = hoursSince(st?.lastPlayedAt ?: 0L)
         out.add(
             ScoreTerm(
@@ -639,11 +747,38 @@ class Recommender(
     private fun noise(id: Long, salt: Long, amount: Double): Double =
         (Random(id * 1_000_003L + salt).nextDouble() - 0.5) * amount
 
+    /**
+     * How strongly the listening says these belong together, with popularity
+     * divided out.
+     *
+     * The edges are raw counts: every time two songs are heard close together
+     * the weight between them goes up. So a song played two hundred times
+     * accumulates heavy edges to everything it has ever sat near, and one
+     * played three times has almost nothing - and the question "what goes with
+     * this" quietly became "what is popular", which the score already answers
+     * elsewhere and does not need answering twice.
+     *
+     * Dividing by the square root of the two play counts is the standard
+     * correction, the same normalisation that turns a co-occurrence count into
+     * a cosine. What is left is how often these two were heard together
+     * relative to how often either was heard at all.
+     */
     private fun affinityTo(seedIds: Collection<Long>, candidate: Long): Double {
         if (seedIds.isEmpty()) return 0.0
+        val candidatePlays = (stats[candidate]?.playCount ?: 0).toDouble()
         var sum = 0.0
-        for (seed in seedIds) sum += affinity[seed]?.get(candidate) ?: 0.0
-        return sum / (sum + 3.0)
+        for (seed in seedIds) {
+            val weight = affinity[seed]?.get(candidate) ?: 0.0
+            if (weight <= 0.0) continue
+            val seedPlays = (stats[seed]?.playCount ?: 0).toDouble()
+            // The + 1 keeps a pair whose counts have been reset from dividing
+            // by zero, and costs nothing once either song has been played.
+            sum += weight / sqrt((seedPlays + 1.0) * (candidatePlays + 1.0))
+        }
+        // The saturation constant moves with the scale: the terms above are now
+        // fractions of one rather than counts, so the old 3.0 would have
+        // flattened every pair to near nothing.
+        return sum / (sum + AFFINITY_HALF)
     }
 
     /**
@@ -1258,11 +1393,7 @@ class Recommender(
         }
         val moodModel = MoodModel(features.values)
         if (engaged.size >= 5 && moodModel.ready) {
-            val favourite = Mood.entries
-                .map { mood -> mood to engaged.count { moodModel.matches(mood, features[it.id]) } }
-                .filter { it.second >= 3 }
-                .maxByOrNull { it.second }
-                ?.first
+            val favourite = favouriteMood(engaged, moodModel)
             if (favourite != null) {
                 val more = notDisliked
                     .filter { moodModel.matches(favourite, features[it.id]) && it !in engaged }
@@ -1316,6 +1447,73 @@ class Recommender(
         }
     }
 
+    /**
+     * The mood the listening leans towards, or null when it does not lean.
+     *
+     * This shelf announces a conclusion about a person - "it looks like you
+     * like calm" - and it was changing its mind constantly. Three reasons, all
+     * of them fixable:
+     *
+     * The moods are not exclusive. One track can be calm and dark and steady
+     * at once, so it is counted for לילה, רגוע and ריכוז together and the
+     * totals sit on top of each other. Taking the largest of a set of numbers
+     * that are nearly equal is taking noise.
+     *
+     * There was no margin. A library where calm scored five and rhythmic four
+     * produced a confident headline, and the next play reversed it.
+     *
+     * And there was no memory. Nothing knew what it had said last time, so
+     * there was nothing to be consistent with.
+     *
+     * So: a share rather than a count, a clear margin over the runner up
+     * before anything is claimed at all, and the previous answer defended
+     * unless the new one beats it by that same margin. What it costs is
+     * reacting a little late to a real change in taste, which is the right
+     * way round for a sentence that purports to describe someone.
+     */
+    fun favouriteMood(engaged: List<SongEntity>, model: MoodModel): Mood? {
+        if (engaged.size < 5) return null
+        val counts = Mood.entries
+            .map { mood -> mood to engaged.count { model.matches(mood, features[it.id]) } }
+            .filter { it.second >= 3 }
+            .sortedByDescending { it.second }
+        if (counts.isEmpty()) return null
+
+        val leader = counts[0]
+        val runnerUp = counts.getOrNull(1)?.second ?: 0
+        val total = engaged.size.toDouble()
+        val margin = (leader.second - runnerUp) / total
+
+        val previous = Mood.entries.firstOrNull { it.name == tuning.lastMood }
+        if (previous != null && previous != leader.first) {
+            // The incumbent keeps the shelf unless the challenger is clearly
+            // ahead. Without this the two swap on a single play.
+            val held = counts.firstOrNull { it.first == previous }
+            if (held != null && (leader.second - held.second) / total < MOOD_MARGIN) {
+                pickedMood = previous.name
+                return previous
+            }
+        }
+        if (margin < MOOD_MARGIN && previous != leader.first) {
+            // Nothing is clearly in front and there is no incumbent to keep.
+            // Saying nothing is better than saying whichever was first in the
+            // enum, which is what the old code did.
+            pickedMood = null
+            return null
+        }
+        pickedMood = leader.first.name
+        return leader.first
+    }
+
+    /**
+     * The mood [buildFeed] settled on, for the caller to remember.
+     *
+     * A snapshot is thrown away after every feed, so the value has to leave
+     * through something; this is read once, straight after buildFeed.
+     */
+    var pickedMood: String? = null
+        private set
+
     // -----------------------------------------------------------------------
     // Daily mixes: k-means over the acoustic space
     // -----------------------------------------------------------------------
@@ -1337,7 +1535,9 @@ class Recommender(
         val dims = AcousticSpace.DIMS
         val points = entries.map { space.vectors[it.id]!! }
         val k = minOf(maxMixes, maxOf(2, entries.size / 60))
-        val random = Random(feedSeed * 31 + 7)
+        // By the day, not by the refresh button. These are called the daily
+        // mixes and they were changing only when the feed was reshuffled.
+        val random = Random(now / 86_400_000L * 31 + 7)
 
         // k-means++ seeding: first centre at random, the rest biased towards
         // whatever is furthest from what has been chosen already
@@ -1456,6 +1656,114 @@ class Recommender(
         return acc
     }
 
+    /**
+     * How well the engine would have guessed what actually came next.
+     *
+     * Every change to the ranking until now has been an argument. This turns
+     * them into a number: walk the recent history, and for each song that was
+     * followed by another, ask where the engine ranks that other song out of
+     * the whole library. If a change to the scoring is an improvement, the
+     * true next song moves up.
+     *
+     * Two honest limits, and they matter.
+     *
+     * It is optimistic. The statistics it ranks with already include the plays
+     * being predicted, so the engine has seen the answer. That makes the
+     * absolute numbers flattering and says nothing about them. What it does
+     * not do is favour one version of the scoring over another, which is what
+     * this is for - the comparison between two runs is sound even though
+     * neither is an unbiased estimate of anything.
+     *
+     * And it measures agreement with what was listened to under the old
+     * recommendations, not what the listener would have enjoyed most. A
+     * change that scores worse here is not necessarily worse; it is
+     * differently. It is a guard against regressions, not a verdict.
+     *
+     * The random baseline is returned alongside for exactly that reason: a
+     * recall of 0.30 means nothing until it is set against the 0.025 that
+     * guessing would have produced.
+     */
+    data class SequenceReport(
+        val pairs: Int,
+        val librarySize: Int,
+        val recallAt10: Double,
+        val recallAt50: Double,
+        val meanReciprocalRank: Double,
+        val medianRank: Int
+    ) {
+        /** What pure chance would score on a library this size. */
+        val randomRecallAt10: Double get() = 10.0 / librarySize.coerceAtLeast(1)
+        val randomRecallAt50: Double get() = 50.0 / librarySize.coerceAtLeast(1)
+    }
+
+    /**
+     * @param recent song ids in the order they were played, oldest first.
+     * @param maxPairs a ceiling on the work: each pair is scored against the
+     *   whole library, so this is the difference between a second and a minute.
+     */
+    fun evaluateSequence(recent: List<Long>, maxPairs: Int = 60): SequenceReport? {
+        val pool = songs.filter { (stats[it.id]?.liked ?: 0) != -1 }
+        if (pool.size < 20) return null
+
+        val pairs = ArrayList<Pair<Long, Long>>()
+        for (i in 0 until recent.size - 1) {
+            val from = recent[i]
+            val to = recent[i + 1]
+            if (from == to || from <= 0L || to <= 0L) continue
+            if (tokensBySong[from] == null || tokensBySong[to] == null) continue
+            pairs.add(from to to)
+        }
+        if (pairs.isEmpty()) return null
+        val sample = pairs.takeLast(maxPairs)
+
+        var hits10 = 0
+        var hits50 = 0
+        var reciprocal = 0.0
+        val ranks = ArrayList<Int>(sample.size)
+
+        for ((from, to) in sample) {
+            val target = continuationScore(from, to)
+            // The rank is how many candidates the engine put in front of the
+            // song that actually came next. Counting beats sorting: the whole
+            // ordering is not needed, only one position in it.
+            var ahead = 1
+            for (candidate in pool) {
+                if (candidate.id == from || candidate.id == to) continue
+                if (continuationScore(from, candidate.id) > target) ahead++
+            }
+            ranks.add(ahead)
+            if (ahead <= 10) hits10++
+            if (ahead <= 50) hits50++
+            reciprocal += 1.0 / ahead
+        }
+
+        ranks.sort()
+        return SequenceReport(
+            pairs = sample.size,
+            librarySize = pool.size,
+            recallAt10 = hits10.toDouble() / sample.size,
+            recallAt50 = hits50.toDouble() / sample.size,
+            meanReciprocalRank = reciprocal / sample.size,
+            medianRank = ranks[ranks.size / 2]
+        )
+    }
+
+    /**
+     * The same arithmetic [continuation] ranks by, for one candidate.
+     *
+     * Shared deliberately: an evaluation that scores with a different formula
+     * than the one being shipped measures nothing about the one being shipped.
+     */
+    private fun continuationScore(from: Long, candidate: Long): Double {
+        var s = baseScores[candidate] ?: 0.0
+        s += 1.6 * affinityTo(listOf(from), candidate)
+        s += 2.6 * transitionScore(from, candidate)
+        s += 1.2 * acousticSimilarity(from, candidate)
+        s += 0.9 * styleSimilarity(from, candidate)
+        s -= 0.4 * tempoDistance(from, candidate)
+        return s
+    }
+
     fun tasteReport(): TasteReport {
         val bpms = features.values.map { it.bpm }.filter { it > 20f }.sorted()
         return TasteReport(
@@ -1539,6 +1847,52 @@ class Recommender(
     }
 
     companion object {
+
+        /**
+         * Where the affinity term reaches half its ceiling.
+         *
+         * Chosen for the normalised scale: a pair that is heard together most
+         * of the times either is heard scores near 1 before the sum, and this
+         * puts the midpoint where an ordinary strong pair lands.
+         */
+        private const val AFFINITY_HALF = 0.6
+
+        /**
+         * Strength of the prior on the skip rate, in observations.
+         *
+         * Four means a song needs four attempts of its own before its measured
+         * rate outweighs the listener's baseline, which is about where three
+         * skips stop being an accident.
+         */
+        private const val SKIP_PRIOR = 4.0
+
+        /**
+         * How far in front a mood has to be before the shelf names it, as a
+         * share of the songs the listener has actually engaged with.
+         *
+         * A tenth: on fifty engaged songs that is five songs of daylight,
+         * which a single play cannot manufacture.
+         */
+        private const val MOOD_MARGIN = 0.10
+
+        /**
+         * Friday or Saturday.
+         *
+         * The week this library is listened to across is not flat. What is
+         * played coming into Shabbat, through it, and on a Tuesday afternoon
+         * are three different things, and hour-of-day buckets cannot see any
+         * of it - Friday evening and Monday evening land in the same bucket.
+         *
+         * Drawn on the device's own calendar, so it follows whatever week the
+         * phone is set to rather than assuming one.
+         */
+        fun isWeekend(timeMs: Long): Boolean {
+            val c = Calendar.getInstance()
+            c.timeInMillis = timeMs
+            val day = c.get(Calendar.DAY_OF_WEEK)
+            return day == Calendar.FRIDAY || day == Calendar.SATURDAY
+        }
+
         /** 0 night, 1 morning, 2 afternoon, 3 evening */
         fun bucketOf(timeMs: Long): Int {
             val c = Calendar.getInstance()

@@ -270,6 +270,17 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_FEED_SEED, 1)
         set(value) = sp.edit { putInt(KEY_FEED_SEED, value) }
 
+    /**
+     * The mood the home feed last said the listener leans towards.
+     *
+     * Remembered so the shelf stays consistent between refreshes. A statement
+     * about someone's taste that changes every time the page is rebuilt is
+     * not a statement about their taste.
+     */
+    var lastMood: String
+        get() = sp.getString(KEY_LAST_MOOD, "").orEmpty()
+        set(value) = sp.edit { putString(KEY_LAST_MOOD, value) }
+
     var onboarded: Boolean
         get() = sp.getBoolean(KEY_ONBOARDED, false)
         set(value) = sp.edit { putBoolean(KEY_ONBOARDED, value) }
@@ -424,6 +435,7 @@ class Prefs(context: Context) {
         const val KEY_LAST_SCAN = "last_scan"
         const val KEY_FEED_SEED = "feed_seed"
         const val KEY_ONBOARDED = "onboarded"
+        const val KEY_LAST_MOOD = "last_mood"
         const val KEY_ACOUSTIC_WEIGHT = "acoustic_weight"
         const val KEY_AUTO_ANALYZE = "auto_analyze"
         const val KEY_EXCLUDED = "excluded_folders"

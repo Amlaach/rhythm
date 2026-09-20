@@ -1,7 +1,9 @@
 package com.elchanan.rhythm.data
 
+import com.elchanan.rhythm.engine.Names
 import android.content.Context
 import com.elchanan.rhythm.data.db.AffinityEntity
+import androidx.room.withTransaction
 import com.elchanan.rhythm.data.db.BookmarkEntity
 import com.elchanan.rhythm.data.db.PlaybackPositionEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
@@ -22,6 +24,9 @@ import com.elchanan.rhythm.engine.TransitionEdge
 import com.elchanan.rhythm.engine.Recommender
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -44,24 +49,78 @@ class MusicRepository(
     // scanning
     // -----------------------------------------------------------------------
 
+    /**
+     * What the last scan found, and what each filter removed on the way.
+     *
+     * Kept because "the app only sees 200 of my 2000 songs" is otherwise
+     * impossible to answer. Every number below is a place a file can vanish,
+     * and until they were visible the only way to tell which one had eaten a
+     * library was to guess.
+     */
+    data class ScanReport(
+        val onDevice: Int,
+        val tooShort: Int,
+        val inExcludedFolder: Int,
+        val looksLikeRecording: Int,
+        val kept: Int,
+        val at: Long
+    )
+
+    private val _lastScan = MutableStateFlow<ScanReport?>(null)
+    val lastScan: StateFlow<ScanReport?> = _lastScan.asStateFlow()
+
     suspend fun rescan(): Int = withContext(Dispatchers.IO) {
         val excluded = prefs.excludedFolders.map { it.lowercase() }
         val overrides = dao.allOverrides().associateBy { it.songId }
         val skipRecordings = prefs.skipRecordings
-        val found = MediaScanner.scan(context, prefs.minDurationSec)
+        val minMs = prefs.minDurationSec * 1000L
+
+        val onDevice = MediaScanner.scan(context)
+        var tooShort = 0
+        var inExcluded = 0
+        var recordings = 0
+
+        val found = onDevice
             .filter { song ->
-                excluded.none { pattern -> song.folder.lowercase().contains(pattern) }
+                // A length of zero means MediaStore has not read the file yet,
+                // not that the file is short. Keeping it is the safe mistake:
+                // the next scan corrects the length, whereas dropping it hides
+                // a song with nothing to point at.
+                val keep = song.durationMs <= 0L || song.durationMs >= minMs
+                if (!keep) tooShort++
+                keep
             }
             .filter { song ->
-                !skipRecordings ||
-                    !MediaScanner.looksLikeRecording(
+                val keep = excluded.none { pattern -> song.folder.lowercase().contains(pattern) }
+                if (!keep) inExcluded++
+                keep
+            }
+            .filter { song ->
+                val keep = !skipRecordings ||
+                    !Names.looksLikeRecording(
                         song.folder,
                         song.path.substringAfterLast('/')
                     )
+                if (!keep) recordings++
+                keep
             }
             .map { song -> applyOverride(song, overrides[song.id]) }
-        dao.clearSongs()
-        found.chunked(400).forEach { dao.insertSongs(it) }
+
+        // In one transaction, so the observers never see the moment between
+        // the old library being cleared and the new one arriving. Without it
+        // every rescan empties the home screen for an instant.
+        RhythmDatabase.get(context).withTransaction {
+            dao.clearSongs()
+            found.chunked(400).forEach { dao.insertSongs(it) }
+        }
+        _lastScan.value = ScanReport(
+            onDevice = onDevice.size,
+            tooShort = tooShort,
+            inExcludedFolder = inExcluded,
+            looksLikeRecording = recordings,
+            kept = found.size,
+            at = System.currentTimeMillis()
+        )
         // make sure every artist that exists on the device has a profile row,
         // so the rating screen can list them without inventing anything
         val artistRows = found
@@ -69,7 +128,7 @@ class MusicRepository(
             .map { (key, list) ->
                 ArtistEntity(
                     artistKey = key,
-                    displayName = MediaScanner.primaryArtist(list.first().artistName),
+                    displayName = Names.primaryArtist(list.first().artistName),
                     rating = 0,
                     styles = "",
                     note = "",
@@ -96,14 +155,39 @@ class MusicRepository(
         )
     }
 
+    /** What this song is marked: 1 liked, -1 disliked, 0 neither. */
+    suspend fun likeOf(songId: Long): Int =
+        withContext(Dispatchers.IO) { dao.stats(songId)?.liked ?: 0 }
+
     suspend fun setSongRating(songId: Long, rating: Int) = withContext(Dispatchers.IO) {
         val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
         dao.putStats(current.copy(rating = if (current.rating == rating) 0 else rating))
     }
 
-    suspend fun setSongStyles(songId: Long, styles: String) = withContext(Dispatchers.IO) {
-        val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
-        dao.putStats(current.copy(styles = styles))
+    /**
+     * @param auto true when the learner produced these rather than the user.
+     *   A hand edit always lands as false, which is what promotes a guess the
+     *   user has since corrected into something the learner will not touch.
+     */
+    suspend fun setSongStyles(songId: Long, styles: String, auto: Boolean = false) =
+        withContext(Dispatchers.IO) {
+            val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
+            dao.putStats(current.copy(styles = styles, stylesAuto = if (auto) 1 else 0))
+        }
+
+    /**
+     * Forgets every style tag the app guessed, keeping every one that was typed.
+     *
+     * The point of telling the two apart. The model improves as more artists
+     * are tagged, and without this the songs labelled on the first run - when
+     * it had the least to go on - would keep those labels forever.
+     *
+     * @return how many songs were cleared.
+     */
+    suspend fun clearLearnedStyles(): Int = withContext(Dispatchers.IO) {
+        val cleared = dao.autoStyledCount()
+        dao.clearAutoStyles()
+        cleared
     }
 
     // -----------------------------------------------------------------------
@@ -263,7 +347,9 @@ class MusicRepository(
                 b0 = current.b0 + if (bucket == 0) 1 else 0,
                 b1 = current.b1 + if (bucket == 1) 1 else 0,
                 b2 = current.b2 + if (bucket == 2) 1 else 0,
-                b3 = current.b3 + if (bucket == 3) 1 else 0
+                b3 = current.b3 + if (bucket == 3) 1 else 0,
+                dWeekend = current.dWeekend + if (Recommender.isWeekend(now)) 1 else 0,
+                dWeekday = current.dWeekday + if (Recommender.isWeekend(now)) 0 else 1
             )
         )
         dao.insertHistory(HistoryEntity(songId = songId, playedAt = now, completed = completed, listenedMs = listenedMs))
@@ -408,6 +494,16 @@ class MusicRepository(
         measured.associate { f -> f.songId to (reference / f.energy).coerceIn(0.45f, 1f) }
     }
 
+    /**
+     * The songs recently played, oldest first, for the engine's own check.
+     *
+     * recentHistory returns newest first because every screen that shows
+     * history wants it that way; a sequence has to be read forwards.
+     */
+    suspend fun playOrder(limit: Int = 300): List<Long> = withContext(Dispatchers.IO) {
+        dao.recentHistory(limit).asReversed().map { it.songId }
+    }
+
     suspend fun songCount(): Int = withContext(Dispatchers.IO) { dao.songCount() }
 
     suspend fun clearFeatures() = withContext(Dispatchers.IO) { dao.clearFeatures() }
@@ -440,7 +536,8 @@ class MusicRepository(
                 styleWeight = prefs.styleWeight,
                 repeatGuard = prefs.repeatGuard,
                 acousticWeight = prefs.acousticWeight,
-                separations = prefs.styleSeparations
+                separations = prefs.styleSeparations,
+                lastMood = prefs.lastMood
             ),
             now = System.currentTimeMillis(),
             feedSeed = prefs.feedSeed.toLong()
@@ -698,7 +795,7 @@ class MusicRepository(
             val name = o.optString("name").trim()
             if (name.isEmpty()) continue
             val rawKey = o.optString("key").trim()
-            val key = if (rawKey.isEmpty()) MediaScanner.normalizeKey(name) else rawKey
+            val key = if (rawKey.isEmpty()) Names.normalizeKey(name) else rawKey
             val existing = dao.artist(key)
             dao.putArtist(
                 (existing ?: ArtistEntity(artistKey = key, displayName = name)).copy(
@@ -729,7 +826,7 @@ class MusicRepository(
             if (name.isEmpty()) continue
             val rating = parts.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 5) ?: 0
             val styles = parts.getOrNull(2).orEmpty()
-            val key = MediaScanner.normalizeKey(name)
+            val key = Names.normalizeKey(name)
             val existing = dao.artist(key)
             dao.putArtist(
                 (existing ?: ArtistEntity(artistKey = key, displayName = name)).copy(

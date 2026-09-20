@@ -7,7 +7,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.elchanan.rhythm.RhythmApp
-import com.elchanan.rhythm.data.MediaScanner
+import com.elchanan.rhythm.engine.Names
 import androidx.documentfile.provider.DocumentFile
 import com.elchanan.rhythm.data.FileActions
 import com.elchanan.rhythm.data.db.BookmarkEntity
@@ -34,6 +34,7 @@ import com.elchanan.rhythm.engine.Mix
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.Recommender
 import com.elchanan.rhythm.engine.ScoreTerm
+import com.elchanan.rhythm.engine.AcousticSpace
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.engine.StyleLearner
@@ -55,9 +56,19 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+
+/**
+ * How long MediaStore has to stay quiet before the library is rebuilt.
+ *
+ * A bulk index fires change notifications continuously; rescanning on
+ * each one would rewrite the song table hundreds of times and finish with
+ * the same answer as waiting for the end.
+ */
+private const val MEDIA_SETTLE_MS = 3_000L
 
 data class AlbumInfo(
     val albumId: Long,
@@ -149,9 +160,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val nameForKey = HashMap<String, String>()
             for (song in songs) {
                 byArtist.getOrPut(song.artistKey) { ArrayList() }.add(song)
-                nameForKey.putIfAbsent(song.artistKey, MediaScanner.primaryArtist(song.artistName))
-                for (credit in MediaScanner.credits(song.artistName)) {
-                    val key = MediaScanner.normalizeKey(credit)
+                nameForKey.putIfAbsent(song.artistKey, Names.primaryArtist(song.artistName))
+                for (credit in Names.credits(song.artistName)) {
+                    val key = Names.normalizeKey(credit)
                     if (key == song.artistKey) continue
                     byArtist.getOrPut(key) { ArrayList() }.add(song)
                     nameForKey.putIfAbsent(key, credit)
@@ -282,9 +293,65 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private var queueRestored = false
 
+    /** What the last scan found, and where the files it dropped went. */
+    val scanReport: StateFlow<MusicRepository.ScanReport?> = repo.lastScan
+
+    private var launchScanDone = false
+
+    /**
+     * Brings the library up to date with the device, once per launch.
+     *
+     * This used to run only when nothing had ever been scanned, which made the
+     * very first scan final. It happens moments after the permission is
+     * granted, which on a freshly filled phone is while the system is still
+     * indexing - so the app would catch a fraction of the library, write down
+     * that it had scanned, and never look again. Someone with two thousand
+     * songs could be left with two hundred and no way to tell why.
+     */
+    fun scanOnLaunch() {
+        if (launchScanDone) return
+        launchScanDone = true
+        rescan(showMessage = false)
+    }
+
+    /**
+     * Follows the device while the app is open.
+     *
+     * The library is a view of MediaStore, and MediaStore changes underneath
+     * it: the system finishes indexing, a file is copied in over USB, another
+     * app deletes one. Without this the only cure is the rescan button in
+     * settings, which is a strange thing to need on a music player.
+     */
+    private val mediaObserver = object : android.database.ContentObserver(
+        android.os.Handler(android.os.Looper.getMainLooper())
+    ) {
+        override fun onChange(selfChange: Boolean) = onMediaStoreChanged()
+    }
+
+    private var mediaChangeJob: Job? = null
+
+    /**
+     * Debounced, because a bulk index fires this hundreds of times a second
+     * and each rescan rewrites the whole song table.
+     */
+    private fun onMediaStoreChanged() {
+        mediaChangeJob?.cancel()
+        mediaChangeJob = viewModelScope.launch {
+            delay(MEDIA_SETTLE_MS)
+            if (!_busy.value) rescan(showMessage = false)
+        }
+    }
+
     init {
         player.connect()
         _lyricsFolder.value = repo.prefs.lyricsFolderUri
+        runCatching {
+            app.contentResolver.registerContentObserver(
+                android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                true,
+                mediaObserver
+            )
+        }
         viewModelScope.launch {
             analysis.refreshCounts()
             if (repo.prefs.lastScanAt == 0L) return@launch
@@ -316,6 +383,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        runCatching {
+            getApplication<Application>().contentResolver
+                .unregisterContentObserver(mediaObserver)
+        }
         player.release()
         super.onCleared()
     }
@@ -349,6 +420,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // feed - rating an artist, for one - froze the whole interface and
             // taps simply went nowhere.
             val built = withContext(Dispatchers.Default) { e.buildFeed() to e.tasteReport() }
+            // Written back so the next feed can defend this answer instead of
+            // forming a fresh opinion about the listener every refresh.
+            e.pickedMood?.let { repo.prefs.lastMood = it }
             // Filtered here rather than inside the engine: the engine's job is to
             // decide what is worth showing, and this is the user overruling that
             // afterwards. Keeping them apart means a shelf switched off still
@@ -1163,7 +1237,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val accuracy: Double?,
         val trained: Int,
         val labelled: Int,
-        val applied: Int
+        val applied: Int,
+        /** Songs whose artist carries style tags: the labels to learn from. */
+        val withStyles: Int = 0,
+        /** Songs with something measured or heard: the evidence to learn from. */
+        val withEvidence: Int = 0,
+        /** How many tagged songs carry each style, most common first. */
+        val counts: List<Pair<String, Int>> = emptyList()
     )
 
     private val _learnResult = MutableStateFlow<LearnResult?>(null)
@@ -1189,34 +1269,83 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     val lib = library.value
                     val stylesByArtist = lib.artists.associate { it.key to it.styles }
 
-                    val rows = StyleTraining.rows(lib.songs, tagsBySong, stylesByArtist)
-                    if (rows.isEmpty()) return@withContext LearnResult(null, 0, 0, 0)
+                    // The measured half of the evidence. Built from the same
+                    // rows the recommender uses, so "loud" and "fast" mean
+                    // here exactly what they mean everywhere else in the app.
+                    val space = if (features.size >= 8) {
+                        AcousticSpace(features.values)
+                    } else {
+                        null
+                    }
 
-                    val accuracy = StyleLearner.crossValidate(rows)
-                    val model = StyleLearner.fit(rows)
-                        ?: return@withContext LearnResult(accuracy, 0, rows.size, 0)
+                    // Counted separately so the screen can name the half that
+                    // is missing. "Not enough information" is true of every
+                    // failure here and useless in all of them.
+                    val withStyles = lib.songs.count {
+                        Styles.parse(stylesByArtist[it.artistKey].orEmpty()).isNotEmpty()
+                    }
+                    val withEvidence = lib.songs.count {
+                        StyleTraining.featuresFor(
+                            it.id, tagsBySong[it.id].orEmpty(), space
+                        ) != null
+                    }
+
+                    val rows = StyleTraining.rows(lib.songs, tagsBySong, stylesByArtist, space)
+                    // Kept for the message: which styles are present and how
+                    // big each one is, which is what separates "not enough
+                    // songs" from "not enough variety".
+                    val counts = StyleLearner.styleCounts(rows)
+                    if (rows.isEmpty()) {
+                        return@withContext LearnResult(
+                            null, 0, 0, 0, withStyles, withEvidence
+                        )
+                    }
+
+                    // The held-out half also picks how hard to regularise;
+                    // the final model is then fitted with that same strength,
+                    // not a different one.
+                    val validation = StyleLearner.crossValidate(rows)
+                    val accuracy = validation?.accuracy
+                    val model = StyleLearner.fit(rows, l2 = validation?.l2 ?: 0.1)
+                        ?: return@withContext LearnResult(
+                            accuracy, 0, rows.size, 0, withStyles, withEvidence, counts
+                        )
 
                     // Only worth applying when the held-out score says the model
                     // actually generalises.
                     if (accuracy == null || accuracy < 0.70) {
-                        return@withContext LearnResult(accuracy, rows.size, rows.size, 0)
+                        return@withContext LearnResult(
+                            accuracy, rows.size, rows.size, 0, withStyles, withEvidence, counts
+                        )
                     }
 
-                    // Written only where the user left a blank. Their own words
-                    // are the ground truth this was trained on and must never be
-                    // overwritten by something derived from them.
+                    // Written where the user left a blank, and over the app's
+                    // own earlier guesses. Their words are the ground truth
+                    // this was trained on and are never touched; a guess is
+                    // only as good as the model that made it, and the model is
+                    // better now than it was the first time this ran.
                     var applied = 0
                     for (song in lib.songs) {
-                        if (Styles.parse(lib.stats[song.id]?.styles.orEmpty()).isNotEmpty()) continue
+                        val own = lib.stats[song.id]
+                        val hasOwn = Styles.parse(own?.styles.orEmpty()).isNotEmpty()
+                        if (hasOwn && own?.stylesAuto != 1) continue
                         if (Styles.parse(stylesByArtist[song.artistKey].orEmpty()).isNotEmpty()) continue
-                        val stored = tagsBySong[song.id].orEmpty()
-                        if (stored.isBlank()) continue
-                        val predicted = model.predict(AudioTags.decompress(stored))
+                        // The same vector the model was fitted on. Predicting
+                        // from a different shape than it was trained on is the
+                        // easiest way to get confident nonsense.
+                        val x = StyleTraining.featuresFor(
+                            song.id,
+                            tagsBySong[song.id].orEmpty(),
+                            space
+                        ) ?: continue
+                        val predicted = model.predict(x)
                         if (predicted.isEmpty()) continue
-                        repo.setSongStyles(song.id, Styles.join(predicted))
+                        repo.setSongStyles(song.id, Styles.join(predicted), auto = true)
                         applied++
                     }
-                    LearnResult(accuracy, rows.size, rows.size, applied)
+                    LearnResult(
+                        accuracy, rows.size, rows.size, applied, withStyles, withEvidence, counts
+                    )
                 }
             }.getOrNull()
             _busy.value = false
@@ -1224,16 +1353,108 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
             _message.value = when {
                 outcome == null -> "הלמידה נכשלה"
+                outcome.labelled == 0 && outcome.withStyles == 0 ->
+                    "אף אמן לא תויג בסגנון. הלמידה לומדת מהתגיות שלך — סמן סגנונות " +
+                        "לכמה אמנים בטאב \"אמנים\" ונסה שוב."
+                outcome.labelled == 0 && outcome.withEvidence == 0 ->
+                    "אף שיר עוד לא נותח. הרץ ניתוח אודיו בהגדרות וחזור לכאן."
                 outcome.labelled == 0 ->
-                    "אין עדיין מספיק מידע. צריך שירים מנותחים ואמנים עם תגיות סגנון."
-                outcome.accuracy == null ->
-                    "יש רק ${outcome.labelled} דוגמאות — מעט מדי כדי לבדוק אם הלמידה נכונה"
+                    "${outcome.withStyles} שירים מתויגים ו-${outcome.withEvidence} מנותחים, " +
+                        "אבל אלה לא אותם שירים."
+                outcome.accuracy == null || outcome.trained == 0 -> whyNotLearned(outcome)
                 outcome.applied == 0 ->
                     "דיוק נמדד: ${percent(outcome.accuracy)} — נמוך מדי, לא שיניתי כלום"
                 else ->
                     "דיוק נמדד: ${percent(outcome.accuracy)} · תויגו ${outcome.applied} שירים"
             }
             if (outcome != null && outcome.applied > 0) refreshFeed()
+        }
+    }
+
+    /**
+     * Why learning produced nothing usable, in terms the user can act on.
+     *
+     * Four different dead ends used to share one sentence about needing more
+     * tagged songs, and for three of them that sentence was simply false. A
+     * library can be past every count and still unlearnable because almost
+     * every song carries the same style word: with nothing outside it there
+     * is no contrast to learn from, and the classifier is dropped before it
+     * is ever fitted. Telling someone with fifty six tagged songs that
+     * thirty two are needed is advice they followed long ago, and it points
+     * them at the one thing that would not have helped.
+     */
+    private fun whyNotLearned(r: LearnResult): String {
+        val floor = StyleLearner.DEFAULT_MIN_PER_STYLE
+        if (r.labelled < StyleLearner.MIN_ROWS_TO_VALIDATE) {
+            return "יש ${r.labelled} שירים מתויגים. צריך לפחות " +
+                "${StyleLearner.MIN_ROWS_TO_VALIDATE} כדי לבדוק אם הלמידה נכונה."
+        }
+        val top = r.counts.firstOrNull()
+            ?: return "יש ${r.labelled} שירים מתויגים, אבל אין בהם אף סגנון."
+        if (r.trained > 0) {
+            // Enough to fit on everything, not enough to fit on half and be
+            // scored on the other half - and nothing is written without that
+            // score, so this still ends with no labels.
+            return "נלמדו סגנונות, אבל לא היה אפשר לבדוק את הדיוק על חצי מהשירים. " +
+                "עוד אמנים מתויגים יאפשרו את הבדיקה."
+        }
+        if (top.second > r.labelled - floor) {
+            return "${top.second} מתוך ${r.labelled} השירים המתויגים מסומנים \"${top.first}\". " +
+                "כדי ללמוד מה מייחד סגנון צריך גם שירים שאינם בו — תייג אמנים " +
+                "בסגנונות אחרים, ולא עוד אמנים באותו סגנון."
+        }
+        return "אף סגנון לא הגיע ל-$floor שירים. הנפוץ ביותר, \"${top.first}\", " +
+            "מופיע ב-${top.second}."
+    }
+
+    /**
+     * Throws away every tag the app guessed, keeping every one that was typed.
+     *
+     * Worth having because the guesses are not revised on their own schedule:
+     * they are rewritten the next time learning runs, and until then an early,
+     * weak guess stays. This is how to start that over deliberately.
+     */
+    fun clearLearnedStyles() {
+        viewModelScope.launch {
+            val cleared = repo.clearLearnedStyles()
+            engine = null
+            refreshFeed()
+            _message.value = if (cleared == 0) {
+                "אין תגיות שהאפליקציה ניחשה"
+            } else {
+                "נוקו $cleared תגיות אוטומטיות. התגיות שהקלדת נשארו."
+            }
+        }
+    }
+
+    private val _sequenceReport = MutableStateFlow<Recommender.SequenceReport?>(null)
+    val sequenceReport: StateFlow<Recommender.SequenceReport?> = _sequenceReport.asStateFlow()
+
+    /**
+     * Measures the ranking against what was actually played next.
+     *
+     * Exists so that changes to the scoring stop being arguments. The number
+     * is optimistic in absolute terms - the statistics it ranks with already
+     * contain the plays being predicted - but it is biased the same way on
+     * every run, which is what makes two runs comparable.
+     */
+    fun evaluateEngine() {
+        viewModelScope.launch {
+            _busy.value = true
+            val report = runCatching {
+                val order = repo.playOrder()
+                val e = repo.buildRecommender()
+                withContext(Dispatchers.Default) { e.evaluateSequence(order) }
+            }.getOrNull()
+            _busy.value = false
+            _sequenceReport.value = report
+            _message.value = when {
+                report == null ->
+                    "אין עדיין מספיק היסטוריה כדי לבדוק. צריך רצף השמעות בספרייה של 20 שירים ומעלה."
+                else ->
+                    "נבדקו ${report.pairs} מעברים · " +
+                        "בעשירייה הראשונה: ${percent(report.recallAt10)}"
+            }
         }
     }
 
