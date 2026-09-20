@@ -46,17 +46,30 @@ jobs:
             echo "no KEYSTORE_BASE64 secret found - the release APK is signed with the debug key" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # Kept in a file as well as on screen. A Gradle log runs to hundreds of
+      # lines of environment and post-steps, and the four lines that say what
+      # is actually wrong end up in the middle of it where nothing reading the
+      # tail will ever see them.
       - name: Build release APK
-        # No --stacktrace: a Kotlin error is a handful of e: lines and a
-        # Gradle trace buries them under two hundred that say nothing.
-        run: ./gradlew --no-daemon assembleRelease
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon assembleRelease 2>&1 | tee build.log
 
       # Compiles on Linux even though it ships as a Windows MSI - Compose
       # Desktop is cross platform, and only jpackage needs the target OS. So
       # a broken desktop build is caught here on every run rather than at
       # packaging time on a runner we do not start yet.
       - name: Compile the desktop module
-        run: ./gradlew --no-daemon :desktop:compileKotlin
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon :desktop:compileKotlin 2>&1 | tee desktop.log
+
+      - name: Show the compile errors
+        if: failure()
+        run: |
+          echo "=============== errors ==============="
+          grep -E "^e: |^Caused by: |^\* What went wrong:" -A 3 build.log desktop.log | head -60 || true
+          echo "======================================"
 
       - name: Collect APKs
         if: always()
