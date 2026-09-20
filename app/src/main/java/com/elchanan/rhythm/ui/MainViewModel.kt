@@ -21,7 +21,8 @@ import com.elchanan.rhythm.data.TagFixer
 import com.elchanan.rhythm.data.MusicRepository
 import com.elchanan.rhythm.data.AnalysisManager
 import com.elchanan.rhythm.data.db.ArtistEntity
-import com.elchanan.rhythm.data.LyricLine
+import com.elchanan.rhythm.engine.LyricLine
+import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.data.LyricsSource
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.LyricsEntity
@@ -736,7 +737,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val found = runCatching { repo.lyricsFor(song) }.getOrNull()
             _lyrics.value = found
             _lyricLines.value = found?.synced?.takeIf { it.isNotBlank() }
-                ?.let { LyricsSource.parseLrc(it) }
+                ?.let { Lyrics.parseLrc(it) }
                 .orEmpty()
         }
     }
@@ -747,7 +748,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val found = runCatching { repo.refreshLyrics(song) }.getOrNull()
             _lyrics.value = found
             _lyricLines.value = found?.synced?.takeIf { it.isNotBlank() }
-                ?.let { LyricsSource.parseLrc(it) }
+                ?.let { Lyrics.parseLrc(it) }
                 .orEmpty()
             _busy.value = false
             _message.value = when {

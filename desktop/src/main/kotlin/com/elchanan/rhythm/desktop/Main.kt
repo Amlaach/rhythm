@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,6 +27,10 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -37,14 +43,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -56,11 +61,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -72,6 +76,7 @@ import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.desktop.audio.Analyzer
 import com.elchanan.rhythm.desktop.audio.AudioPlayer
+import com.elchanan.rhythm.desktop.audio.Equalizer
 import com.elchanan.rhythm.desktop.data.Store
 import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.EngineTuning
@@ -79,6 +84,12 @@ import com.elchanan.rhythm.engine.Features
 import com.elchanan.rhythm.engine.Recommender
 import com.elchanan.rhythm.engine.SectionKind
 import com.elchanan.rhythm.engine.Styles
+import com.elchanan.rhythm.ui.theme.AppBackground
+import com.elchanan.rhythm.ui.theme.RhythmTheme
+import com.elchanan.rhythm.ui.theme.Accent
+import com.elchanan.rhythm.ui.theme.Surface1
+import com.elchanan.rhythm.ui.theme.TextSecondary
+import com.elchanan.rhythm.ui.theme.gradientFor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -106,9 +117,14 @@ fun main() = application {
     ) {
         // The app is Hebrew. Right to left is the default here exactly as it
         // is on the phone, not a setting.
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Surface(modifier = Modifier.fillMaxSize()) { RhythmApp() }
+        RhythmTheme {
+            // The ground is a gradient, not a fill. A single flat colour
+            // behind everything reads as an absence - the eye has nothing to
+            // place the content against - and anything painted over it,
+            // including a Surface's own container colour, hides it, which is
+            // why this is a Box and not a Surface.
+            Box(modifier = Modifier.fillMaxSize().background(AppBackground)) {
+                RhythmApp()
             }
         }
     }
@@ -149,6 +165,7 @@ private fun RhythmApp() {
     var engine by remember { mutableStateOf<Recommender?>(null) }
     var tuning by remember { mutableStateOf(EngineTuning()) }
     var showPlayer by remember { mutableStateOf(false) }
+    var eqOpen by remember { mutableStateOf(false) }
 
     suspend fun reload() {
         val loaded = withContext(Dispatchers.IO) {
@@ -323,6 +340,17 @@ private fun RhythmApp() {
     // The end of a track arrives on the audio thread, and moving to the next
     // one touches state the composition reads, so it is handed back to the
     // composition's own dispatcher rather than acted on where it was noticed.
+    // Claimed globally rather than while focused, because a media key is
+    // pressed exactly when the window is not the thing being looked at.
+    DisposableEffect(player) {
+        MediaKeys.start(
+            onPlayPause = { player.togglePause() },
+            onNext = { scope.launch { play(queue, queueIndex + 1) } },
+            onPrevious = { scope.launch { play(queue, queueIndex - 1) } }
+        )
+        onDispose { MediaKeys.stop() }
+    }
+
     DisposableEffect(player) {
         player.onEnded = {
             scope.launch { play(queue, queueIndex + 1, previousCompleted = true) }
@@ -356,95 +384,56 @@ private fun RhythmApp() {
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("בית") })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("ספרייה") })
-            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("אמנים") })
-            Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("כוונון") })
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Button(
-                enabled = !scanning,
-                onClick = { chooseFolder()?.let { scan(listOf(it)) } }
-            ) { Text("בחר תיקייה") }
-
-            if (folders.isNotEmpty()) {
-                Button(enabled = !scanning, onClick = { scan(folders) }) { Text("סרוק מחדש") }
-            }
-            if (songs.any { it.id !in features }) {
-                Button(
-                    enabled = !scanning && !analysing,
-                    onClick = { analyze() }
-                ) { Text("נתח (${songs.count { it.id !in features }})") }
-            }
-            if (feed.isNotEmpty()) {
-                Button(
-                    enabled = !scanning && !analysing,
-                    onClick = {
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            when (tab) {
+                0 -> FeedPane(
+                    feed = feed,
+                    songs = songs.size,
+                    ratedArtists = artists.count { it.rating > 0 },
+                    scanning = scanning,
+                    analysing = analysing,
+                    unanalysed = songs.count { it.id !in features },
+                    status = status,
+                    onPick = { chooseFolder()?.let { scan(listOf(it)) } },
+                    onRescan = { scan(folders) },
+                    onAnalyze = { analyze() },
+                    onShuffle = {
                         scope.launch {
                             withContext(Dispatchers.IO) { store.feedSeed = store.feedSeed + 1 }
                             reload()
                         }
-                    }
-                ) { Text("ערבב") }
-            }
-
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                label = { Text("חיפוש") },
-                singleLine = true,
-                modifier = Modifier.width(260.dp)
-            )
-
-            Text(status, style = MaterialTheme.typography.bodyMedium)
-
-            state.error?.let {
-                Text(
-                    it,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
+                    },
+                    hasFolders = folders.isNotEmpty(),
+                    onPlay = { list, index -> play(list, index) }
                 )
-            }
-        }
-
-        // A search replaces whatever tab is open rather than being a tab of
-        // its own: someone typing into the box is asking about the library,
-        // not about the thing they happened to be looking at.
-        val results = remember(query, engine) {
-            if (query.isBlank()) emptyList() else engine?.search(query).orEmpty()
-        }
-
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            when {
-                query.isNotBlank() -> LibraryPane(
-                    songs = results,
+                1 -> SearchPane(
+                    query = query,
+                    onQuery = { query = it },
+                    results = remember(query, engine) {
+                        if (query.isBlank()) emptyList() else engine?.search(query).orEmpty()
+                    },
                     stats = stats,
-                    current = queue.getOrNull(queueIndex)?.id,
-                    empty = "לא נמצא כלום",
-                    onPlay = { index -> play(results, index) },
-                    onLike = { song -> like(song) }
+                    current = current?.id,
+                    onPlay = { list, index -> play(list, index) },
+                    onLike = { like(it) }
                 )
-                tab == 0 -> FeedPane(feed = feed, onPlay = { list, index -> play(list, index) })
-                tab == 1 -> LibraryPane(
+                2 -> LibraryPane(
                     songs = songs,
                     stats = stats,
-                    current = queue.getOrNull(queueIndex)?.id,
+                    current = current?.id,
                     empty = "סרוק תיקייה כדי להתחיל",
                     onPlay = { index -> play(songs, index) },
                     onLike = { song -> like(song) }
                 )
-                tab == 2 -> ArtistsPane(
+                3 -> ArtistsPane(
                     artists = artists,
                     onRate = { artist, rating -> rateArtist(artist, rating) },
                     onTag = { artist, style -> tagArtist(artist, style) }
                 )
                 else -> TuningPane(
+                    equalizer = player.equalizer,
+                    eqOpen = eqOpen,
+                    onEqOpen = { eqOpen = it },
                     tuning = tuning,
                     songs = songs.size,
                     analysed = features.size,
@@ -457,23 +446,50 @@ private fun RhythmApp() {
             }
         }
 
-        NowPlaying(
+        MiniPlayer(
             song = current,
-            onOpen = { if (current != null) showPlayer = true },
             positionMs = state.positionMs,
             durationMs = state.durationMs,
             playing = state.playing,
-            volume = volume,
+            onOpen = { if (current != null) showPlayer = true },
             onToggle = { player.togglePause() },
-            onPrevious = { play(queue, queueIndex - 1) },
-            onNext = { play(queue, queueIndex + 1) },
-            onSeek = { player.seekTo(it) },
-            onVolume = {
-                volume = it
-                player.setVolume(it)
-            }
+            onNext = { play(queue, queueIndex + 1) }
         )
+
+        // The same four the phone has, in the same order, with the same icons
+        // and the same words. A fifth for tuning, which the phone reaches from
+        // inside the home screen and a window has room to show outright.
+        NavigationBar(containerColor = Surface1) {
+            NavTab(tab, 0, "בית", Icons.Filled.Home) { tab = 0 }
+            NavTab(tab, 1, "חיפוש", Icons.Filled.Search) { tab = 1 }
+            NavTab(tab, 2, "ספרייה", Icons.Filled.LibraryMusic) { tab = 2 }
+            NavTab(tab, 3, "אמנים", Icons.Filled.Star) { tab = 3 }
+            NavTab(tab, 4, "כוונון", Icons.Filled.Tune) { tab = 4 }
+        }
     }
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.NavTab(
+    current: Int,
+    index: Int,
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    NavigationBarItem(
+        selected = current == index,
+        onClick = onClick,
+        icon = { Icon(icon, contentDescription = label) },
+        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+        colors = NavigationBarItemDefaults.colors(
+            selectedIconColor = Accent,
+            selectedTextColor = Accent,
+            indicatorColor = Surface1,
+            unselectedIconColor = TextSecondary,
+            unselectedTextColor = TextSecondary
+        )
+    )
 }
 
 /** Everything one reload reads, so the composition is updated once and not six times. */
@@ -489,70 +505,100 @@ private data class Loaded(
     val tuning: EngineTuning
 )
 
+private val GUTTER = 16.dp
+private val CARD = 156.dp
+
+/**
+ * A shelf heading: the name in full size, what it is under it in grey.
+ *
+ * The same two lines the phone draws, because the subtitle is where a shelf
+ * says why it exists - "מתוך הספרייה שלך", "כי שמעת" - and a row of covers
+ * with no explanation is a row of covers.
+ */
 @Composable
-private fun FeedPane(feed: List<FeedSection>, onPlay: (List<SongEntity>, Int) -> Unit) {
-    if (feed.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("סרוק תיקייה כדי להתחיל", style = MaterialTheme.typography.bodyLarge)
+private fun SectionHeader(title: String, subtitle: String?) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER, vertical = 6.dp)) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (subtitle != null) {
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
-        return
     }
-    // A shelf the engine produced but could not fill is a heading with
-    // nothing under it, which reads as breakage rather than as absence. The
-    // daily mixes are empty until audio analysis exists, so this is not a
-    // hypothetical case - it is the state the build is in right now.
+}
+
+@Composable
+private fun FeedPane(
+    feed: List<FeedSection>,
+    songs: Int,
+    ratedArtists: Int,
+    scanning: Boolean,
+    analysing: Boolean,
+    unanalysed: Int,
+    status: String,
+    hasFolders: Boolean,
+    onPick: () -> Unit,
+    onRescan: () -> Unit,
+    onAnalyze: () -> Unit,
+    onShuffle: () -> Unit,
+    onPlay: (List<SongEntity>, Int) -> Unit
+) {
     val visible = feed.filter { section ->
         when (section.kind) {
             SectionKind.MIX_ROW -> section.mixes.isNotEmpty()
             else -> section.songs.isNotEmpty()
         }
     }
+
     LazyColumn(modifier = Modifier.fillMaxSize()) {
+        item {
+            HomeHeader(
+                songs = songs,
+                ratedArtists = ratedArtists,
+                scanning = scanning,
+                analysing = analysing,
+                unanalysed = unanalysed,
+                status = status,
+                hasFolders = hasFolders,
+                hasFeed = visible.isNotEmpty(),
+                onPick = onPick,
+                onRescan = onRescan,
+                onAnalyze = onAnalyze,
+                onShuffle = onShuffle
+            )
+        }
         items(visible) { section ->
-            Column(modifier = Modifier.padding(bottom = 18.dp)) {
-                Text(
-                    section.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-                section.subtitle?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
-                    )
-                }
+            Column(modifier = Modifier.padding(bottom = 14.dp)) {
+                SectionHeader(section.title, section.subtitle)
                 when (section.kind) {
-                    SectionKind.MIX_ROW -> LazyRow(
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            horizontal = 16.dp
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.padding(top = 8.dp)
-                    ) {
+                    SectionKind.MIX_ROW -> Shelf {
                         items(section.mixes) { mix ->
-                            Tile(
+                            MixTile(
                                 title = mix.title,
                                 subtitle = mix.subtitle,
-                                song = mix.songs.firstOrNull(),
+                                seed = mix.id,
+                                covers = mix.songs.take(4),
                                 onClick = { onPlay(mix.songs, 0) }
                             )
                         }
                     }
-                    // Quick picks are columns of four on the phone. The same
-                    // shape here, because the point of it is that a wide
-                    // screen shows several at once without any of them being
-                    // a full row of their own.
-                    SectionKind.QUICK_PICKS -> LazyRow(
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            horizontal = 16.dp
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.padding(top = 8.dp)
-                    ) {
+                    // Columns of four, as on the phone. On a wide screen
+                    // several columns show at once, which is the point of the
+                    // shape: a quick pick is a thing to glance down, not a
+                    // row to scroll along.
+                    SectionKind.QUICK_PICKS -> Shelf {
                         items(section.songs.chunked(4)) { column ->
-                            Column(modifier = Modifier.width(320.dp)) {
+                            Column(modifier = Modifier.width(340.dp)) {
                                 for (song in column) {
                                     CompactRow(
                                         song = song,
@@ -564,13 +610,7 @@ private fun FeedPane(feed: List<FeedSection>, onPlay: (List<SongEntity>, Int) ->
                             }
                         }
                     }
-                    SectionKind.SONG_ROW -> LazyRow(
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            horizontal = 16.dp
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.padding(top = 8.dp)
-                    ) {
+                    SectionKind.SONG_ROW -> Shelf {
                         itemsIndexed(section.songs) { index, song ->
                             Tile(
                                 title = song.title,
@@ -586,6 +626,117 @@ private fun FeedPane(feed: List<FeedSection>, onPlay: (List<SongEntity>, Int) ->
     }
 }
 
+@Composable
+private fun Shelf(content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
+    LazyRow(
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = GUTTER - 4.dp),
+        modifier = Modifier.padding(top = 4.dp),
+        content = content
+    )
+}
+
+/**
+ * The top of the home screen: what the library is, and what it still needs.
+ *
+ * On the phone this is a greeting card. Here it also carries the scan and
+ * analyse actions, because a desktop has no other obvious place to put them
+ * and hiding the one button a new install needs behind a settings screen is
+ * how a first run ends with an empty window and no idea why.
+ */
+@Composable
+private fun HomeHeader(
+    songs: Int,
+    ratedArtists: Int,
+    scanning: Boolean,
+    analysing: Boolean,
+    unanalysed: Int,
+    status: String,
+    hasFolders: Boolean,
+    hasFeed: Boolean,
+    onPick: () -> Unit,
+    onRescan: () -> Unit,
+    onAnalyze: () -> Unit,
+    onShuffle: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = GUTTER, vertical = 14.dp)
+    ) {
+        Text(
+            if (songs == 0) "ברוך הבא" else "הספרייה שלך",
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        Text(
+            when {
+                songs == 0 -> "בחר תיקיית מוזיקה כדי להתחיל"
+                ratedArtists == 0 -> "$songs שירים · דרג אמנים בטאב \"אמנים\" כדי שהמנוע ילמד"
+                else -> "$songs שירים · $ratedArtists אמנים מדורגים"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary
+        )
+
+        Row(
+            modifier = Modifier.padding(top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(enabled = !scanning && !analysing, onClick = onPick) { Text("בחר תיקייה") }
+            if (hasFolders) {
+                Button(enabled = !scanning && !analysing, onClick = onRescan) { Text("סרוק מחדש") }
+            }
+            if (unanalysed > 0) {
+                Button(enabled = !scanning && !analysing, onClick = onAnalyze) {
+                    Text("נתח ($unanalysed)")
+                }
+            }
+            if (hasFeed) {
+                Button(enabled = !scanning && !analysing, onClick = onShuffle) { Text("ערבב") }
+            }
+        }
+
+        if (status.isNotBlank()) {
+            Text(
+                status,
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchPane(
+    query: String,
+    onQuery: (String) -> Unit,
+    results: List<SongEntity>,
+    stats: Map<Long, SongStatsEntity>,
+    current: Long?,
+    onPlay: (List<SongEntity>, Int) -> Unit,
+    onLike: (SongEntity) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            label = { Text("חיפוש") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(GUTTER)
+        )
+        LibraryPane(
+            songs = results,
+            stats = stats,
+            current = current,
+            empty = if (query.isBlank()) "הקלד כדי לחפש" else "לא נמצא כלום",
+            onPlay = { index -> onPlay(results, index) },
+            onLike = onLike
+        )
+    }
+}
+
 /**
  * A cover, or the panel that stands in for one.
  *
@@ -596,23 +747,75 @@ private fun FeedPane(feed: List<FeedSection>, onPlay: (List<SongEntity>, Int) ->
 @Composable
 private fun Art(song: SongEntity?, size: Dp, corner: Dp) {
     val image = rememberArtwork(song)
-    val shape = Modifier.width(size).height(size).clip(RoundedCornerShape(corner))
-    if (image != null) {
-        Image(
-            bitmap = image,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = shape
-        )
-    } else {
-        Box(modifier = shape.background(MaterialTheme.colorScheme.surfaceVariant))
+    val (c1, c2) = gradientFor(song?.artistKey.orEmpty())
+    Box(
+        modifier = Modifier
+            .width(size)
+            .height(size)
+            .clip(RoundedCornerShape(corner))
+            .background(Brush.linearGradient(listOf(c1, c2)))
+    ) {
+        if (image != null) {
+            // Covers taken from video thumbnails are 16:9. Fitting one into a
+            // square leaves two thick bands of gradient behind it and makes
+            // the artwork small; cropping fills the tile, which is what a
+            // cover is for.
+            Image(
+                bitmap = image,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
     }
 }
 
+/**
+ * A mix, shown as what is inside it over the colour its id picks.
+ *
+ * The collage rather than one cover, because a mix is several records and one
+ * of their covers would claim it for that record. The gradient stays under a
+ * mix with too few covers to fill the grid.
+ */
 @Composable
-private fun Tile(title: String, subtitle: String, song: SongEntity?, onClick: () -> Unit) {
+private fun MixTile(
+    title: String,
+    subtitle: String,
+    seed: String,
+    covers: List<SongEntity>,
+    onClick: () -> Unit
+) {
+    val (c1, c2) = gradientFor(seed)
     Column(modifier = Modifier.width(150.dp).clickable(onClick = onClick)) {
-        Art(song = song, size = 150.dp, corner = 8.dp)
+        Box(
+            modifier = Modifier
+                .width(150.dp)
+                .height(150.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Brush.linearGradient(listOf(c1, c2)))
+        ) {
+            if (covers.size >= 4) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    for (row in 0 until 2) {
+                        Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                            for (column in 0 until 2) {
+                                val cover = rememberArtwork(covers[row * 2 + column])
+                                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                                    if (cover != null) {
+                                        Image(
+                                            bitmap = cover,
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         Text(
             title,
             style = MaterialTheme.typography.bodyMedium,
@@ -623,7 +826,34 @@ private fun Tile(title: String, subtitle: String, song: SongEntity?, onClick: ()
         Text(
             subtitle,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = TextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun Tile(title: String, subtitle: String, song: SongEntity?, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .width(CARD)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 4.dp)
+    ) {
+        Art(song = song, size = CARD - 8.dp, corner = 12.dp)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -950,6 +1180,9 @@ private fun PlayerScreen(
 
 @Composable
 private fun TuningPane(
+    equalizer: Equalizer,
+    eqOpen: Boolean,
+    onEqOpen: (Boolean) -> Unit,
     tuning: EngineTuning,
     songs: Int,
     analysed: Int,
@@ -976,6 +1209,14 @@ private fun TuningPane(
             Fact("שירים עם לייק", "$liked")
             Fact("סך הנגינות", "$played")
             Text(
+                "אקולייזר",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 20.dp, bottom = 4.dp)
+            )
+        }
+        item { EqualizerPanel(equalizer = equalizer, open = eqOpen, onOpen = onEqOpen) }
+        item {
+            Text(
                 "כוונון האלגוריתם",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(top = 20.dp, bottom = 4.dp)
@@ -1001,6 +1242,67 @@ private fun TuningPane(
             Knob("משקל הדמיון האקוסטי", tuning.acousticWeight, 0f..2f,
                 "כמה הצליל עצמו קובע, לעומת מה שכתוב על השיר") {
                 onChange(tuning.copy(acousticWeight = it))
+            }
+        }
+    }
+}
+
+@Composable
+private fun EqualizerPanel(equalizer: Equalizer, open: Boolean, onOpen: (Boolean) -> Unit) {
+    // The sliders read from the filter and write to it directly. There is no
+    // copy of these six numbers anywhere else, which is what stops a slider
+    // and the sound it is meant to change from disagreeing.
+    var version by remember { mutableStateOf(0) }
+    var on by remember { mutableStateOf(equalizer.enabled) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                onClick = {
+                    on = !on
+                    equalizer.enabled = on
+                }
+            ) { Text(if (on) "כבוי" else "הפעל") }
+            Button(
+                onClick = { onOpen(!open) },
+                modifier = Modifier.padding(start = 8.dp)
+            ) { Text(if (open) "סגור" else "פתח") }
+            if (on) {
+                Button(
+                    onClick = {
+                        equalizer.reset()
+                        version++
+                    },
+                    modifier = Modifier.padding(start = 8.dp)
+                ) { Text("אפס") }
+            }
+        }
+        if (!open) return@Column
+        for (band in Equalizer.FREQUENCIES.indices) {
+            val hz = Equalizer.FREQUENCIES[band].toInt()
+            val label = if (hz >= 1000) "${hz / 1000}kHz" else "${hz}Hz"
+            var live by remember(version, band) { mutableStateOf(equalizer.gain(band)) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.width(56.dp)
+                )
+                Slider(
+                    value = live,
+                    valueRange = -Equalizer.MAX_DB..Equalizer.MAX_DB,
+                    onValueChange = {
+                        live = it
+                        equalizer.setGain(band, it)
+                    },
+                    enabled = on,
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                )
+                Text(
+                    "${live.toInt()} dB",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.width(52.dp)
+                )
             }
         }
     }
@@ -1046,86 +1348,81 @@ private fun Knob(
     }
 }
 
+/**
+ * The bar above the navigation, the way the phone carries it.
+ *
+ * Deliberately small and deliberately not a control surface: artwork, what is
+ * playing, play and next. Everything else - seeking, the thumbs, the stars -
+ * belongs to the player screen, and this is the thing that opens it.
+ */
 @Composable
-private fun NowPlaying(
+private fun MiniPlayer(
     song: SongEntity?,
-    onOpen: () -> Unit,
     positionMs: Long,
     durationMs: Long,
     playing: Boolean,
-    volume: Float,
+    onOpen: () -> Unit,
     onToggle: () -> Unit,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    onSeek: (Long) -> Unit,
-    onVolume: (Float) -> Unit
+    onNext: () -> Unit
 ) {
-    // While a thumb is held the slider has to follow the finger, not the
-    // track. The position updates several times a second, and without this
-    // the thumb snaps back under the cursor on every one of them.
-    var scrub by remember { mutableStateOf<Float?>(null) }
+    if (song == null) return
+    Column(modifier = Modifier.fillMaxWidth().background(Surface1)) {
+        // A line rather than a slider. It says how far through the song is,
+        // which is all this bar needs to say; dragging happens upstairs.
+        val fraction = if (durationMs > 0) {
+            (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        Box(modifier = Modifier.fillMaxWidth().height(2.dp).background(Surface1)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(fraction)
+                    .background(Accent)
+            )
+        }
 
-    Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
-                verticalAlignment = Alignment.CenterVertically
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(modifier = Modifier.clickable(onClick = onOpen)) {
+                Art(song = song, size = 44.dp, corner = 6.dp)
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 10.dp)
+                    .clickable(onClick = onOpen)
             ) {
-                Art(song = song, size = 40.dp, corner = 4.dp)
-                Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                    Text(
-                        song?.title ?: "לא מנוגן כלום",
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        song?.artistName?.ifEmpty { "ללא אמן" }.orEmpty(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(clock(positionMs), style = MaterialTheme.typography.labelSmall)
-                Slider(
-                    value = scrub ?: positionMs.toFloat(),
-                    valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
-                    onValueChange = { scrub = it },
-                    onValueChangeFinished = {
-                        scrub?.let { onSeek(it.toLong()) }
-                        scrub = null
-                    },
-                    enabled = song != null,
-                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
+                Text(
+                    song.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Text(clock(durationMs), style = MaterialTheme.typography.labelSmall)
+                Text(
+                    song.artistName.ifEmpty { "ללא אמן" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
-
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onPrevious, enabled = song != null) {
-                    Icon(Icons.Filled.SkipPrevious, contentDescription = "הקודם")
-                }
-                IconButton(onClick = onToggle, enabled = song != null) {
-                    Icon(
-                        if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (playing) "השהה" else "נגן"
-                    )
-                }
-                IconButton(onClick = onNext, enabled = song != null) {
-                    Icon(Icons.Filled.SkipNext, contentDescription = "הבא")
-                }
-
-                Box(modifier = Modifier.weight(1f))
-
-                Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "עוצמה")
-                Slider(
-                    value = volume,
-                    onValueChange = onVolume,
-                    modifier = Modifier.width(140.dp).padding(start = 8.dp)
+            IconButton(onClick = onToggle) {
+                Icon(
+                    if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (playing) "השהה" else "נגן",
+                    tint = MaterialTheme.colorScheme.onBackground
+                )
+            }
+            IconButton(onClick = onNext) {
+                Icon(
+                    Icons.Filled.SkipNext,
+                    contentDescription = "הבא",
+                    tint = MaterialTheme.colorScheme.onBackground
                 )
             }
         }

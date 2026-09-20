@@ -45,6 +45,15 @@ class AudioPlayer {
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
+    /**
+     * The tone controls, sitting between the decoder and the speaker.
+     *
+     * Owned by the player rather than built beside it, because it carries
+     * filter state that only means anything in the context of one continuous
+     * stream of samples.
+     */
+    val equalizer = Equalizer()
+
     /** Called when a track reaches its end on its own, not when stopped. */
     var onEnded: (() -> Unit)? = null
 
@@ -159,6 +168,7 @@ class AudioPlayer {
                         finished = true
                         break
                     }
+                    equalizer.process(buffer, read)
                     applyVolume(line)
                     line.write(buffer, 0, read)
                     // The line's own count, not bytes handed to it: write()
@@ -243,6 +253,9 @@ class AudioPlayer {
             runCatching { pcm.close() }
             return null
         }
+        // Per track, not once: the sample rate and the channel count are
+        // properties of the file and both change the filter coefficients.
+        equalizer.prepare(rate.toInt(), channels)
         return line to pcm
     }
 

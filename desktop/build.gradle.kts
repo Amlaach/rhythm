@@ -15,6 +15,17 @@ plugins {
     id("org.jetbrains.compose")
 }
 
+// The theme is not copied here, it is compiled here. Color.kt, Type.kt and
+// Theme.kt are pure Compose with no Android in them at all, so the desktop
+// module builds the very same files the phone does rather than a second set
+// that would start agreeing and end up drifting. The two builds cannot look
+// different because there is only one description of how they look.
+//
+// The proper home for this is a Compose Multiplatform module both depend on,
+// which needs the project on KMP; pointing a source directory at them says
+// the same thing today.
+sourceSets["main"].java.srcDir("../app/src/main/java/com/elchanan/rhythm/ui/theme")
+
 java {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
@@ -57,6 +68,13 @@ dependencies {
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     implementation("com.googlecode.soundlibs:tritonus-share:0.3.7.4")
     implementation("org.jflac:jflac-codec:1.5.2")
+
+    // The play, next and previous keys on a keyboard. Android handed those
+    // over with a MediaSession; Windows has no equivalent a JVM can reach, so
+    // they are claimed through the Win32 API directly. Unused on any other
+    // system, where the listener simply never starts.
+    implementation("net.java.dev.jna:jna:5.14.0")
+    implementation("net.java.dev.jna:jna-platform:5.14.0")
 
     // The library, ratings and analysis rows. Room is Android only, so the
     // desktop keeps the same data in plain SQLite through JDBC - the entity

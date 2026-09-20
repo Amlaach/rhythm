@@ -41,7 +41,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.elchanan.rhythm.data.LyricLine
+import com.elchanan.rhythm.engine.LyricLine
+import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.data.LyricsSource
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.ui.MainViewModel
@@ -252,14 +253,14 @@ fun LyricsEditorDialog(vm: MainViewModel, song: SongEntity, onDismiss: () -> Uni
         confirmButton = {
             TextButton(onClick = {
                 if (syncing) {
-                    vm.saveLyrics(song.id, text.trim(), LyricsSource.buildLrc(stamps.value))
+                    vm.saveLyrics(song.id, text.trim(), Lyrics.buildLrc(stamps.value))
                     onDismiss()
                 } else {
                     val looksLikeLrc = text.contains('[') &&
                         Regex("\\[\\d{1,2}:\\d{2}").containsMatchIn(text)
                     vm.saveLyrics(
                         song.id,
-                        if (looksLikeLrc) LyricsSource.stripTimestamps(text) else text.trim(),
+                        if (looksLikeLrc) Lyrics.stripTimestamps(text) else text.trim(),
                         if (looksLikeLrc) text else ""
                     )
                     onDismiss()
