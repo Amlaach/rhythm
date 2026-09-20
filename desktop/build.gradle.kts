@@ -36,16 +36,23 @@ dependencies {
     implementation("net.jthink:jaudiotagger:3.0.1")
 
     // Decoding. These register themselves with javax.sound through its
-    // Service Provider Interface, so nothing below ever names a format: a
-    // file goes through AudioSystem and the right one picks it up. All four
-    // are pure Java, which is what keeps the installer a single file with
-    // nothing for the user to install first - VLCJ would have meant telling
-    // people to go and fetch VLC.
+    // Service Provider Interface, so nothing in the player ever names a
+    // format: a file goes through AudioSystem and whichever one recognises
+    // it picks it up. All pure Java, which is what keeps the installer a
+    // single file with nothing for the user to install first - VLCJ decodes
+    // more and decodes it by calling a copy of VLC they would have to go and
+    // fetch themselves.
+    //
+    // Between them this is mp3, ogg vorbis, flac, and wav and aiff from the
+    // JDK itself. AAC is the gap: there is no AAC service provider published
+    // to Maven Central at all, so .m4a files are listed by the scan and
+    // refuse to play, and the player says so rather than failing blankly.
+    // Closing it means either an ONNX style port of a decoder or bundling
+    // one, and neither is worth holding up an installer for.
     implementation("com.googlecode.soundlibs:mp3spi:1.9.5.4")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     implementation("com.googlecode.soundlibs:tritonus-share:0.3.7.4")
     implementation("org.jflac:jflac-codec:1.5.2")
-    implementation("net.sourceforge.jaadec:jaad:0.8.6")
 
     // The library, ratings and analysis rows. Room is Android only, so the
     // desktop keeps the same data in plain SQLite through JDBC - the entity
