@@ -162,32 +162,6 @@ fun SettingsScreen(
 
         LazyColumn(contentPadding = PaddingValues(bottom = 60.dp)) {
             // ---------------------------------------------------------------
-            // האלגוריתם
-            // ---------------------------------------------------------------
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = gutter, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("הגדרות האלגוריתם", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "גילוי, משקל דירוגים וסגנונות, התאמת סאונד. הכל מקומי — " +
-                                "שום דבר לא יוצא מהמכשיר",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-                    }
-                    Button(
-                        onClick = onOpenAlgorithmSettings,
-                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                    ) { Text("פתח") }
-                }
-            }
-
-            // ---------------------------------------------------------------
             // דף הבית
             // ---------------------------------------------------------------
             item {
@@ -369,6 +343,32 @@ fun SettingsScreen(
                     }
                     Button(
                         onClick = onOpenPlayerSettings,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("פתח") }
+                }
+            }
+
+            // ---------------------------------------------------------------
+            // האלגוריתם
+            // ---------------------------------------------------------------
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("הגדרות האלגוריתם", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "גילוי, משקל דירוגים וסגנונות, התאמת סאונד. הכל מקומי — " +
+                                "שום דבר לא יוצא מהמכשיר",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = onOpenAlgorithmSettings,
                         colors = ButtonDefaults.buttonColors(containerColor = Accent)
                     ) { Text("פתח") }
                 }
