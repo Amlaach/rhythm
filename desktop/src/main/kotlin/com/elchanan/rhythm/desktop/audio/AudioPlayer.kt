@@ -42,11 +42,6 @@ data class PlayerState(
  */
 class AudioPlayer {
 
-    private companion object {
-        /** Extensions the classpath has no service provider for. */
-        val NO_DECODER = setOf("m4a", "m4b", "aac", "wma")
-    }
-
     private val _state = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
@@ -127,7 +122,10 @@ class AudioPlayer {
             try {
                 val opened = open(file, startMs)
                 if (opened == null) {
-                    _state.value = _state.value.copy(playing = false, error = whyNot(file))
+                    _state.value = _state.value.copy(
+                        playing = false,
+                        error = "לא הצלחתי לנגן את ${file.name}"
+                    )
                     return
                 }
                 line = opened.first
@@ -246,23 +244,6 @@ class AudioPlayer {
             return null
         }
         return line to pcm
-    }
-
-    /**
-     * What to say when a file will not open.
-     *
-     * Worth separating from the generic failure because one cause is known
-     * in advance and is not going to fix itself: no AAC service provider is
-     * published to Maven Central, so .m4a plays nowhere on this build. A
-     * file that is simply corrupt and a format nothing here can read are
-     * different problems, and only one of them is worth the user retrying.
-     */
-    private fun whyNot(file: File): String {
-        val ext = file.extension.lowercase()
-        if (ext in NO_DECODER) {
-            return "אין עדיין מפענח ל-${ext.uppercase()} בגרסת ווינדוס"
-        }
-        return "לא הצלחתי לנגן את ${file.name}"
     }
 
     private fun applyVolume(line: SourceDataLine) {

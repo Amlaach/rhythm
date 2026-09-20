@@ -35,20 +35,24 @@ dependencies {
     // on a desktop there is no index to ask, only the files.
     implementation("net.jthink:jaudiotagger:3.0.1")
 
-    // Decoding. These register themselves with javax.sound through its
-    // Service Provider Interface, so nothing in the player ever names a
-    // format: a file goes through AudioSystem and whichever one recognises
-    // it picks it up. All pure Java, which is what keeps the installer a
-    // single file with nothing for the user to install first - VLCJ decodes
-    // more and decodes it by calling a copy of VLC they would have to go and
-    // fetch themselves.
+    // Decoding. Every one of these registers itself with javax.sound through
+    // its Service Provider Interface, so nothing in the player ever names a
+    // format: a file goes through AudioSystem and whichever provider
+    // recognises it picks it up. Adding a format is adding a line here.
     //
-    // Between them this is mp3, ogg vorbis, flac, and wav and aiff from the
-    // JDK itself. AAC is the gap: there is no AAC service provider published
-    // to Maven Central at all, so .m4a files are listed by the scan and
-    // refuse to play, and the player says so rather than failing blankly.
-    // Closing it means either an ONNX style port of a decoder or bundling
-    // one, and neither is worth holding up an installer for.
+    // FFSampledSP is the one that covers m4a, and with it aac, wma and the
+    // rest of what FFmpeg reads. It carries its own FFmpeg build as a native
+    // library per platform - twelve megabytes for all six, of which Windows
+    // x86_64 is the one that matters here. Bundled rather than called: VLCJ
+    // would decode as much and decode it by calling a copy of VLC the user
+    // has to go and fetch first, which turns a single installer into an
+    // errand.
+    //
+    // The pure Java three stay underneath it. They are a few hundred
+    // kilobytes and they mean mp3, the format most of a library is in, still
+    // plays if the native fails to load on some machine - a provider that
+    // cannot load declines the file and the next one is asked.
+    implementation("com.tagtraum:ffsampledsp-complete:0.9.56")
     implementation("com.googlecode.soundlibs:mp3spi:1.9.5.4")
     implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
     implementation("com.googlecode.soundlibs:tritonus-share:0.3.7.4")
