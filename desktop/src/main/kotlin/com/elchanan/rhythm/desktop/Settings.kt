@@ -72,7 +72,9 @@ internal fun SettingsScreen(
     onAnalyze: () -> Unit,
     onResetAnalysis: () -> Unit,
     onResetStats: () -> Unit,
-    onPickLyricsFolder: () -> Unit
+    onPickLyricsFolder: () -> Unit,
+    onImportPlaylist: () -> Unit,
+    onExportPlaylists: () -> Unit
 ) {
     // Read once into state so a flipped switch moves under the finger. Every
     // one of these writes through to the database as it changes; the state is
@@ -107,6 +109,27 @@ internal fun SettingsScreen(
                     title = "תיקון תגיות",
                     subtitle = "מסדר שמות של קבצים שהורדו מהאינטרנט",
                     onClick = onOpenTags
+                )
+            }
+
+            item {
+                SettingSection("רשימות השמעה", "m3u ו־pls, כמו בטלפון")
+                ActionRow(
+                    title = "ייבוא רשימת השמעה",
+                    subtitle = "קורא m3u או pls ומתאים אותו לשירים שבספרייה. " +
+                        "מה שלא נמצא נספר ונאמר, ולא נעלם בשקט",
+                    action = "בחר קובץ",
+                    enabled = true,
+                    primary = true,
+                    onClick = onImportPlaylist
+                )
+                ActionRow(
+                    title = "ייצוא כל הרשימות",
+                    subtitle = "כותב קובץ m3u לכל רשימה, כולל האהובים",
+                    action = "בחר תיקייה",
+                    enabled = true,
+                    primary = false,
+                    onClick = onExportPlaylists
                 )
             }
 
@@ -443,7 +466,10 @@ private fun EqualizerPanel(prefs: Prefs, equalizer: Equalizer) {
 @Composable
 internal fun AlgorithmSettingsScreen(
     tuning: EngineTuning,
+    busy: Boolean,
     onChange: (EngineTuning) -> Unit,
+    onLearn: () -> Unit,
+    onClearLearned: () -> Unit,
     onBack: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
@@ -473,6 +499,59 @@ internal fun AlgorithmSettingsScreen(
                     ) { onChange(tuning.copy(acousticWeight = it)) }
                 }
             }
+            item {
+                SettingSection("למידת סגנונות", null)
+                ActionRow(
+                    title = "למידת סגנונות מהספרייה",
+                    subtitle = "לומד איך הסגנונות שהגדרת נשמעים — מהשירים של האמנים " +
+                        "שתייגת — ומשלים תגיות לשירים שלא תויגו. האפליקציה בודקת " +
+                        "את עצמה על חצי מהספרייה, ואם הדיוק נמוך היא לא משנה כלום",
+                    action = "למד",
+                    enabled = !busy,
+                    primary = true,
+                    onClick = onLearn
+                )
+                ActionRow(
+                    title = "ניקוי התגיות שנוחשו",
+                    subtitle = "מוחק רק תגיות שהאפליקציה הוסיפה בעצמה. התגיות שהקלדת " +
+                        "נשארות. שימושי אחרי שתייגת עוד אמנים — הלמידה תהיה טובה " +
+                        "יותר, והניחושים הישנים לא יחסמו אותה",
+                    action = "נקה",
+                    enabled = !busy,
+                    primary = false,
+                    onClick = onClearLearned
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionRow(
+    title: String,
+    subtitle: String,
+    action: String,
+    enabled: Boolean,
+    primary: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        }
+        Spacer(Modifier.width(12.dp))
+        if (primary) {
+            Button(
+                onClick = onClick,
+                enabled = enabled,
+                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+            ) { Text(action) }
+        } else {
+            OutlinedButton(onClick = onClick, enabled = enabled) { Text(action) }
         }
     }
 }

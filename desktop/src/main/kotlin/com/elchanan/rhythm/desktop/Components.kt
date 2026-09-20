@@ -18,7 +18,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -131,20 +133,40 @@ internal fun SongRow(
     liked: Int = 0,
     rating: Int = 0,
     playCount: Int = 0,
+    selected: Boolean = false,
     onClick: () -> Unit,
     onMore: (() -> Unit)? = null,
     onLike: (() -> Unit)? = null,
     onDislike: (() -> Unit)? = null,
-    trailing: (@Composable () -> Unit)? = null
+    trailing: (@Composable () -> Unit)? = null,
+    /** Given, the row shows a tick box and this is what pressing it does. */
+    leading: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (isCurrent) Accent.copy(alpha = 0.12f) else Color.Transparent)
+            .background(
+                when {
+                    selected -> Accent.copy(alpha = 0.16f)
+                    isCurrent -> Accent.copy(alpha = 0.12f)
+                    else -> Color.Transparent
+                }
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = GUTTER, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (leading != null) {
+            IconButton(onClick = leading, modifier = Modifier.size(30.dp)) {
+                Icon(
+                    imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                    contentDescription = if (selected) "בטל בחירה" else "בחר",
+                    tint = if (selected) Accent else TextTertiary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+        }
         Art(song = song, size = 48.dp, corner = 8.dp)
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {

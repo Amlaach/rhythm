@@ -24,6 +24,9 @@ import java.util.Locale
  * names, and only uses the rest of the path to choose between files that share
  * one.
  */
+// In :engine because it is text in and text out: an m3u written on a phone
+// has to be the same m3u written on a desktop, or the format stops being the
+// thing that moves a library between them.
 object PlaylistImport {
 
     /** A name for the list and the raw entries as the file spelled them. */

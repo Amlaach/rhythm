@@ -85,6 +85,8 @@ import com.elchanan.rhythm.data.db.ArtistEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.BookmarkEntity
 import com.elchanan.rhythm.data.db.TagOverrideEntity
+import com.elchanan.rhythm.data.PlaylistExport
+import com.elchanan.rhythm.data.PlaylistImport
 import com.elchanan.rhythm.data.TagFixer
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
@@ -96,8 +98,11 @@ import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.EngineTuning
 import com.elchanan.rhythm.engine.Features
 import com.elchanan.rhythm.engine.Mood
+import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.Names
+import com.elchanan.rhythm.engine.Spoken
 import com.elchanan.rhythm.engine.Recap
+import com.elchanan.rhythm.engine.StyleLearning
 import com.elchanan.rhythm.engine.RecapData
 import com.elchanan.rhythm.engine.Recommender
 import com.elchanan.rhythm.engine.Versions
@@ -115,6 +120,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.swing.JFileChooser
+import javax.swing.filechooser.FileNameExtensionFilter
 import javax.swing.UIManager
 
 /**
@@ -208,6 +214,9 @@ private fun RhythmApp() {
     // Redrawn once a second while the player is on screen, which is also what
     // keeps the sleep timer's remaining time honest in the dialog.
     var tick by remember { mutableStateOf(0) }
+    // Learning scores the whole library twice and can take a while on a big
+    // one, so the buttons that would start it again are off while it runs.
+    var busy by remember { mutableStateOf(false) }
 
     suspend fun reload() {
         val loaded = withContext(Dispatchers.IO) {
@@ -581,6 +590,108 @@ private fun RhythmApp() {
      * The judgement is [Mood.filter]'s, in :engine, so a mood on the phone and
      * the same mood here pick the same songs out of the same library.
      */
+    /**
+     * Learns the user's own style words from their own library.
+     *
+     * The reasoning is [StyleLearning] in :engine, which the phone runs too -
+     * the same library and the same tags have to produce the same model on
+     * both, and a difference there would be a bug nobody could see.
+     */
+    fun learnStyles() {
+        busy = true
+        scope.launch {
+            val outcome = withContext(Dispatchers.Default) {
+                runCatching {
+                    StyleLearning.learn(
+                        songs = library.songs,
+                        stats = stats,
+                        stylesByArtist = library.artists.associate { it.key to it.styles },
+                        features = features
+                    )
+                }.getOrNull()
+            }
+            withContext(Dispatchers.IO) {
+                for ((songId, styles) in outcome?.predictions.orEmpty()) {
+                    store.setSongStyles(songId, styles, auto = true)
+                }
+            }
+            busy = false
+            status = StyleLearning.message(outcome)
+            if (outcome != null && outcome.applied > 0) reload()
+        }
+    }
+
+    fun clearLearnedStyles() {
+        busy = true
+        scope.launch {
+            withContext(Dispatchers.IO) { store.clearLearnedStyles() }
+            busy = false
+            status = "התגיות שנוחשו נמחקו"
+            reload()
+        }
+    }
+
+    /**
+     * Reads an m3u or pls and makes a list of what it could match.
+     *
+     * What could not be matched is counted and said rather than dropped in
+     * silence: "יובאו 12 מתוך 30" is the difference between a working import
+     * and one the user has to guess at.
+     */
+    fun importPlaylist(file: File) {
+        scope.launch {
+            val note = withContext(Dispatchers.IO) {
+                val text = runCatching { file.readText() }.getOrNull()
+                    ?: return@withContext "לא הצלחתי לקרוא את הקובץ"
+                val parsed = PlaylistImport.parse(text, file.name)
+                val (matched, missing) = PlaylistImport.match(parsed.entries, library.songs)
+                if (matched.isEmpty()) {
+                    return@withContext "אף שיר מהרשימה לא נמצא בספרייה"
+                }
+                val id = store.createPlaylist(parsed.name)
+                store.bulkAddToPlaylist(id, matched.map { it.id })
+                if (missing > 0) {
+                    "יובאו ${matched.size} שירים · $missing לא נמצאו בספרייה"
+                } else {
+                    "יובאו ${matched.size} שירים"
+                }
+            }
+            reload()
+            status = note
+        }
+    }
+
+    /**
+     * Writes every list out as m3u, the auto ones included.
+     *
+     * Everything that behaves like a list, not only the ones the user made by
+     * hand: the likes are a list people have spent years building and nobody
+     * thinks of them as different.
+     */
+    fun exportPlaylists(folder: File) {
+        scope.launch {
+            val written = withContext(Dispatchers.IO) {
+                val lists = ArrayList<Pair<String, List<SongEntity>>>()
+                val liked = library.liked(stats)
+                if (liked.isNotEmpty()) lists.add("השירים שאהבתי" to liked)
+                for (info in library.playlists) {
+                    if (info.songs.isNotEmpty()) lists.add(info.playlist.name to info.songs)
+                }
+                val taken = HashSet<String>()
+                var count = 0
+                for ((name, list) in lists) {
+                    val fileName = PlaylistExport.uniqueName(name, taken)
+                    val ok = runCatching {
+                        File(folder, fileName).writeText(PlaylistExport.write(name, list))
+                    }.isSuccess
+                    if (ok) count++
+                }
+                count
+            }
+            status = if (written == 0) "אין רשימות לייצא" else "יוצאו $written רשימות"
+        }
+    }
+
     fun openMood(mood: Mood) {
         val matching = Mood.filter(library.songs, features, mood)
         if (matching.isEmpty()) {
@@ -854,7 +965,9 @@ private fun RhythmApp() {
                     },
                     onPickLyricsFolder = {
                         chooseFolder()?.let { prefs.lyricsFolder = it.absolutePath }
-                    }
+                    },
+                    onImportPlaylist = { choosePlaylistFile()?.let { importPlaylist(it) } },
+                    onExportPlaylists = { chooseFolder()?.let { exportPlaylists(it) } }
                 )
 
                 Route.PlayerSettings -> PlayerSettingsScreen(
@@ -865,7 +978,10 @@ private fun RhythmApp() {
 
                 Route.Algorithm -> AlgorithmSettingsScreen(
                     tuning = tuning,
+                    busy = busy,
                     onChange = { retune(it) },
+                    onLearn = { learnStyles() },
+                    onClearLearned = { clearLearnedStyles() },
                     onBack = { stack = stack.dropLast(1) }
                 )
 
@@ -1009,7 +1125,57 @@ private fun RhythmApp() {
                         onOpenArtist = { stack = stack + Route.Artist(it.key) },
                         onOpenAlbums = { stack = stack + Route.Albums },
                         onCreatePlaylist = { createPlaylist(it) },
-                        onDeletePlaylist = { deletePlaylist(it) }
+                        onDeletePlaylist = { deletePlaylist(it) },
+                        // Longest first, because the long ones are what this
+                        // shelf exists for.
+                        spoken = remember(library.songs, features, stats) {
+                            library.songs.filter { song ->
+                                val feature = features[song.id]
+                                val tags = feature?.tags?.let {
+                                    AudioTags.pick(it, AudioTags.SPEECH_INDICES)
+                                }
+                                Spoken.isSpoken(
+                                    song, feature, tags, stats[song.id]?.spoken ?: -1
+                                )
+                            }.sortedByDescending { it.durationMs }
+                        },
+                        resumePoints = resumePoints,
+                        firstTab = prefs.libraryFirstTab,
+                        onBulkRate = { ids, rating ->
+                            scope.launch {
+                                stats = withContext(Dispatchers.IO) {
+                                    store.bulkSetRating(ids, rating)
+                                    store.stats()
+                                }
+                                status = "דורגו ${ids.size} שירים"
+                            }
+                        },
+                        onBulkLike = { ids ->
+                            scope.launch {
+                                stats = withContext(Dispatchers.IO) {
+                                    store.bulkSetLike(ids, 1)
+                                    store.stats()
+                                }
+                                status = "${ids.size} שירים סומנו באהבתי"
+                            }
+                        },
+                        onBulkQueue = { list ->
+                            if (queueIndex < 0) {
+                                play(list, 0)
+                            } else {
+                                queue = queue + list
+                                status = "${list.size} שירים נוספו לתור"
+                            }
+                        },
+                        onBulkAddTo = { playlistId, ids ->
+                            scope.launch {
+                                withContext(Dispatchers.IO) {
+                                    store.bulkAddToPlaylist(playlistId, ids)
+                                }
+                                reload()
+                                status = "${ids.size} שירים נוספו לרשימה"
+                            }
+                        }
                     )
                     else -> ArtistsPane(
                         artists = library.artists,
@@ -1959,6 +2125,20 @@ private fun clock(ms: Long): String {
     if (ms <= 0) return "0:00"
     val total = ms / 1000
     return "${total / 60}:${(total % 60).toString().padStart(2, '0')}"
+}
+
+/** The system's own file picker, filtered to the two playlist formats. */
+private fun choosePlaylistFile(): File? {
+    val chooser = JFileChooser().apply {
+        fileSelectionMode = JFileChooser.FILES_ONLY
+        dialogTitle = "בחר קובץ רשימת השמעה"
+        fileFilter = FileNameExtensionFilter("רשימות השמעה (m3u, m3u8, pls)", "m3u", "m3u8", "pls")
+    }
+    return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+        chooser.selectedFile
+    } else {
+        null
+    }
 }
 
 private fun chooseFolder(): File? {

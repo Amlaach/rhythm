@@ -91,6 +91,15 @@ data class DetailList(
     val playlistId: Long? = null
 )
 
+/** How a list of songs can be ordered, in the order the phone offers them. */
+private enum class SongSort(val label: String) {
+    TITLE("שם"),
+    ARTIST("אמן"),
+    ADDED("נוסף לאחרונה"),
+    PLAYS("הכי מושמע"),
+    RATING("דירוג")
+}
+
 /** The library tabs, in the order the phone shows them. */
 private enum class LibraryTab(val label: String) {
     PLAYLISTS("פלייליסטים"),
@@ -98,7 +107,8 @@ private enum class LibraryTab(val label: String) {
     LIKED("אהובים"),
     ARTISTS("אמנים"),
     SONGS("שירים"),
-    ALBUMS("אלבומים")
+    ALBUMS("אלבומים"),
+    SPOKEN("הרצאות")
 }
 
 /**
@@ -116,7 +126,9 @@ internal fun SongList(
     onPlay: (Int) -> Unit,
     onLike: (SongEntity) -> Unit,
     onDislike: (SongEntity) -> Unit,
-    onMore: (SongEntity) -> Unit
+    onMore: (SongEntity) -> Unit,
+    selection: Set<Long> = emptySet(),
+    onToggleSelect: ((Long) -> Unit)? = null
 ) {
     if (songs.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -129,16 +141,29 @@ internal fun SongList(
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
+            val selecting = selection.isNotEmpty()
             SongRow(
                 song = song,
                 isCurrent = song.id == current,
                 liked = stats[song.id]?.liked ?: 0,
                 rating = stats[song.id]?.rating ?: 0,
                 playCount = stats[song.id]?.playCount ?: 0,
-                onClick = { onPlay(index) },
+                selected = song.id in selection,
+                // Once anything is ticked, a tap ticks rather than plays. A
+                // list that plays a song while you are selecting twenty of
+                // them is a list you have to start over.
+                onClick = {
+                    if (selecting && onToggleSelect != null) onToggleSelect(song.id)
+                    else onPlay(index)
+                },
                 onMore = { onMore(song) },
                 onLike = { onLike(song) },
-                onDislike = { onDislike(song) }
+                onDislike = { onDislike(song) },
+                leading = if (onToggleSelect == null) {
+                    null
+                } else {
+                    { onToggleSelect(song.id) }
+                }
             )
         }
     }
@@ -165,10 +190,37 @@ internal fun LibraryPane(
     onOpenArtist: (ArtistInfo) -> Unit,
     onOpenAlbums: () -> Unit,
     onCreatePlaylist: (String) -> Unit,
-    onDeletePlaylist: (Long) -> Unit
+    onDeletePlaylist: (Long) -> Unit,
+    spoken: List<SongEntity>,
+    resumePoints: Map<Long, Long>,
+    firstTab: String,
+    onBulkRate: (List<Long>, Int) -> Unit,
+    onBulkLike: (List<Long>) -> Unit,
+    onBulkQueue: (List<SongEntity>) -> Unit,
+    onBulkAddTo: (Long, List<Long>) -> Unit
 ) {
-    var tab by remember { mutableStateOf(0) }
+    // Opens on whichever tab the settings name, and only reads that setting
+    // once - changing it later should not yank the screen out from under
+    // someone who is standing on a different tab.
+    var tab by remember {
+        mutableStateOf(
+            LibraryTab.entries.indexOfFirst { it.name == firstTab }.coerceAtLeast(0)
+        )
+    }
     var newList by remember { mutableStateOf(false) }
+    var sort by remember { mutableStateOf(SongSort.TITLE) }
+    // What is ticked. Empty means nobody is selecting anything, which is also
+    // what makes the selection bar appear and disappear on its own.
+    var selection by remember { mutableStateOf(emptySet<Long>()) }
+    var addingSelection by remember { mutableStateOf(false) }
+
+    fun sorted(list: List<SongEntity>): List<SongEntity> = when (sort) {
+        SongSort.TITLE -> list.sortedBy { it.titleLower }
+        SongSort.ARTIST -> list.sortedWith(compareBy({ it.artistKey }, { it.titleLower }))
+        SongSort.ADDED -> list.sortedByDescending { it.dateAddedSec }
+        SongSort.PLAYS -> list.sortedByDescending { stats[it.id]?.playCount ?: 0 }
+        SongSort.RATING -> list.sortedByDescending { stats[it.id]?.rating ?: 0 }
+    }
 
     if (library.songs.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -197,18 +249,61 @@ internal fun LibraryPane(
         }
         Spacer(Modifier.height(10.dp))
 
+        // Only while something is ticked. A permanent action bar is a strip of
+        // buttons that do nothing most of the time.
+        if (selection.isNotEmpty()) {
+            SelectionBar(
+                count = selection.size,
+                onClear = { selection = emptySet() },
+                onRate = { onBulkRate(selection.toList(), it) },
+                onLike = {
+                    onBulkLike(selection.toList())
+                    selection = emptySet()
+                },
+                onQueue = {
+                    val byId = library.songs.associateBy { it.id }
+                    onBulkQueue(selection.mapNotNull { byId[it] })
+                    selection = emptySet()
+                },
+                onAddTo = { addingSelection = true }
+            )
+        }
+
         Box(modifier = Modifier.weight(1f)) {
             when (LibraryTab.entries[tab]) {
-                LibraryTab.SONGS -> SongList(
-                    songs = library.songs,
-                    stats = stats,
-                    current = current,
-                    empty = "אין שירים",
-                    onPlay = { index -> onPlay(library.songs, index) },
-                    onLike = onLike,
-                    onDislike = onDislike,
-                    onMore = onMore
-                )
+                LibraryTab.SONGS -> {
+                    val ordered = remember(library.songs, sort, stats) { sorted(library.songs) }
+                    Column {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = GUTTER),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(SongSort.entries.toList()) { option ->
+                                Chip(
+                                    label = option.label,
+                                    selected = sort == option,
+                                    onClick = { sort = option }
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        SongList(
+                            songs = ordered,
+                            stats = stats,
+                            current = current,
+                            empty = "אין שירים",
+                            onPlay = { index -> onPlay(ordered, index) },
+                            onLike = onLike,
+                            onDislike = onDislike,
+                            onMore = onMore,
+                            selection = selection,
+                            onToggleSelect = { id ->
+                                selection =
+                                    if (id in selection) selection - id else selection + id
+                            }
+                        )
+                    }
+                }
 
                 LibraryTab.LIKED -> {
                     val liked = library.liked(stats)
@@ -226,7 +321,11 @@ internal fun LibraryPane(
                             onPlay = { index -> onPlay(liked, index) },
                             onLike = onLike,
                             onDislike = onDislike,
-                            onMore = onMore
+                            onMore = onMore,
+                            selection = selection,
+                            onToggleSelect = { id ->
+                                selection = if (id in selection) selection - id else selection + id
+                            }
                         )
                     }
                 }
@@ -339,6 +438,45 @@ internal fun LibraryPane(
                                     color = TextSecondary
                                 )
                             }
+                        }
+                    }
+                }
+
+                // Talking rather than music: shiurim, stories, recorded
+                // lectures. They resume where they were left and they are the
+                // one thing in the library nobody wants shuffled.
+                LibraryTab.SPOKEN -> if (spoken.isEmpty()) {
+                    EmptyState(
+                        title = "לא נמצאו הרצאות",
+                        body = "הזיהוי מחפש הקלטות ארוכות שנשמעות כמו דיבור ולא כמו " +
+                            "מוזיקה. צריך שהקבצים ינותחו קודם."
+                    )
+                } else {
+                    LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+                        itemsIndexed(spoken, key = { _, song -> song.id }) { index, song ->
+                            val at = resumePoints[song.id]
+                            SongRow(
+                                song = song,
+                                isCurrent = song.id == current,
+                                liked = stats[song.id]?.liked ?: 0,
+                                rating = stats[song.id]?.rating ?: 0,
+                                onClick = { onPlay(spoken, index) },
+                                onMore = { onMore(song) },
+                                trailing = if (at == null) {
+                                    null
+                                } else {
+                                    {
+                                        // Where it was left, said outright. A
+                                        // recording that silently starts forty
+                                        // minutes in looks broken.
+                                        Text(
+                                            "נעצר ב־${formatDuration(at)}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Accent
+                                        )
+                                    }
+                                }
+                            )
                         }
                     }
                 }
@@ -477,6 +615,34 @@ internal fun LibraryPane(
         }
     }
 
+    if (addingSelection) {
+        AlertDialog(
+            onDismissRequest = { addingSelection = false },
+            containerColor = Surface1,
+            title = { Text("הוספת ${selection.size} שירים לרשימה") },
+            text = {
+                LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                    items(library.playlists, key = { it.playlist.id }) { info ->
+                        OptionRow(
+                            icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                            label = info.playlist.name,
+                            hint = "${info.songs.size} שירים"
+                        ) {
+                            onBulkAddTo(info.playlist.id, selection.toList())
+                            selection = emptySet()
+                            addingSelection = false
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { addingSelection = false }) {
+                    Text("סגור", color = TextSecondary)
+                }
+            }
+        )
+    }
+
     if (newList) {
         NamePlaylistDialog(
             onDismiss = { newList = false },
@@ -519,6 +685,74 @@ private fun NamePlaylistDialog(onDismiss: () -> Unit, onConfirm: (String) -> Uni
             TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
         }
     )
+}
+
+/**
+ * What can be done to everything ticked at once.
+ *
+ * Rating in bulk is the one that matters. The engine learns from ratings, and
+ * rating a library one song at a time is the reason most people never rate
+ * anything - twenty at a time is a minute's work that changes every shelf.
+ */
+@Composable
+private fun SelectionBar(
+    count: Int,
+    onClear: () -> Unit,
+    onRate: (Int) -> Unit,
+    onLike: () -> Unit,
+    onQueue: () -> Unit,
+    onAddTo: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = GUTTER)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Surface1)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "$count נבחרו",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f)
+            )
+            StarRow(rating = 0, onRate = onRate, size = 20)
+            Spacer(Modifier.width(10.dp))
+            IconButton(onClick = onLike, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Filled.ThumbUp,
+                    contentDescription = "לייק לכולם",
+                    tint = Accent,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            IconButton(onClick = onQueue, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.AutoMirrored.Filled.PlaylistAddCheck,
+                    contentDescription = "הוסף לתור",
+                    tint = Accent,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            IconButton(onClick = onAddTo, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.AutoMirrored.Filled.PlaylistAdd,
+                    contentDescription = "הוסף לרשימה",
+                    tint = Accent,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            IconButton(onClick = onClear, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "בטל בחירה",
+                    tint = TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
 }
 
 @Composable

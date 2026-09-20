@@ -7,7 +7,9 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.elchanan.rhythm.RhythmApp
+import com.elchanan.rhythm.engine.LearnResult
 import com.elchanan.rhythm.engine.RecapData
+import com.elchanan.rhythm.engine.StyleLearning
 import com.elchanan.rhythm.engine.Names
 import androidx.documentfile.provider.DocumentFile
 import com.elchanan.rhythm.data.FileActions
@@ -1235,178 +1237,41 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * How the last style-learning run went, so the screen can say something
      * honest rather than just "done".
      */
-    data class LearnResult(
-        val accuracy: Double?,
-        val trained: Int,
-        val labelled: Int,
-        val applied: Int,
-        /** Songs whose artist carries style tags: the labels to learn from. */
-        val withStyles: Int = 0,
-        /** Songs with something measured or heard: the evidence to learn from. */
-        val withEvidence: Int = 0,
-        /** How many tagged songs carry each style, most common first. */
-        val counts: List<Pair<String, Int>> = emptyList()
-    )
-
     private val _learnResult = MutableStateFlow<LearnResult?>(null)
     val learnResult: StateFlow<LearnResult?> = _learnResult.asStateFlow()
 
     /**
-     * Learns the user's own style words from their own library and fills in the
-     * songs they never tagged.
+     * Learns the user's own style words from their own library.
      *
-     * Measured before it is trusted. The model is fitted on half the tagged
-     * songs and scored on the other half, and if it cannot beat a coin toss by
-     * a clear margin nothing is written - a library quietly filled with wrong
-     * labels is worse than one with no labels, because the wrong ones then feed
-     * the recommender as though somebody had confirmed them.
+     * The whole of the reasoning - what counts as evidence, whether the model
+     * generalises well enough to trust, and what to say when it does not - is
+     * [StyleLearning] over in :engine, which the desktop build runs too. This
+     * end supplies the rows and stores what comes back.
      */
     fun learnStyles() {
         viewModelScope.launch {
             _busy.value = true
             val outcome = runCatching {
                 withContext(Dispatchers.Default) {
-                    val features = repo.featureMap()
-                    val tagsBySong = features.mapValues { it.value.tags }
                     val lib = library.value
-                    val stylesByArtist = lib.artists.associate { it.key to it.styles }
-
-                    // The measured half of the evidence. Built from the same
-                    // rows the recommender uses, so "loud" and "fast" mean
-                    // here exactly what they mean everywhere else in the app.
-                    val space = if (features.size >= 8) {
-                        AcousticSpace(features.values)
-                    } else {
-                        null
-                    }
-
-                    // Counted separately so the screen can name the half that
-                    // is missing. "Not enough information" is true of every
-                    // failure here and useless in all of them.
-                    val withStyles = lib.songs.count {
-                        Styles.parse(stylesByArtist[it.artistKey].orEmpty()).isNotEmpty()
-                    }
-                    val withEvidence = lib.songs.count {
-                        StyleTraining.featuresFor(
-                            it.id, tagsBySong[it.id].orEmpty(), space
-                        ) != null
-                    }
-
-                    val rows = StyleTraining.rows(lib.songs, tagsBySong, stylesByArtist, space)
-                    // Kept for the message: which styles are present and how
-                    // big each one is, which is what separates "not enough
-                    // songs" from "not enough variety".
-                    val counts = StyleLearner.styleCounts(rows)
-                    if (rows.isEmpty()) {
-                        return@withContext LearnResult(
-                            null, 0, 0, 0, withStyles, withEvidence
-                        )
-                    }
-
-                    // The held-out half also picks how hard to regularise;
-                    // the final model is then fitted with that same strength,
-                    // not a different one.
-                    val validation = StyleLearner.crossValidate(rows)
-                    val accuracy = validation?.accuracy
-                    val model = StyleLearner.fit(rows, l2 = validation?.l2 ?: 0.1)
-                        ?: return@withContext LearnResult(
-                            accuracy, 0, rows.size, 0, withStyles, withEvidence, counts
-                        )
-
-                    // Only worth applying when the held-out score says the model
-                    // actually generalises.
-                    if (accuracy == null || accuracy < 0.70) {
-                        return@withContext LearnResult(
-                            accuracy, rows.size, rows.size, 0, withStyles, withEvidence, counts
-                        )
-                    }
-
-                    // Written where the user left a blank, and over the app's
-                    // own earlier guesses. Their words are the ground truth
-                    // this was trained on and are never touched; a guess is
-                    // only as good as the model that made it, and the model is
-                    // better now than it was the first time this ran.
-                    var applied = 0
-                    for (song in lib.songs) {
-                        val own = lib.stats[song.id]
-                        val hasOwn = Styles.parse(own?.styles.orEmpty()).isNotEmpty()
-                        if (hasOwn && own?.stylesAuto != 1) continue
-                        if (Styles.parse(stylesByArtist[song.artistKey].orEmpty()).isNotEmpty()) continue
-                        // The same vector the model was fitted on. Predicting
-                        // from a different shape than it was trained on is the
-                        // easiest way to get confident nonsense.
-                        val x = StyleTraining.featuresFor(
-                            song.id,
-                            tagsBySong[song.id].orEmpty(),
-                            space
-                        ) ?: continue
-                        val predicted = model.predict(x)
-                        if (predicted.isEmpty()) continue
-                        repo.setSongStyles(song.id, Styles.join(predicted), auto = true)
-                        applied++
-                    }
-                    LearnResult(
-                        accuracy, rows.size, rows.size, applied, withStyles, withEvidence, counts
+                    StyleLearning.learn(
+                        songs = lib.songs,
+                        stats = lib.stats,
+                        stylesByArtist = lib.artists.associate { it.key to it.styles },
+                        features = repo.featureMap()
                     )
                 }
             }.getOrNull()
+
+            for ((songId, styles) in outcome?.predictions.orEmpty()) {
+                repo.setSongStyles(songId, styles, auto = true)
+            }
+
             _busy.value = false
             _learnResult.value = outcome
-
-            _message.value = when {
-                outcome == null -> "הלמידה נכשלה"
-                outcome.labelled == 0 && outcome.withStyles == 0 ->
-                    "אף אמן לא תויג בסגנון. הלמידה לומדת מהתגיות שלך — סמן סגנונות " +
-                        "לכמה אמנים בטאב \"אמנים\" ונסה שוב."
-                outcome.labelled == 0 && outcome.withEvidence == 0 ->
-                    "אף שיר עוד לא נותח. הרץ ניתוח אודיו בהגדרות וחזור לכאן."
-                outcome.labelled == 0 ->
-                    "${outcome.withStyles} שירים מתויגים ו-${outcome.withEvidence} מנותחים, " +
-                        "אבל אלה לא אותם שירים."
-                outcome.accuracy == null || outcome.trained == 0 -> whyNotLearned(outcome)
-                outcome.applied == 0 ->
-                    "דיוק נמדד: ${percent(outcome.accuracy)} — נמוך מדי, לא שיניתי כלום"
-                else ->
-                    "דיוק נמדד: ${percent(outcome.accuracy)} · תויגו ${outcome.applied} שירים"
-            }
+            _message.value = StyleLearning.message(outcome)
             if (outcome != null && outcome.applied > 0) refreshFeed()
         }
-    }
-
-    /**
-     * Why learning produced nothing usable, in terms the user can act on.
-     *
-     * Four different dead ends used to share one sentence about needing more
-     * tagged songs, and for three of them that sentence was simply false. A
-     * library can be past every count and still unlearnable because almost
-     * every song carries the same style word: with nothing outside it there
-     * is no contrast to learn from, and the classifier is dropped before it
-     * is ever fitted. Telling someone with fifty six tagged songs that
-     * thirty two are needed is advice they followed long ago, and it points
-     * them at the one thing that would not have helped.
-     */
-    private fun whyNotLearned(r: LearnResult): String {
-        val floor = StyleLearner.DEFAULT_MIN_PER_STYLE
-        if (r.labelled < StyleLearner.MIN_ROWS_TO_VALIDATE) {
-            return "יש ${r.labelled} שירים מתויגים. צריך לפחות " +
-                "${StyleLearner.MIN_ROWS_TO_VALIDATE} כדי לבדוק אם הלמידה נכונה."
-        }
-        val top = r.counts.firstOrNull()
-            ?: return "יש ${r.labelled} שירים מתויגים, אבל אין בהם אף סגנון."
-        if (r.trained > 0) {
-            // Enough to fit on everything, not enough to fit on half and be
-            // scored on the other half - and nothing is written without that
-            // score, so this still ends with no labels.
-            return "נלמדו סגנונות, אבל לא היה אפשר לבדוק את הדיוק על חצי מהשירים. " +
-                "עוד אמנים מתויגים יאפשרו את הבדיקה."
-        }
-        if (top.second > r.labelled - floor) {
-            return "${top.second} מתוך ${r.labelled} השירים המתויגים מסומנים \"${top.first}\". " +
-                "כדי ללמוד מה מייחד סגנון צריך גם שירים שאינם בו — תייג אמנים " +
-                "בסגנונות אחרים, ולא עוד אמנים באותו סגנון."
-        }
-        return "אף סגנון לא הגיע ל-$floor שירים. הנפוץ ביותר, \"${top.first}\", " +
-            "מופיע ב-${top.second}."
     }
 
     /**

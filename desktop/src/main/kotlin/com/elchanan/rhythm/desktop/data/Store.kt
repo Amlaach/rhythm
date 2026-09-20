@@ -811,6 +811,97 @@ class Store private constructor(private val conn: Connection) {
         }
     }
 
+    /**
+     * The same rating, or the same like, on many songs at once.
+     *
+     * One transaction rather than one per song: rating twenty songs is the
+     * whole point of selecting twenty songs, and twenty separate commits on a
+     * spinning disk is a visible pause.
+     */
+    @Synchronized
+    fun bulkSetRating(songIds: List<Long>, rating: Int) {
+        if (songIds.isEmpty()) return
+        conn.autoCommit = false
+        try {
+            conn.prepareStatement(
+                "INSERT INTO song_stats (songId, rating) VALUES (?,?) " +
+                    "ON CONFLICT(songId) DO UPDATE SET rating = excluded.rating"
+            ).use { ps ->
+                for (id in songIds) {
+                    ps.setLong(1, id)
+                    ps.setInt(2, rating)
+                    ps.addBatch()
+                }
+                ps.executeBatch()
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = true
+        }
+    }
+
+    @Synchronized
+    fun bulkSetLike(songIds: List<Long>, value: Int) {
+        if (songIds.isEmpty()) return
+        val now = if (value != 0) System.currentTimeMillis() else 0L
+        conn.autoCommit = false
+        try {
+            conn.prepareStatement(
+                "INSERT INTO song_stats (songId, liked, likedAt) VALUES (?,?,?) " +
+                    "ON CONFLICT(songId) DO UPDATE SET liked = excluded.liked, " +
+                    "likedAt = excluded.likedAt"
+            ).use { ps ->
+                for (id in songIds) {
+                    ps.setLong(1, id)
+                    ps.setInt(2, value)
+                    ps.setLong(3, now)
+                    ps.addBatch()
+                }
+                ps.executeBatch()
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = true
+        }
+    }
+
+    /**
+     * The style words on one song, and whether the app guessed them.
+     *
+     * The flag is the whole point of storing them separately from the
+     * artist's. What the user typed is ground truth and must never be
+     * overwritten by something derived from it; what the learner guessed is
+     * only as good as the model that produced it, and that model gets better
+     * every time more artists are tagged.
+     */
+    @Synchronized
+    fun setSongStyles(songId: Long, styles: String, auto: Boolean) {
+        conn.prepareStatement(
+            "INSERT INTO song_stats (songId, styles, stylesAuto) VALUES (?,?,?) " +
+                "ON CONFLICT(songId) DO UPDATE SET styles = excluded.styles, " +
+                "stylesAuto = excluded.stylesAuto"
+        ).use { ps ->
+            ps.setLong(1, songId)
+            ps.setString(2, styles)
+            ps.setInt(3, if (auto) 1 else 0)
+            ps.executeUpdate()
+        }
+    }
+
+    /** Throws away every tag the app guessed, keeping every one that was typed. */
+    @Synchronized
+    fun clearLearnedStyles() {
+        conn.createStatement().use {
+            it.execute("UPDATE song_stats SET styles = '', stylesAuto = 0 WHERE stylesAuto = 1")
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Tag corrections
     // ---------------------------------------------------------------------

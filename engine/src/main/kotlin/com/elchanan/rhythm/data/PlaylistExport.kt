@@ -17,6 +17,9 @@ import com.elchanan.rhythm.data.db.SongEntity
  * and Hebrew titles come back as rubbish often enough that it is not worth the
  * compatibility it buys.
  */
+// In :engine because it is text in and text out: an m3u written on a phone
+// has to be the same m3u written on a desktop, or the format stops being the
+// thing that moves a library between them.
 object PlaylistExport {
 
     const val EXTENSION = "m3u8"
