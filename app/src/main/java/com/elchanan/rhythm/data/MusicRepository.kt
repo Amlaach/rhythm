@@ -154,6 +154,10 @@ class MusicRepository(
         )
     }
 
+    /** What this song is marked: 1 liked, -1 disliked, 0 neither. */
+    suspend fun likeOf(songId: Long): Int =
+        withContext(Dispatchers.IO) { dao.stats(songId)?.liked ?: 0 }
+
     suspend fun setSongRating(songId: Long, rating: Int) = withContext(Dispatchers.IO) {
         val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
         dao.putStats(current.copy(rating = if (current.rating == rating) 0 else rating))

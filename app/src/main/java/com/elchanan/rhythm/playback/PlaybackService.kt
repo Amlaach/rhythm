@@ -135,7 +135,7 @@ class PlaybackService : MediaSessionService() {
             .setSessionActivity(openAppIntent())
             .setCallback(SessionCallback())
             .build()
-        mediaSession?.setCustomLayout(customLayout())
+        mediaSession?.setCustomLayout(customLayout(likedNow))
 
         registerVolumeWatcher()
 
@@ -222,16 +222,39 @@ class PlaybackService : MediaSessionService() {
     // notification buttons
     // -------------------------------------------------------------------------
 
-    private fun customLayout(): List<CommandButton> = listOf(
+    /**
+     * What the current track has been marked, so the notification can show it.
+     *
+     * Held here because the buttons are rebuilt from it, and reading it from
+     * the database at that moment would mean a suspending call inside a
+     * callback that has to answer immediately.
+     */
+    @Volatile
+    private var likedNow: Int = 0
+
+    /**
+     * The three buttons, drawn for the state the track is actually in.
+     *
+     * They were fixed icons set once at startup, so pressing like recorded the
+     * like and then changed nothing on screen. The press looked ignored, and
+     * the only way to find out whether it had registered was to open the app.
+     * A filled thumb against an outlined one is the whole of the feedback, and
+     * it is the reason the buttons are rebuilt on every change.
+     */
+    private fun customLayout(liked: Int): List<CommandButton> = listOf(
         CommandButton.Builder()
-            .setDisplayName("לייק")
-            .setIconResId(R.drawable.ic_thumb_up)
+            .setDisplayName(if (liked == 1) "בטל לייק" else "לייק")
+            .setIconResId(
+                if (liked == 1) R.drawable.ic_thumb_up else R.drawable.ic_thumb_up_outline
+            )
             .setSessionCommand(SessionCommand(ACTION_LIKE, Bundle.EMPTY))
             .setEnabled(true)
             .build(),
         CommandButton.Builder()
-            .setDisplayName("דיסלייק")
-            .setIconResId(R.drawable.ic_thumb_down)
+            .setDisplayName(if (liked == -1) "בטל דיסלייק" else "דיסלייק")
+            .setIconResId(
+                if (liked == -1) R.drawable.ic_thumb_down else R.drawable.ic_thumb_down_outline
+            )
             .setSessionCommand(SessionCommand(ACTION_DISLIKE, Bundle.EMPTY))
             .setEnabled(true)
             .build(),
@@ -242,6 +265,21 @@ class PlaybackService : MediaSessionService() {
             .setEnabled(true)
             .build()
     )
+
+    /**
+     * Reads what the current track is marked and redraws the buttons.
+     *
+     * Called when the track changes and after either thumb is pressed, which
+     * are the only two moments the answer can differ.
+     */
+    private fun refreshLikeButtons() {
+        val id = player.currentMediaItem?.mediaId?.toLongOrNull()
+        scope.launch {
+            val liked = if (id == null) 0 else runCatching { repo.likeOf(id) }.getOrDefault(0)
+            likedNow = liked
+            runCatching { mediaSession?.setCustomLayout(customLayout(liked)) }
+        }
+    }
 
     override fun onDestroy() {
         runCatching { contentResolver.unregisterContentObserver(volumeWatcher) }
@@ -278,7 +316,7 @@ class PlaybackService : MediaSessionService() {
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(available)
-                .setCustomLayout(customLayout())
+                .setCustomLayout(customLayout(likedNow))
                 .build()
         }
 
@@ -292,9 +330,14 @@ class PlaybackService : MediaSessionService() {
             if (id != null) {
                 scope.launch {
                     when (customCommand.customAction) {
-                        ACTION_LIKE -> repo.setLike(id, 1)
+                        ACTION_LIKE -> {
+                            repo.setLike(id, 1)
+                            refreshLikeButtons()
+                        }
                         ACTION_DISLIKE -> {
                             repo.setLike(id, -1)
+                            // The skip redraws them on its own through the
+                            // transition, so this only has to move on.
                             player.seekToNextMediaItem()
                         }
                         ACTION_RADIO -> startRadioFromCurrent(id)
@@ -348,6 +391,7 @@ class PlaybackService : MediaSessionService() {
             attachEqualizer()
             persistQueue()
             maybeExtendQueue()
+            refreshLikeButtons()
             RhythmWidget.refresh(this@PlaybackService, player)
         }
 
