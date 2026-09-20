@@ -357,6 +357,28 @@ fun SettingsScreen(
                     ) { Text("למד") }
                 }
             }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("ניקוי התגיות שנוחשו", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "מוחק רק תגיות שהאפליקציה הוסיפה בעצמה. התגיות שהקלדת " +
+                                "נשארות. שימושי אחרי שתייגת עוד אמנים — הלמידה " +
+                                "תהיה טובה יותר, והניחושים הישנים לא יחסמו אותה",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = { vm.clearLearnedStyles() },
+                        enabled = !busy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Surface1)
+                    ) { Text("נקה") }
+                }
+            }
 
             // ---------------------------------------------------------------
             // החיפוש

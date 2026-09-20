@@ -159,9 +159,30 @@ class MusicRepository(
         dao.putStats(current.copy(rating = if (current.rating == rating) 0 else rating))
     }
 
-    suspend fun setSongStyles(songId: Long, styles: String) = withContext(Dispatchers.IO) {
-        val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
-        dao.putStats(current.copy(styles = styles))
+    /**
+     * @param auto true when the learner produced these rather than the user.
+     *   A hand edit always lands as false, which is what promotes a guess the
+     *   user has since corrected into something the learner will not touch.
+     */
+    suspend fun setSongStyles(songId: Long, styles: String, auto: Boolean = false) =
+        withContext(Dispatchers.IO) {
+            val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
+            dao.putStats(current.copy(styles = styles, stylesAuto = if (auto) 1 else 0))
+        }
+
+    /**
+     * Forgets every style tag the app guessed, keeping every one that was typed.
+     *
+     * The point of telling the two apart. The model improves as more artists
+     * are tagged, and without this the songs labelled on the first run - when
+     * it had the least to go on - would keep those labels forever.
+     *
+     * @return how many songs were cleared.
+     */
+    suspend fun clearLearnedStyles(): Int = withContext(Dispatchers.IO) {
+        val cleared = dao.autoStyledCount()
+        dao.clearAutoStyles()
+        cleared
     }
 
     // -----------------------------------------------------------------------

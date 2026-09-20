@@ -369,6 +369,7 @@ fun SongOptionsSheet(
     if (showTags) {
         SongTagDialog(
             current = Styles.parse(stats?.styles.orEmpty()),
+            guessed = stats?.stylesAuto == 1,
             onDismiss = { showTags = false },
             onApply = { vm.setSongStyles(song.id, Styles.join(it)) }
         )
@@ -578,6 +579,7 @@ fun WhyDialog(vm: MainViewModel, song: SongEntity, onDismiss: () -> Unit) {
 @Composable
 private fun SongTagDialog(
     current: List<String>,
+    guessed: Boolean,
     onDismiss: () -> Unit,
     onApply: (List<String>) -> Unit
 ) {
@@ -593,6 +595,15 @@ private fun SongTagDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
+                if (guessed) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "התגיות האלה נוחשו על ידי האפליקציה ולא נבחרו על ידך. " +
+                            "שינוי כאן הופך אותן לשלך, והלמידה כבר לא תדרוס אותן.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Accent
+                    )
+                }
                 Spacer(Modifier.height(10.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

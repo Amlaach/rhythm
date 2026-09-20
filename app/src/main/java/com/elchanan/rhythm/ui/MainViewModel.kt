@@ -1309,12 +1309,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         )
                     }
 
-                    // Written only where the user left a blank. Their own words
-                    // are the ground truth this was trained on and must never be
-                    // overwritten by something derived from them.
+                    // Written where the user left a blank, and over the app's
+                    // own earlier guesses. Their words are the ground truth
+                    // this was trained on and are never touched; a guess is
+                    // only as good as the model that made it, and the model is
+                    // better now than it was the first time this ran.
                     var applied = 0
                     for (song in lib.songs) {
-                        if (Styles.parse(lib.stats[song.id]?.styles.orEmpty()).isNotEmpty()) continue
+                        val own = lib.stats[song.id]
+                        val hasOwn = Styles.parse(own?.styles.orEmpty()).isNotEmpty()
+                        if (hasOwn && own?.stylesAuto != 1) continue
                         if (Styles.parse(stylesByArtist[song.artistKey].orEmpty()).isNotEmpty()) continue
                         // The same vector the model was fitted on. Predicting
                         // from a different shape than it was trained on is the
@@ -1326,7 +1330,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         ) ?: continue
                         val predicted = model.predict(x)
                         if (predicted.isEmpty()) continue
-                        repo.setSongStyles(song.id, Styles.join(predicted))
+                        repo.setSongStyles(song.id, Styles.join(predicted), auto = true)
                         applied++
                     }
                     LearnResult(
@@ -1359,6 +1363,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     "דיוק נמדד: ${percent(outcome.accuracy)} · תויגו ${outcome.applied} שירים"
             }
             if (outcome != null && outcome.applied > 0) refreshFeed()
+        }
+    }
+
+    /**
+     * Throws away every tag the app guessed, keeping every one that was typed.
+     *
+     * Worth having because the guesses are not revised on their own schedule:
+     * they are rewritten the next time learning runs, and until then an early,
+     * weak guess stays. This is how to start that over deliberately.
+     */
+    fun clearLearnedStyles() {
+        viewModelScope.launch {
+            val cleared = repo.clearLearnedStyles()
+            engine = null
+            refreshFeed()
+            _message.value = if (cleared == 0) {
+                "אין תגיות שהאפליקציה ניחשה"
+            } else {
+                "נוקו $cleared תגיות אוטומטיות. התגיות שהקלדת נשארו."
+            }
         }
     }
 

@@ -50,6 +50,20 @@ data class SongStatsEntity(
     val rating: Int = 0,
     /** style tags attached to this song alone, overriding the artist's */
     val styles: String = "",
+    /**
+     * Whether [styles] was written by the style learner rather than typed.
+     *
+     * The two have to be told apart because they deserve opposite treatment.
+     * What the user typed is ground truth and must never be overwritten by
+     * something derived from it. What the learner guessed is only as good as
+     * the model that produced it, and that model gets better every time more
+     * artists are tagged - so a guess made on the first run, when it had a
+     * dozen examples, should not outlive the model that made it.
+     *
+     * Without this they were the same field, so the learner skipped every
+     * song it had ever labelled and its own early mistakes were permanent.
+     */
+    val stylesAuto: Int = 0,
     /** play counts per time-of-day bucket: 0 night, 1 morning, 2 afternoon, 3 evening */
     val b0: Int = 0,
     val b1: Int = 0,

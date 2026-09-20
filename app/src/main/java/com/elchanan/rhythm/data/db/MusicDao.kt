@@ -43,6 +43,13 @@ interface MusicDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putStats(stats: SongStatsEntity)
 
+    @Query("SELECT COUNT(*) FROM song_stats WHERE stylesAuto = 1 AND styles != ''")
+    suspend fun autoStyledCount(): Int
+
+    /** Drops the guessed tags only; anything typed has stylesAuto = 0. */
+    @Query("UPDATE song_stats SET styles = '', stylesAuto = 0 WHERE stylesAuto = 1")
+    suspend fun clearAutoStyles()
+
     @Query("UPDATE song_stats SET liked = 0, likedAt = 0")
     suspend fun clearAllLikes()
 
