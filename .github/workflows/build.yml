@@ -1,4 +1,4 @@
-name: Build Rhythm APK
+name: Build Rhythm
 
 on:
   push:
@@ -48,6 +48,13 @@ jobs:
 
       - name: Build release APK
         run: ./gradlew --no-daemon --stacktrace assembleRelease
+
+      # Compiles on Linux even though it ships as a Windows MSI - Compose
+      # Desktop is cross platform, and only jpackage needs the target OS. So
+      # a broken desktop build is caught here on every run rather than at
+      # packaging time on a runner we do not start yet.
+      - name: Compile the desktop module
+        run: ./gradlew --no-daemon --stacktrace :desktop:compileKotlin
 
       - name: Collect APKs
         if: always()
