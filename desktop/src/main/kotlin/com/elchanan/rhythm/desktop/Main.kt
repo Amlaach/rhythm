@@ -1,6 +1,7 @@
 package com.elchanan.rhythm.desktop
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,9 +57,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -532,6 +535,7 @@ private fun FeedPane(feed: List<FeedSection>, onPlay: (List<SongEntity>, Int) ->
                             Tile(
                                 title = mix.title,
                                 subtitle = mix.subtitle,
+                                song = mix.songs.firstOrNull(),
                                 onClick = { onPlay(mix.songs, 0) }
                             )
                         }
@@ -571,6 +575,7 @@ private fun FeedPane(feed: List<FeedSection>, onPlay: (List<SongEntity>, Int) ->
                             Tile(
                                 title = song.title,
                                 subtitle = song.artistName.ifEmpty { "ללא אמן" },
+                                song = song,
                                 onClick = { onPlay(section.songs, index) }
                             )
                         }
@@ -581,18 +586,33 @@ private fun FeedPane(feed: List<FeedSection>, onPlay: (List<SongEntity>, Int) ->
     }
 }
 
+/**
+ * A cover, or the panel that stands in for one.
+ *
+ * A flat surface rather than a placeholder picture or an empty hole: a row of
+ * cards should read as a row of cards whether or not the files happen to
+ * carry artwork, and most files in a library of downloads do not.
+ */
 @Composable
-private fun Tile(title: String, subtitle: String, onClick: () -> Unit) {
-    Column(modifier = Modifier.width(150.dp).clickable(onClick = onClick)) {
-        // Artwork is not read yet, so the square is a flat panel rather than
-        // an empty hole: the row still reads as a row of cards.
-        Box(
-            modifier = Modifier
-                .width(150.dp)
-                .height(150.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
+private fun Art(song: SongEntity?, size: Dp, corner: Dp) {
+    val image = rememberArtwork(song)
+    val shape = Modifier.width(size).height(size).clip(RoundedCornerShape(corner))
+    if (image != null) {
+        Image(
+            bitmap = image,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = shape
         )
+    } else {
+        Box(modifier = shape.background(MaterialTheme.colorScheme.surfaceVariant))
+    }
+}
+
+@Composable
+private fun Tile(title: String, subtitle: String, song: SongEntity?, onClick: () -> Unit) {
+    Column(modifier = Modifier.width(150.dp).clickable(onClick = onClick)) {
+        Art(song = song, size = 150.dp, corner = 8.dp)
         Text(
             title,
             style = MaterialTheme.typography.bodyMedium,
@@ -619,13 +639,7 @@ private fun CompactRow(song: SongEntity, onClick: () -> Unit) {
             .padding(vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .width(44.dp)
-                .height(44.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-        )
+        Art(song = song, size = 44.dp, corner = 4.dp)
         Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
             Text(
                 song.title,
@@ -675,7 +689,8 @@ private fun LibraryPane(
                     .padding(horizontal = 16.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Art(song = song, size = 44.dp, corner = 4.dp)
+                Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
                     Text(song.title, style = MaterialTheme.typography.bodyLarge)
                     Text(
                         song.artistName.ifEmpty { "ללא אמן" },
@@ -833,13 +848,7 @@ private fun PlayerScreen(
             }
         }
 
-        Box(
-            modifier = Modifier
-                .width(300.dp)
-                .height(300.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-        )
+        Art(song = song, size = 300.dp, corner = 12.dp)
 
         Text(
             song.title,
@@ -1058,13 +1067,26 @@ private fun NowPlaying(
 
     Surface(tonalElevation = 3.dp, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Column(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
-                Text(song?.title ?: "לא מנוגן כלום", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    song?.artistName?.ifEmpty { "ללא אמן" }.orEmpty(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Art(song = song, size = 40.dp, corner = 4.dp)
+                Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                    Text(
+                        song?.title ?: "לא מנוגן כלום",
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        song?.artistName?.ifEmpty { "ללא אמן" }.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
