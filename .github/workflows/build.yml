@@ -106,26 +106,31 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # jpackage shells out to WiX to build an MSI, and it only speaks to WiX
-      # 3.x - the runner image ships 4 or 5, which it does not recognise and
-      # reports as WiX simply being absent. The binaries zip is enough: it
-      # carries candle.exe and light.exe, which are the two it looks for on
-      # PATH, and needs no installer of its own.
-      - name: Provide WiX 3.14 for jpackage
-        shell: pwsh
-        run: |
-          $url = "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip"
-          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\wix.zip"
-          Expand-Archive -Path "$env:RUNNER_TEMP\wix.zip" -DestinationPath "$env:RUNNER_TEMP\wix" -Force
-          "$env:RUNNER_TEMP\wix" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
       - name: Build the installer
         shell: pwsh
         run: |
           # The same run number the APK carries, so an MSI and an APK from one
           # run are provably the same code. An MSI version has to be numeric
           # and rise, which is exactly what a run number is.
-          .\gradlew.bat --no-daemon --stacktrace :desktop:packageMsi "-PrhythmVersion=1.0.${{ github.run_number }}"
+          #
+          # No --stacktrace: when jpackage fails it fails with exit code 1 and
+          # writes the reason to a file, so a Gradle stack trace is two hundred
+          # lines that say nothing and bury the part that does. The step below
+          # prints the file instead.
+          .\gradlew.bat --no-daemon :desktop:packageMsi "-PrhythmVersion=1.0.${{ github.run_number }}"
+
+      # jpackage reports "exit code 1" and puts what actually went wrong in a
+      # log beside the build output, which nothing reads unless it is asked to.
+      - name: Show what jpackage said
+        if: failure()
+        shell: pwsh
+        run: |
+          $logs = Get-ChildItem -Path desktop/build/compose/logs -Recurse -Filter *.txt -ErrorAction SilentlyContinue
+          if (-not $logs) { Write-Host "no jpackage logs were written"; exit 0 }
+          foreach ($log in $logs) {
+            Write-Host "===== $($log.Name) ====="
+            Get-Content $log.FullName
+          }
 
       - name: Collect the installer
         if: always()

@@ -18,7 +18,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -254,7 +254,7 @@ private fun NowPlaying(
 
                 Box(modifier = Modifier.weight(1f))
 
-                Icon(Icons.Filled.VolumeUp, contentDescription = "עוצמה")
+                Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = "עוצמה")
                 Slider(
                     value = volume,
                     onValueChange = onVolume,
