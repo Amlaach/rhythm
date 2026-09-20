@@ -9,6 +9,23 @@ plugins {
 // so a plain `gradlew assembleRelease` still produces an installable APK.
 val ciKeystorePath: String? = System.getenv("RHYTHM_KEYSTORE_FILE")
 
+// The version has to change between builds or it cannot answer the only
+// question ever asked of it: is this the one with the fix in it. It was
+// pinned at 1 / "1.0.0", so every APK ever produced claimed to be the same
+// release and there was no way to tell an install from last month from one
+// built five minutes ago.
+//
+// CI supplies a run number that only ever goes up, which is exactly what a
+// version code is meant to be, and the commit it was built from. A build made
+// on someone's own machine has neither and says so rather than borrowing a
+// number it has no right to.
+//
+// Deliberately no build timestamp: it would differ on every configuration and
+// so invalidate the build cache this project turns on, and the commit answers
+// the same question more precisely anyway.
+val ciBuildNumber: Int? = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+val ciCommit: String = System.getenv("GITHUB_SHA").orEmpty().take(7)
+
 android {
     namespace = "com.elchanan.rhythm"
     compileSdk = 34
@@ -21,8 +38,11 @@ android {
         // exactly where a local player with no streaming still earns its place.
         minSdk = 21
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = ciBuildNumber ?: 1
+        versionName = if (ciBuildNumber != null) "1.0.$ciBuildNumber" else "1.0.0-dev"
+        // Carried into the app so the about screen can name the exact commit
+        // rather than a version number that only says which day it was.
+        buildConfigField("String", "GIT_SHA", "\"$ciCommit\"")
         vectorDrawables { useSupportLibrary = true }
 
         // TensorFlow Lite ships a native library per architecture, and carrying

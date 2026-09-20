@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.elchanan.rhythm.BuildConfig
 import com.elchanan.rhythm.ui.ActionPlacement
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.PlayerAction
@@ -1126,6 +1127,42 @@ fun SettingsScreen(
                                 colors = ButtonDefaults.buttonColors(containerColor = Surface1)
                             ) { Text("נקה") }
                         }
+                    }
+                }
+            }
+
+            // Which build this actually is. Without it there is no way to tell
+            // an install from a month ago from one made five minutes ago, and
+            // no way to answer "does your copy have the fix in it" - which is
+            // the first question any report needs settled.
+            item { SectionHeader(title = "על האפליקציה") }
+            item {
+                Column(modifier = Modifier.padding(horizontal = gutter)) {
+                    Stat("גרסה", BuildConfig.VERSION_NAME)
+                    Stat("מספר בנייה", "${BuildConfig.VERSION_CODE}")
+                    // The flavour decides whether the tagging model exists at
+                    // all, which changes what several features can do. It is
+                    // not something anyone should have to work out from the
+                    // name of the file they installed.
+                    Stat(
+                        "מהדורה",
+                        if (BuildConfig.FLAVOR == "full") {
+                            "מלאה — כולל מודל זיהוי הצלילים"
+                        } else {
+                            "קלה — בלי מודל זיהוי הצלילים"
+                        }
+                    )
+                    if (BuildConfig.GIT_SHA.isNotBlank()) {
+                        Stat("קומיט", BuildConfig.GIT_SHA)
+                    }
+                    if (BuildConfig.VERSION_NAME.endsWith("-dev")) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "בנייה מקומית — לא נבנתה דרך GitHub Actions, ולכן אין לה " +
+                                "מספר בנייה שאפשר להשוות אליו.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
                     }
                 }
             }
