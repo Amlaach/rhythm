@@ -77,7 +77,19 @@ compose.desktop {
             packageName = "Rhythm"
             packageVersion = project.findProperty("rhythmVersion")?.toString() ?: "1.0.0"
             vendor = "Rhythm"
-            description = "נגן מוזיקה אופליין עם מנוע המלצות מקומי"
+            // Latin on purpose, and it has to stay that way. Compose writes
+            // jpackage's arguments to a file as UTF-8; jpackage on JDK 17
+            // reads that file in the platform's default charset, which on
+            // Windows is still windows-1252 because UTF-8 only became the
+            // default in JDK 18. The first Hebrew letter is D7 90 in UTF-8
+            // and 0x90 is one of the bytes windows-1252 does not map, so the
+            // decoder threw on it and packaging failed with nothing but
+            // "Input length = 1" in a log file nobody was reading.
+            //
+            // This string is the Comments field in Add/Remove Programs and
+            // nothing else - no part of the wizard or the app shows it, and
+            // the app itself is Hebrew throughout.
+            description = "Offline music player with a local recommendation engine"
 
             windows {
                 // A stable upgrade UUID is what makes the next MSI replace
