@@ -121,21 +121,15 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build the installer
+      # jpackage builds the application image - Rhythm.exe, the cut down
+      # runtime and the jars - and stops there. It cannot be told to launch
+      # the app when an install finishes, because it generates its MSI from a
+      # fixed WiX template with no such page and no switch to add one.
+      - name: Build the application image
         shell: pwsh
         run: |
-          # The same run number the APK carries, so an MSI and an APK from one
-          # run are provably the same code. An MSI version has to be numeric
-          # and rise, which is exactly what a run number is.
-          #
-          # No --stacktrace: when jpackage fails it fails with exit code 1 and
-          # writes the reason to a file, so a Gradle stack trace is two hundred
-          # lines that say nothing and bury the part that does. The step below
-          # prints the file instead.
-          .\gradlew.bat --no-daemon :desktop:packageMsi "-PrhythmVersion=1.0.${{ github.run_number }}"
+          .\gradlew.bat --no-daemon :desktop:createDistributable "-PrhythmVersion=1.0.${{ github.run_number }}"
 
-      # jpackage reports "exit code 1" and puts what actually went wrong in a
-      # log beside the build output, which nothing reads unless it is asked to.
       - name: Show what jpackage said
         if: failure()
         shell: pwsh
@@ -147,15 +141,34 @@ jobs:
             Get-Content $log.FullName
           }
 
+      # Not on the runner image, so it is fetched. One line and about a
+      # minute, against writing WiX by hand to get the same page.
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $image = "$PWD\desktop\build\compose\binaries\main\app\Rhythm"
+          $out = "$PWD\desktop\build\installer"
+          if (-not (Test-Path $image)) { throw "no application image at $image" }
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DAppVersion=1.0.${{ github.run_number }}" `
+            "/DSourceDir=$image" `
+            "/DOutDir=$out" `
+            "desktop\installer\rhythm.iss"
+
       - name: Collect the installer
         if: always()
         shell: pwsh
         run: |
-          $msi = Get-ChildItem -Path desktop/build/compose/binaries/main/msi -Filter *.msi -ErrorAction SilentlyContinue
-          if ($msi) {
-            "### Windows installer"      | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          $setup = Get-ChildItem -Path desktop/build/installer -Filter *.exe -ErrorAction SilentlyContinue
+          if ($setup) {
+            "### Windows installer" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
             "version 1.0.${{ github.run_number }}, commit $($env:GITHUB_SHA.Substring(0,7))" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-            $msi | ForEach-Object { "$($_.Name) - $([math]::Round($_.Length / 1MB, 1)) MB" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append }
+            $setup | ForEach-Object { "$($_.Name) - $([math]::Round($_.Length / 1MB, 1)) MB" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append }
           } else {
             "### Windows installer was not produced" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           }
@@ -165,5 +178,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rhythm-windows-${{ github.run_number }}
-          path: desktop/build/compose/binaries/main/msi/*.msi
+          path: desktop/build/installer/*.exe
           if-no-files-found: warn

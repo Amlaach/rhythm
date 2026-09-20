@@ -8,6 +8,7 @@ import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.playback.MediaItems
 import java.io.File
+import java.util.Locale
 
 /**
  * Finding a song's lyrics on an Android device.
