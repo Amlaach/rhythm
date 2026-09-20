@@ -178,77 +178,6 @@ fun SettingsScreen(
         }
 
         LazyColumn(contentPadding = PaddingValues(bottom = 60.dp)) {
-            // Five sliders that most people will never touch, sitting above
-            // everything they came here for. Folded away behind one row, so the
-            // top of settings is the things that get used.
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("כוונון האלגוריתם", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "גילוי, משקל דירוגים וסגנונות, התאמת סאונד. הכל מקומי — " +
-                                "שום דבר לא יוצא מהמכשיר",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-                    }
-                    Button(
-                        onClick = { algorithmOpen = !algorithmOpen },
-                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                    ) { Text(if (algorithmOpen) "סגור" else "פתח") }
-                }
-            }
-            if (algorithmOpen) {
-            item {
-                TuningSlider(
-                    label = "גילוי מול מוכר",
-                    value = discovery,
-                    hint = "ככל שגבוה יותר, יופיעו יותר שירים שלא שמעת",
-                    onChange = { discovery = it },
-                    onDone = { vm.updateTuning(discovery = discovery) }
-                )
-            }
-            item {
-                TuningSlider(
-                    label = "משקל דירוגי האמנים",
-                    value = artistWeight / 2f,
-                    hint = "כמה הכוכבים שנתת לאמנים משפיעים על הפיד",
-                    onChange = { artistWeight = it * 2f },
-                    onDone = { vm.updateTuning(artistWeight = artistWeight) }
-                )
-            }
-            item {
-                TuningSlider(
-                    label = "משקל הסגנונות",
-                    value = styleWeight / 2f,
-                    hint = "כמה תגיות הסגנון מכתיבות את הבחירה",
-                    onChange = { styleWeight = it * 2f },
-                    onDone = { vm.updateTuning(styleWeight = styleWeight) }
-                )
-            }
-            item {
-                TuningSlider(
-                    label = "משקל התאמת הסאונד",
-                    value = acousticWeight / 2f,
-                    hint = "כמה הקצב, האנרגיה והגוון שנמדדו מהקובץ משפיעים",
-                    onChange = { acousticWeight = it * 2f },
-                    onDone = { vm.updateTuning(acousticWeight = acousticWeight) }
-                )
-            }
-            item {
-                TuningSlider(
-                    label = "מניעת חזרתיות",
-                    value = repeatGuard / 2f,
-                    hint = "ככל שגבוה יותר, שיר שהתנגן לאחרונה ירד בדירוג",
-                    onChange = { repeatGuard = it * 2f },
-                    onDone = { vm.updateTuning(repeatGuard = repeatGuard) }
-                )
-            }
-            }
-
             // ---------------------------------------------------------------
             // דף הבית
             // ---------------------------------------------------------------
@@ -458,12 +387,12 @@ fun SettingsScreen(
             }
 
             // ---------------------------------------------------------------
-            // הנגן
+            // הנגן והשמע
             // ---------------------------------------------------------------
             item {
                 SectionToggleRow(
-                    title = "הגדרות הנגן",
-                    subtitle = "אילו כפתורים יופיעו, ואיפה",
+                    title = "הגדרות הנגן והשמע",
+                    subtitle = "כפתורים, רדיו אינסופי, אקולייזר וכוונון האלגוריתם",
                     open = playerOpen,
                     onToggle = { playerOpen = !playerOpen }
                 )
@@ -618,52 +547,126 @@ fun SettingsScreen(
                         )
                     }
                 }
-            }
 
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("רדיו אינסופי", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "כשהתור נגמר, ממשיך לבד לפי הטעם שנלמד",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
+                // The tuning sliders, the radio switch and the equaliser
+                // all sat elsewhere: the sliders at the very top of the
+                // screen above everything people actually came for, and
+                // the other two loose in the middle of the list. They are
+                // all settings about what comes out of the speaker, so
+                // they belong behind the one heading that says so.
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("כוונון האלגוריתם", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "גילוי, משקל דירוגים וסגנונות, התאמת סאונד. הכל מקומי — " +
+                                    "שום דבר לא יוצא מהמכשיר",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Button(
+                            onClick = { algorithmOpen = !algorithmOpen },
+                            colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                        ) { Text(if (algorithmOpen) "סגור" else "פתח") }
                     }
-                    Switch(
-                        checked = autoRadio,
-                        onCheckedChange = {
-                            autoRadio = it
-                            vm.updateTuning(autoRadio = it)
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Accent,
-                            checkedTrackColor = Accent.copy(alpha = 0.4f)
-                        )
+                }
+                if (algorithmOpen) {
+                item {
+                    TuningSlider(
+                        label = "גילוי מול מוכר",
+                        value = discovery,
+                        hint = "ככל שגבוה יותר, יופיעו יותר שירים שלא שמעת",
+                        onChange = { discovery = it },
+                        onDone = { vm.updateTuning(discovery = discovery) }
                     )
                 }
-            }
+                item {
+                    TuningSlider(
+                        label = "משקל דירוגי האמנים",
+                        value = artistWeight / 2f,
+                        hint = "כמה הכוכבים שנתת לאמנים משפיעים על הפיד",
+                        onChange = { artistWeight = it * 2f },
+                        onDone = { vm.updateTuning(artistWeight = artistWeight) }
+                    )
+                }
+                item {
+                    TuningSlider(
+                        label = "משקל הסגנונות",
+                        value = styleWeight / 2f,
+                        hint = "כמה תגיות הסגנון מכתיבות את הבחירה",
+                        onChange = { styleWeight = it * 2f },
+                        onDone = { vm.updateTuning(styleWeight = styleWeight) }
+                    )
+                }
+                item {
+                    TuningSlider(
+                        label = "משקל התאמת הסאונד",
+                        value = acousticWeight / 2f,
+                        hint = "כמה הקצב, האנרגיה והגוון שנמדדו מהקובץ משפיעים",
+                        onChange = { acousticWeight = it * 2f },
+                        onDone = { vm.updateTuning(acousticWeight = acousticWeight) }
+                    )
+                }
+                item {
+                    TuningSlider(
+                        label = "מניעת חזרתיות",
+                        value = repeatGuard / 2f,
+                        hint = "ככל שגבוה יותר, שיר שהתנגן לאחרונה ירד בדירוג",
+                        onChange = { repeatGuard = it * 2f },
+                        onDone = { vm.updateTuning(repeatGuard = repeatGuard) }
+                    )
+                }
+                }
 
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("אקולייזר", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "כוונון תדרים לפי המנוע של המערכת, עם המוכנים מראש של המכשיר",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("רדיו אינסופי", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "כשהתור נגמר, ממשיך לבד לפי הטעם שנלמד",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = autoRadio,
+                            onCheckedChange = {
+                                autoRadio = it
+                                vm.updateTuning(autoRadio = it)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Accent,
+                                checkedTrackColor = Accent.copy(alpha = 0.4f)
+                            )
                         )
                     }
-                    Button(
-                        onClick = onOpenEqualizer,
-                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                    ) { Text("פתח") }
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("אקולייזר", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "כוונון תדרים לפי המנוע של המערכת, עם המוכנים מראש של המכשיר",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Button(
+                            onClick = onOpenEqualizer,
+                            colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                        ) { Text("פתח") }
+                    }
                 }
             }
 
