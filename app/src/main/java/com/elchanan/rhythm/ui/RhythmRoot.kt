@@ -43,6 +43,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.elchanan.rhythm.ui.screens.AlbumsScreen
+import com.elchanan.rhythm.ui.screens.AlgorithmSettingsScreen
 import com.elchanan.rhythm.ui.screens.ArtistDetailScreen
 import com.elchanan.rhythm.ui.screens.ArtistRatingsScreen
 import com.elchanan.rhythm.ui.screens.DetailListScreen
@@ -52,6 +53,7 @@ import com.elchanan.rhythm.ui.screens.HomeSettingsScreen
 import com.elchanan.rhythm.ui.screens.LibraryScreen
 import com.elchanan.rhythm.ui.screens.MiniPlayer
 import com.elchanan.rhythm.ui.screens.PlayerScreen
+import com.elchanan.rhythm.ui.screens.PlayerSettingsScreen
 import com.elchanan.rhythm.ui.screens.RecapScreen
 import com.elchanan.rhythm.ui.screens.SearchScreen
 import com.elchanan.rhythm.ui.screens.SettingsScreen
@@ -69,7 +71,9 @@ object Routes {
     const val LIBRARY = "library"
     const val RATINGS = "ratings"
     const val SETTINGS = "settings"
+    const val ALGORITHM_SETTINGS = "algorithmsettings"
     const val HOME_SETTINGS = "homesettings"
+    const val PLAYER_SETTINGS = "playersettings"
     const val DETAIL = "detail"
     const val ARTIST = "artist"
     const val ALBUMS = "albums"
@@ -275,12 +279,23 @@ fun RhythmRoot(
                         vm = vm,
                         onBack = { navController.popBackStack() },
                         onOpenTagFix = { navController.navigate(Routes.TAGS) },
-                        onOpenEqualizer = { navController.navigate(Routes.EQUALIZER) },
-                        onOpenHomeSettings = { navController.navigate(Routes.HOME_SETTINGS) }
+                        onOpenHomeSettings = { navController.navigate(Routes.HOME_SETTINGS) },
+                        onOpenPlayerSettings = { navController.navigate(Routes.PLAYER_SETTINGS) },
+                        onOpenAlgorithmSettings = { navController.navigate(Routes.ALGORITHM_SETTINGS) }
                     )
+                }
+                composable(Routes.ALGORITHM_SETTINGS) {
+                    AlgorithmSettingsScreen(vm = vm, onBack = { navController.popBackStack() })
                 }
                 composable(Routes.HOME_SETTINGS) {
                     HomeSettingsScreen(vm = vm, onBack = { navController.popBackStack() })
+                }
+                composable(Routes.PLAYER_SETTINGS) {
+                    PlayerSettingsScreen(
+                        vm = vm,
+                        onBack = { navController.popBackStack() },
+                        onOpenEqualizer = { navController.navigate(Routes.EQUALIZER) }
+                    )
                 }
                 composable(Routes.TAGS) {
                     TagFixScreen(vm = vm, onBack = { navController.popBackStack() })
@@ -344,6 +359,12 @@ private fun RhythmBottomBar(
         modifier = Modifier.fillMaxWidth()
     ) {
         TABS.forEach { tab ->
+            // Home is the root of the app, so its tab ignores what was saved for
+            // it. Leaving a settings screen files that whole stack under home's
+            // own id, and restoring it hands the settings screen straight back
+            // instead of landing on the feed. The other tabs do restore - that is
+            // what makes each of them remember where it was.
+            val restoresSavedState = tab.route != Routes.HOME
             NavigationBarItem(
                 selected = currentRoute == tab.route,
                 onClick = {
@@ -355,7 +376,7 @@ private fun RhythmBottomBar(
                     navController.navigate(tab.route) {
                         popUpTo(Routes.HOME) { saveState = true }
                         launchSingleTop = true
-                        restoreState = true
+                        restoreState = restoresSavedState
                     }
                 },
                 icon = { Icon(tab.icon, contentDescription = tab.label) },

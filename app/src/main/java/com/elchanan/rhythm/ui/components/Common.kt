@@ -37,6 +37,8 @@ import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -632,6 +634,38 @@ fun AlphabetIndex(
                 modifier = Modifier.clickable { onLetter(letter) }
             )
         }
+    }
+}
+
+/**
+ * One named value on a scale of nothing to everything, with the explanation of
+ * what it does underneath.
+ *
+ * The value is held by the caller while the finger moves and committed when it
+ * lifts, so tuning does not re-rank a library on every pixel of the drag.
+ */
+@Composable
+fun TuningSlider(
+    label: String,
+    value: Float,
+    hint: String,
+    onChange: (Float) -> Unit,
+    onDone: () -> Unit
+) {
+    val gutter = rememberMetrics().gutter
+    Column(modifier = Modifier.padding(horizontal = gutter, vertical = 6.dp)) {
+        Text(label, style = MaterialTheme.typography.titleSmall)
+        Text(hint, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        Slider(
+            value = value.coerceIn(0f, 1f),
+            onValueChange = onChange,
+            onValueChangeFinished = onDone,
+            colors = SliderDefaults.colors(
+                thumbColor = Accent,
+                activeTrackColor = Accent,
+                inactiveTrackColor = Surface1
+            )
+        )
     }
 }
 

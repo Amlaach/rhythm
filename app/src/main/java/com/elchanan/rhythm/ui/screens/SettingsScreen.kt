@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -28,8 +27,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -46,11 +43,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.elchanan.rhythm.ui.ActionPlacement
 import com.elchanan.rhythm.ui.MainViewModel
-import com.elchanan.rhythm.ui.PlayerAction
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.SectionHeader
+import com.elchanan.rhythm.ui.components.TuningSlider
 import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.Accent
@@ -83,8 +79,9 @@ fun SettingsScreen(
     vm: MainViewModel,
     onBack: () -> Unit,
     onOpenTagFix: () -> Unit = {},
-    onOpenEqualizer: () -> Unit = {},
-    onOpenHomeSettings: () -> Unit = {}
+    onOpenHomeSettings: () -> Unit = {},
+    onOpenPlayerSettings: () -> Unit = {},
+    onOpenAlgorithmSettings: () -> Unit = {}
 ) {
     val report by vm.report.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
@@ -93,30 +90,17 @@ fun SettingsScreen(
     // its content back instead of spending it on empty edges.
     val gutter = rememberMetrics().gutter
 
-    var discovery by remember { mutableFloatStateOf(vm.prefs.discovery) }
-    var artistWeight by remember { mutableFloatStateOf(vm.prefs.artistWeight) }
-    var styleWeight by remember { mutableFloatStateOf(vm.prefs.styleWeight) }
-    var repeatGuard by remember { mutableFloatStateOf(vm.prefs.repeatGuard) }
-    var autoRadio by remember { mutableStateOf(vm.prefs.autoRadio) }
     var minDuration by remember { mutableFloatStateOf(vm.prefs.minDurationSec.toFloat()) }
-    var acousticWeight by remember { mutableFloatStateOf(vm.prefs.acousticWeight) }
     var autoAnalyze by remember { mutableStateOf(vm.prefs.autoAnalyze) }
     var foldersOpen by remember { mutableStateOf(false) }
     var crossfade by remember { mutableFloatStateOf(vm.prefs.crossfadeMs.toFloat()) }
     var skipSilence by remember { mutableStateOf(vm.prefs.skipSilence) }
-    var normalizeVolume by remember { mutableStateOf(vm.prefs.normalizeVolume) }
-    var algorithmOpen by remember { mutableStateOf(false) }
     var libraryOpen by remember { mutableStateOf(false) }
-    var playerOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
     var searchPersonal by remember { mutableStateOf(vm.prefs.searchPersonalized) }
     var searchLyrics by remember { mutableStateOf(vm.prefs.searchLyrics) }
-    var resumePrompt by remember { mutableStateOf(vm.prefs.resumePrompt) }
-    var openOnPlay by remember { mutableStateOf(vm.prefs.openPlayerOnPlay) }
     var firstTab by remember { mutableStateOf(vm.prefs.libraryFirstTab) }
     var hideDupes by remember { mutableStateOf(vm.prefs.hideDuplicates) }
-    var pauseSilent by remember { mutableStateOf(vm.prefs.pauseOnSilence) }
-    var actions by remember { mutableStateOf(vm.prefs.playerActions) }
     var stripForeign by remember { mutableStateOf(vm.prefs.tagStripForeign) }
     var writeTags by remember { mutableStateOf(vm.prefs.writeTagsToFiles) }
     var separations by remember { mutableStateOf(vm.prefs.styleSeparations) }
@@ -124,7 +108,6 @@ fun SettingsScreen(
     var folderTree by remember { mutableStateOf(vm.prefs.folderTree) }
     var skipRecordings by remember { mutableStateOf(vm.prefs.skipRecordings) }
     var resumeSpoken by remember { mutableStateOf(vm.prefs.resumeSpoken) }
-    var tapArtwork by remember { mutableStateOf(vm.prefs.tapArtworkToggles) }
     val analysis by vm.analysisProgress.collectAsStateWithLifecycle()
     val lyricsFolder by vm.lyricsFolder.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -174,16 +157,18 @@ fun SettingsScreen(
         }
 
         LazyColumn(contentPadding = PaddingValues(bottom = 60.dp)) {
-            // Five sliders that most people will never touch, sitting above
-            // everything they came here for. Folded away behind one row, so the
-            // top of settings is the things that get used.
+            // ---------------------------------------------------------------
+            // האלגוריתם
+            // ---------------------------------------------------------------
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("כוונון האלגוריתם", style = MaterialTheme.typography.titleSmall)
+                        Text("הגדרות האלגוריתם", style = MaterialTheme.typography.titleSmall)
                         Text(
                             "גילוי, משקל דירוגים וסגנונות, התאמת סאונד. הכל מקומי — " +
                                 "שום דבר לא יוצא מהמכשיר",
@@ -192,57 +177,10 @@ fun SettingsScreen(
                         )
                     }
                     Button(
-                        onClick = { algorithmOpen = !algorithmOpen },
+                        onClick = onOpenAlgorithmSettings,
                         colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                    ) { Text(if (algorithmOpen) "סגור" else "פתח") }
+                    ) { Text("פתח") }
                 }
-            }
-            if (algorithmOpen) {
-            item {
-                TuningSlider(
-                    label = "גילוי מול מוכר",
-                    value = discovery,
-                    hint = "ככל שגבוה יותר, יופיעו יותר שירים שלא שמעת",
-                    onChange = { discovery = it },
-                    onDone = { vm.updateTuning(discovery = discovery) }
-                )
-            }
-            item {
-                TuningSlider(
-                    label = "משקל דירוגי האמנים",
-                    value = artistWeight / 2f,
-                    hint = "כמה הכוכבים שנתת לאמנים משפיעים על הפיד",
-                    onChange = { artistWeight = it * 2f },
-                    onDone = { vm.updateTuning(artistWeight = artistWeight) }
-                )
-            }
-            item {
-                TuningSlider(
-                    label = "משקל הסגנונות",
-                    value = styleWeight / 2f,
-                    hint = "כמה תגיות הסגנון מכתיבות את הבחירה",
-                    onChange = { styleWeight = it * 2f },
-                    onDone = { vm.updateTuning(styleWeight = styleWeight) }
-                )
-            }
-            item {
-                TuningSlider(
-                    label = "משקל התאמת הסאונד",
-                    value = acousticWeight / 2f,
-                    hint = "כמה הקצב, האנרגיה והגוון שנמדדו מהקובץ משפיעים",
-                    onChange = { acousticWeight = it * 2f },
-                    onDone = { vm.updateTuning(acousticWeight = acousticWeight) }
-                )
-            }
-            item {
-                TuningSlider(
-                    label = "מניעת חזרתיות",
-                    value = repeatGuard / 2f,
-                    hint = "ככל שגבוה יותר, שיר שהתנגן לאחרונה ירד בדירוג",
-                    onChange = { repeatGuard = it * 2f },
-                    onDone = { vm.updateTuning(repeatGuard = repeatGuard) }
-                )
-            }
             }
 
             // ---------------------------------------------------------------
@@ -330,30 +268,6 @@ fun SettingsScreen(
                 }
             }
 
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("למידת סגנונות מהספרייה", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "לומד איך הסגנונות שהגדרת נשמעים — מהשירים של האמנים " +
-                                "שתייגת — ומשלים תגיות לשירים שלא תויגו. האפליקציה " +
-                                "בודקת את עצמה על חצי מהספרייה, ואם הדיוק נמוך היא " +
-                                "לא משנה כלום",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-                    }
-                    Button(
-                        onClick = { vm.learnStyles() },
-                        enabled = !busy,
-                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                    ) { Text("למד") }
-                }
-            }
-
             // ---------------------------------------------------------------
             // החיפוש
             // ---------------------------------------------------------------
@@ -432,210 +346,25 @@ fun SettingsScreen(
             }
 
             // ---------------------------------------------------------------
-            // הנגן
+            // הנגן והשמע
             // ---------------------------------------------------------------
             item {
-                SectionToggleRow(
-                    title = "הגדרות הנגן",
-                    subtitle = "אילו כפתורים יופיעו, ואיפה",
-                    open = playerOpen,
-                    onToggle = { playerOpen = !playerOpen }
-                )
-            }
-            if (playerOpen) {
-                item {
-                    Text(
-                        "לכל פעולה אפשר לבחור: כפתור משלה במסך הנגן, פריט בתפריט " +
-                            "השלוש נקודות, או מוסתרת לגמרי.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                        modifier = Modifier.padding(horizontal = gutter, vertical = 4.dp)
-                    )
-                }
-                items(PlayerAction.entries.toList()) { action ->
-                    val current = PlayerAction.placementOf(actions, action)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = gutter, vertical = 6.dp)
-                    ) {
-                        Text(action.label, style = MaterialTheme.typography.bodyLarge)
-                        if (action.about.isNotEmpty()) {
-                            Text(
-                                action.about,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ActionPlacement.entries.forEach { placement ->
-                                Chip(
-                                    label = placement.label,
-                                    selected = current == placement,
-                                    onClick = {
-                                        actions = actions + (action.key to placement.name)
-                                        vm.prefs.playerActions = actions
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("לחיצה על שיר פותחת את הנגן", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                "כבוי: השיר מתחיל והנגן נשאר מכווץ למטה, כמו היום. " +
-                                    "דלוק: מסך הנגן נפתח מיד",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                        }
-                        Switch(
-                            checked = openOnPlay,
-                            onCheckedChange = {
-                                openOnPlay = it
-                                vm.prefs.openPlayerOnPlay = it
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Accent,
-                                checkedTrackColor = Accent.copy(alpha = 0.4f)
-                            )
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "לחיצה על התמונה עוצרת וממשיכה",
-                                style = MaterialTheme.typography.titleSmall
-                            )
-                            Text(
-                                "התמונה הגדולה במסך הנגן היא הדבר הכי קל לפגוע בו בלי " +
-                                    "להסתכל",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                        }
-                        Switch(
-                            checked = tapArtwork,
-                            onCheckedChange = {
-                                tapArtwork = it
-                                vm.prefs.tapArtworkToggles = it
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Accent,
-                                checkedTrackColor = Accent.copy(alpha = 0.4f)
-                            )
-                        )
-                    }
-                }
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("הצעה להמשיך מהמיקום האחרון", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                "כששיר נעזב באמצע ופותחים אותו שוב, מוצגת לכמה שניות " +
-                                    "הצעה לחזור לנקודה — עם הזמן המדויק. נשמר רק לשירים " +
-                                    "שנעזבו אחרי חצי דקה ולפני הסוף",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                        }
-                        Switch(
-                            checked = resumePrompt,
-                            onCheckedChange = {
-                                resumePrompt = it
-                                vm.prefs.resumePrompt = it
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Accent,
-                                checkedTrackColor = Accent.copy(alpha = 0.4f)
-                            )
-                        )
-                    }
-                }
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("עצירה כשהעוצמה באפס", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                "מוריד את העוצמה לאפס — ההשמעה נעצרת, ומתחדשת לבד " +
-                                    "כשמעלים בחזרה. בלי זה השיר ממשיך לרוץ בשקט",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                        }
-                        Switch(
-                            checked = pauseSilent,
-                            onCheckedChange = {
-                                pauseSilent = it
-                                vm.prefs.pauseOnSilence = it
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Accent,
-                                checkedTrackColor = Accent.copy(alpha = 0.4f)
-                            )
-                        )
-                    }
-                }
-            }
-
-            item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("רדיו אינסופי", style = MaterialTheme.typography.titleSmall)
+                        Text("הגדרות הנגן והשמע", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "כשהתור נגמר, ממשיך לבד לפי הטעם שנלמד",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-                    }
-                    Switch(
-                        checked = autoRadio,
-                        onCheckedChange = {
-                            autoRadio = it
-                            vm.updateTuning(autoRadio = it)
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Accent,
-                            checkedTrackColor = Accent.copy(alpha = 0.4f)
-                        )
-                    )
-                }
-            }
-
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("אקולייזר", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "כוונון תדרים לפי המנוע של המערכת, עם המוכנים מראש של המכשיר",
+                            "אילו כפתורים יופיעו בנגן, רדיו, אקולייזר ואיזון עוצמה",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
                     }
                     Button(
-                        onClick = onOpenEqualizer,
+                        onClick = onOpenPlayerSettings,
                         colors = ButtonDefaults.buttonColors(containerColor = Accent)
                     ) { Text("פתח") }
                 }
@@ -756,34 +485,6 @@ fun SettingsScreen(
                         onCheckedChange = {
                             writeTags = it
                             vm.prefs.writeTagsToFiles = it
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Accent,
-                            checkedTrackColor = Accent.copy(alpha = 0.4f)
-                        )
-                    )
-                }
-            }
-
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("איזון עוצמה בין שירים", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "מנמיך את השירים החזקים במיוחד כדי שלא תצטרך לגעת בעוצמה בכל מעבר. " +
-                                "דורש שהשירים ינותחו קודם",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-                    }
-                    Switch(
-                        checked = normalizeVolume,
-                        onCheckedChange = {
-                            normalizeVolume = it
-                            vm.prefs.normalizeVolume = it
                         },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Accent,
@@ -1263,30 +964,5 @@ private fun SectionToggleRow(
             onClick = onToggle,
             colors = ButtonDefaults.buttonColors(containerColor = Accent)
         ) { Text(if (open) "סגור" else "פתח") }
-    }
-}
-
-@Composable
-private fun TuningSlider(
-    label: String,
-    value: Float,
-    hint: String,
-    onChange: (Float) -> Unit,
-    onDone: () -> Unit
-) {
-    val gutter = rememberMetrics().gutter
-    Column(modifier = Modifier.padding(horizontal = gutter, vertical = 6.dp)) {
-        Text(label, style = MaterialTheme.typography.titleSmall)
-        Text(hint, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-        Slider(
-            value = value.coerceIn(0f, 1f),
-            onValueChange = onChange,
-            onValueChangeFinished = onDone,
-            colors = SliderDefaults.colors(
-                thumbColor = Accent,
-                activeTrackColor = Accent,
-                inactiveTrackColor = Surface1
-            )
-        )
     }
 }
