@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.elchanan.rhythm.BuildConfig
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.SectionHeader
