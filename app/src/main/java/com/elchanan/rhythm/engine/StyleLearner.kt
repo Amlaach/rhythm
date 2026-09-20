@@ -79,6 +79,19 @@ class StyleLearner private constructor(
          */
         private const val EPS = 1e-6
 
+        /** Examples a style needs before it is worth fitting at all. */
+        const val DEFAULT_MIN_PER_STYLE = 8
+
+        /**
+         * Labelled songs [crossValidate] needs before it will answer.
+         *
+         * It splits the set in half and needs each half to stand on its
+         * own, so the whole is four times what one style needs. Named
+         * rather than buried, because the screen has to be able to say
+         * how far off the user is.
+         */
+        const val MIN_ROWS_TO_VALIDATE = DEFAULT_MIN_PER_STYLE * 4
+
         /**
          * Fits a model, or returns null when there is not enough to learn from.
          *
@@ -92,7 +105,7 @@ class StyleLearner private constructor(
          */
         fun fit(
             labelled: List<Pair<FloatArray, List<String>>>,
-            minPerStyle: Int = 8,
+            minPerStyle: Int = DEFAULT_MIN_PER_STYLE,
             epochs: Int = 220,
             learningRate: Double = 0.35,
             l2: Double = 0.02
@@ -190,7 +203,7 @@ class StyleLearner private constructor(
          */
         fun crossValidate(
             labelled: List<Pair<FloatArray, List<String>>>,
-            minPerStyle: Int = 8
+            minPerStyle: Int = DEFAULT_MIN_PER_STYLE
         ): Double? {
             if (labelled.size < minPerStyle * 4) return null
             // Deterministic split, so the same library gives the same answer.
@@ -245,14 +258,19 @@ object StyleTraining {
      *   case there is nothing to learn from.
      */
     fun featuresFor(songId: Long, tags: String, space: AcousticSpace?): FloatArray? {
-        if (tags.isBlank()) return null
+        val measured = space?.vectors?.get(songId)
+        // Either half is enough on its own. Requiring the tags meant the lite
+        // build could never learn anything at all - it ships without the model,
+        // so every song there has an empty tag string - even though the thirty
+        // six measured numbers were sitting there being ignored.
+        if (tags.isBlank() && measured == null) return null
         val heard = AudioTags.decompress(tags)
         val out = FloatArray(heard.size + AcousticSpace.DIMS)
         System.arraycopy(heard, 0, out, 0, heard.size)
         // Left at zero when a song is not in the acoustic space. Those vectors
         // are z-scores against the user's own library, so zero is the mean -
         // which is the right thing to say about a value that is not known.
-        val measured = space?.vectors?.get(songId) ?: return out
+        if (measured == null) return out
         for (i in 0 until AcousticSpace.DIMS) {
             out[heard.size + i] = measured[i].toFloat()
         }

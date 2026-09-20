@@ -1234,7 +1234,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val accuracy: Double?,
         val trained: Int,
         val labelled: Int,
-        val applied: Int
+        val applied: Int,
+        /** Songs whose artist carries style tags: the labels to learn from. */
+        val withStyles: Int = 0,
+        /** Songs with something measured or heard: the evidence to learn from. */
+        val withEvidence: Int = 0
     )
 
     private val _learnResult = MutableStateFlow<LearnResult?>(null)
@@ -1269,17 +1273,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         null
                     }
 
+                    // Counted separately so the screen can name the half that
+                    // is missing. "Not enough information" is true of every
+                    // failure here and useless in all of them.
+                    val withStyles = lib.songs.count {
+                        Styles.parse(stylesByArtist[it.artistKey].orEmpty()).isNotEmpty()
+                    }
+                    val withEvidence = lib.songs.count {
+                        StyleTraining.featuresFor(
+                            it.id, tagsBySong[it.id].orEmpty(), space
+                        ) != null
+                    }
+
                     val rows = StyleTraining.rows(lib.songs, tagsBySong, stylesByArtist, space)
-                    if (rows.isEmpty()) return@withContext LearnResult(null, 0, 0, 0)
+                    if (rows.isEmpty()) {
+                        return@withContext LearnResult(
+                            null, 0, 0, 0, withStyles, withEvidence
+                        )
+                    }
 
                     val accuracy = StyleLearner.crossValidate(rows)
                     val model = StyleLearner.fit(rows)
-                        ?: return@withContext LearnResult(accuracy, 0, rows.size, 0)
+                        ?: return@withContext LearnResult(
+                            accuracy, 0, rows.size, 0, withStyles, withEvidence
+                        )
 
                     // Only worth applying when the held-out score says the model
                     // actually generalises.
                     if (accuracy == null || accuracy < 0.70) {
-                        return@withContext LearnResult(accuracy, rows.size, rows.size, 0)
+                        return@withContext LearnResult(
+                            accuracy, rows.size, rows.size, 0, withStyles, withEvidence
+                        )
                     }
 
                     // Written only where the user left a blank. Their own words
@@ -1302,7 +1326,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         repo.setSongStyles(song.id, Styles.join(predicted))
                         applied++
                     }
-                    LearnResult(accuracy, rows.size, rows.size, applied)
+                    LearnResult(
+                        accuracy, rows.size, rows.size, applied, withStyles, withEvidence
+                    )
                 }
             }.getOrNull()
             _busy.value = false
@@ -1310,10 +1336,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
             _message.value = when {
                 outcome == null -> "הלמידה נכשלה"
+                outcome.labelled == 0 && outcome.withStyles == 0 ->
+                    "אף אמן לא תויג בסגנון. הלמידה לומדת מהתגיות שלך — סמן סגנונות " +
+                        "לכמה אמנים בטאב \"אמנים\" ונסה שוב."
+                outcome.labelled == 0 && outcome.withEvidence == 0 ->
+                    "אף שיר עוד לא נותח. הרץ ניתוח אודיו בהגדרות וחזור לכאן."
                 outcome.labelled == 0 ->
-                    "אין עדיין מספיק מידע. צריך שירים מנותחים ואמנים עם תגיות סגנון."
+                    "${outcome.withStyles} שירים מתויגים ו-${outcome.withEvidence} מנותחים, " +
+                        "אבל אלה לא אותם שירים."
                 outcome.accuracy == null ->
-                    "יש רק ${outcome.labelled} דוגמאות — מעט מדי כדי לבדוק אם הלמידה נכונה"
+                    "יש ${outcome.labelled} שירים מתויגים. צריך לפחות " +
+                        "${StyleLearner.MIN_ROWS_TO_VALIDATE} כדי לבדוק אם הלמידה נכונה."
+                outcome.trained == 0 ->
+                    "יש ${outcome.labelled} שירים מתויגים, אבל אף סגנון לא הגיע ל-" +
+                        "${StyleLearner.DEFAULT_MIN_PER_STYLE} דוגמאות עם מספיק דוגמאות נגדיות."
                 outcome.applied == 0 ->
                     "דיוק נמדד: ${percent(outcome.accuracy)} — נמוך מדי, לא שיניתי כלום"
                 else ->
