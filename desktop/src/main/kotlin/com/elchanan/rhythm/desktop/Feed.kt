@@ -30,18 +30,14 @@ object Feed {
     /** Below this, the acoustic space measures against too little to mean anything. */
     private const val MIN_ANALYSED_FOR_SPACE = 8
 
-    fun build(
-        songs: List<SongEntity>,
-        stats: Map<Long, SongStatsEntity>,
-        artists: List<ArtistEntity>,
-        features: Map<Long, AudioFeatureEntity>,
-        seed: Long
-    ): List<FeedSection> {
-        if (songs.isEmpty()) return emptyList()
-        return recommender(songs, stats, artists, features, seed).buildFeed()
-    }
-
-    private fun recommender(
+    /**
+     * The engine itself, kept rather than built per question.
+     *
+     * Constructing one scores the whole library, which is the right cost to
+     * pay once for a feed and the wrong cost to pay per keystroke in a search
+     * box. The caller holds it and asks it both.
+     */
+    fun engine(
         songs: List<SongEntity>,
         stats: Map<Long, SongStatsEntity>,
         artists: List<ArtistEntity>,
@@ -77,6 +73,6 @@ object Feed {
         feedSeed: Long
     ): List<SongEntity> {
         if (songs.isEmpty()) return emptyList()
-        return recommender(songs, stats, artists, features, feedSeed).radio(seed)
+        return engine(songs, stats, artists, features, feedSeed).radio(seed)
     }
 }

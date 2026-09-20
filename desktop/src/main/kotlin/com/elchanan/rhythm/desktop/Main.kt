@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +24,8 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.Button
@@ -29,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -63,7 +68,9 @@ import com.elchanan.rhythm.desktop.audio.Analyzer
 import com.elchanan.rhythm.desktop.audio.AudioPlayer
 import com.elchanan.rhythm.desktop.data.Store
 import com.elchanan.rhythm.engine.FeedSection
+import com.elchanan.rhythm.engine.Recommender
 import com.elchanan.rhythm.engine.SectionKind
+import com.elchanan.rhythm.engine.Styles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -128,6 +135,10 @@ private fun RhythmApp() {
     var analysing by remember { mutableStateOf(false) }
     var features by remember { mutableStateOf<Map<Long, AudioFeatureEntity>>(emptyMap()) }
     var volume by remember { mutableStateOf(1f) }
+    var query by remember { mutableStateOf("") }
+    // The scored library, held so a feed and a search are two questions to one
+    // engine rather than two engines.
+    var engine by remember { mutableStateOf<Recommender?>(null) }
 
     suspend fun reload() {
         val loaded = withContext(Dispatchers.IO) {
@@ -136,7 +147,8 @@ private fun RhythmApp() {
             val ar = store.artists()
             val sd = store.feedSeed
             val ft = store.features()
-            Loaded(s, st, ar, store.folders, sd, Feed.build(s, st, ar, ft, sd), ft)
+            val eng = if (s.isEmpty()) null else Feed.engine(s, st, ar, ft, sd)
+            Loaded(s, st, ar, store.folders, sd, eng?.buildFeed().orEmpty(), ft, eng)
         }
         songs = loaded.songs
         stats = loaded.stats
@@ -145,6 +157,7 @@ private fun RhythmApp() {
         seed = loaded.seed
         feed = loaded.feed
         features = loaded.analysed
+        engine = loaded.engine
         status = if (loaded.songs.isEmpty()) {
             "בחר תיקיית מוזיקה"
         } else {
@@ -234,6 +247,24 @@ private fun RhythmApp() {
         }
     }
 
+    fun rateArtist(artist: ArtistEntity, rating: Int) {
+        scope.launch {
+            withContext(Dispatchers.IO) { store.setArtistRating(artist.artistKey, rating) }
+            reload()
+        }
+    }
+
+    fun tagArtist(artist: ArtistEntity, style: String) {
+        scope.launch {
+            val now = Styles.parse(artist.styles).toMutableList()
+            if (!now.remove(style)) now.add(style)
+            withContext(Dispatchers.IO) {
+                store.setArtistStyles(artist.artistKey, Styles.join(now))
+            }
+            reload()
+        }
+    }
+
     fun like(song: SongEntity) {
         scope.launch {
             stats = withContext(Dispatchers.IO) {
@@ -261,6 +292,7 @@ private fun RhythmApp() {
         TabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("בית") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("ספרייה") })
+            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("אמנים") })
         }
 
         Row(
@@ -294,6 +326,14 @@ private fun RhythmApp() {
                 ) { Text("ערבב") }
             }
 
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("חיפוש") },
+                singleLine = true,
+                modifier = Modifier.width(260.dp)
+            )
+
             Text(status, style = MaterialTheme.typography.bodyMedium)
 
             state.error?.let {
@@ -305,16 +345,36 @@ private fun RhythmApp() {
             }
         }
 
+        // A search replaces whatever tab is open rather than being a tab of
+        // its own: someone typing into the box is asking about the library,
+        // not about the thing they happened to be looking at.
+        val results = remember(query, engine) {
+            if (query.isBlank()) emptyList() else engine?.search(query).orEmpty()
+        }
+
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            if (tab == 0) {
-                FeedPane(feed = feed, onPlay = { list, index -> play(list, index) })
-            } else {
-                LibraryPane(
+            when {
+                query.isNotBlank() -> LibraryPane(
+                    songs = results,
+                    stats = stats,
+                    current = queue.getOrNull(queueIndex)?.id,
+                    empty = "לא נמצא כלום",
+                    onPlay = { index -> play(results, index) },
+                    onLike = { song -> like(song) }
+                )
+                tab == 0 -> FeedPane(feed = feed, onPlay = { list, index -> play(list, index) })
+                tab == 1 -> LibraryPane(
                     songs = songs,
                     stats = stats,
                     current = queue.getOrNull(queueIndex)?.id,
+                    empty = "סרוק תיקייה כדי להתחיל",
                     onPlay = { index -> play(songs, index) },
                     onLike = { song -> like(song) }
+                )
+                else -> ArtistsPane(
+                    artists = artists,
+                    onRate = { artist, rating -> rateArtist(artist, rating) },
+                    onTag = { artist, style -> tagArtist(artist, style) }
                 )
             }
         }
@@ -345,7 +405,8 @@ private data class Loaded(
     val folders: List<File>,
     val seed: Long,
     val feed: List<FeedSection>,
-    val analysed: Map<Long, AudioFeatureEntity>
+    val analysed: Map<Long, AudioFeatureEntity>,
+    val engine: Recommender?
 )
 
 @Composable
@@ -511,9 +572,16 @@ private fun LibraryPane(
     songs: List<SongEntity>,
     stats: Map<Long, SongStatsEntity>,
     current: Long?,
+    empty: String,
     onPlay: (Int) -> Unit,
     onLike: (SongEntity) -> Unit
 ) {
+    if (songs.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(empty, style = MaterialTheme.typography.bodyLarge)
+        }
+        return
+    }
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         itemsIndexed(songs) { index, song ->
             Row(
@@ -554,6 +622,106 @@ private fun LibraryPane(
                 }
             }
         }
+    }
+}
+
+// Twenty six style words do not fit on one line of any window, so they wrap.
+// FlowRow is the only layout in Compose that does that, and it is still
+// marked experimental, which is what the opt in is for.
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ArtistsPane(
+    artists: List<ArtistEntity>,
+    onRate: (ArtistEntity, Int) -> Unit,
+    onTag: (ArtistEntity, String) -> Unit
+) {
+    if (artists.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("סרוק תיקייה כדי להתחיל", style = MaterialTheme.typography.bodyLarge)
+        }
+        return
+    }
+    // Rated first, because the point of this screen is to work through the
+    // ones that are not rated yet, and an alphabetical list gives no sense of
+    // how far that has got.
+    val ordered = artists.sortedWith(
+        compareByDescending<ArtistEntity> { it.rating }.thenBy { it.displayName }
+    )
+    LazyColumn(modifier = Modifier.fillMaxSize()) {
+        items(ordered) { artist ->
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text(
+                    artist.displayName.ifEmpty { "ללא שם" },
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    for (star in 1..5) {
+                        IconButton(onClick = { onRate(artist, star) }) {
+                            Icon(
+                                imageVector = if (star <= artist.rating) {
+                                    Icons.Filled.Star
+                                } else {
+                                    Icons.Filled.StarBorder
+                                },
+                                contentDescription = "$star",
+                                tint = if (star <= artist.rating) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                    }
+                }
+                // The style words are what the learner trains on: every song
+                // by a tagged artist becomes a labelled example, which is how
+                // a few minutes here turns into a few hundred of them.
+                val chosen = Styles.parse(artist.styles)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    for (style in Styles.SUGGESTED) {
+                        StyleChip(
+                            label = style,
+                            selected = style in chosen,
+                            onClick = { onTag(artist, style) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StyleChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    // Drawn by hand rather than with a chip component, because the one thing
+    // it has to do is be obviously on or off at a glance and that is a
+    // background colour.
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                }
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
     }
 }
 

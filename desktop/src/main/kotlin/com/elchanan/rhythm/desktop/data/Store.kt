@@ -375,6 +375,41 @@ class Store private constructor(private val conn: Connection) {
         }
     }
 
+    /**
+     * A rating out of five, or nothing.
+     *
+     * Pressing the star a artist already carries clears it, because a rating
+     * set by mistake otherwise has no way back except picking a different
+     * wrong one.
+     */
+    fun setArtistRating(artistKey: String, rating: Int) {
+        conn.prepareStatement(
+            "UPDATE artists SET rating = CASE WHEN rating = ? THEN 0 ELSE ? END, " +
+                "updatedAt = ? WHERE artistKey = ?"
+        ).use { ps ->
+            ps.setInt(1, rating)
+            ps.setInt(2, rating)
+            ps.setLong(3, System.currentTimeMillis())
+            ps.setString(4, artistKey)
+            ps.executeUpdate()
+        }
+    }
+
+    /**
+     * The style words for an artist, which is where the learner's labels come
+     * from - every song by a tagged artist becomes a labelled example.
+     */
+    fun setArtistStyles(artistKey: String, styles: String) {
+        conn.prepareStatement(
+            "UPDATE artists SET styles = ?, updatedAt = ? WHERE artistKey = ?"
+        ).use { ps ->
+            ps.setString(1, styles)
+            ps.setLong(2, System.currentTimeMillis())
+            ps.setString(3, artistKey)
+            ps.executeUpdate()
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Where the music is
     // ---------------------------------------------------------------------
