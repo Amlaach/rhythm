@@ -105,9 +105,19 @@ DECLARED = re.compile(
     r"\b(?:class|interface|object|enum\s+class|annotation\s+class|data\s+class|"
     r"sealed\s+class|sealed\s+interface|data\s+object|value\s+class|typealias)\s+(\w+)"
 )
-TOP_FUN = re.compile(r"^\s*(?:@\w+\s+)*(?:internal\s+|private\s+|public\s+)?"
+# Functions at any indent: a member of an object or an interface is still a
+# declaration, and JNA's `interface User32 { fun RegisterHotKey(...) }` is one.
+ANY_FUN = re.compile(r"^\s*(?:@\w+\s+)*(?:internal\s+|private\s+|public\s+|override\s+)*"
                      r"(?:suspend\s+)?fun\s+(?:<[^>]*>\s+)?(?:[\w.<>?]+\.)?(\w+)", re.M)
-TOP_VAL = re.compile(r"^\s*(?:@\w+\s+)*(?:internal\s+|private\s+|public\s+)?"
+# Properties at any indent, for the file that declares them.
+ANY_VAL = re.compile(r"^\s*(?:@\w+\s+)*(?:internal\s+|private\s+|public\s+|override\s+)*"
+                     r"(?:const\s+)?(?:val|var)\s+(\w+)", re.M)
+# Properties at column zero only, for what the REST of the package may use.
+#
+# The difference matters: a local `val size` inside one function used to
+# register `size` for every other file in the package, and an unimported
+# Modifier.size then sailed straight through this check into a failed build.
+TOP_VAL = re.compile(r"^(?:@\w+\s+)*(?:internal\s+|private\s+|public\s+)?"
                      r"(?:const\s+)?(?:val|var)\s+(\w+)", re.M)
 TYPE_USE = re.compile(r"(?<![.\w@])([A-Z][A-Za-z0-9_]*)")
 PLAIN_USE = re.compile(r"\.([a-z][A-Za-z0-9_]*)\s*\(")
@@ -143,11 +153,16 @@ def scan(roots):
         body = strip_noise(raw)
         pkg = PACKAGE.search(raw)
         pkg = pkg.group(1) if pkg else ""
-        names = set(DECLARED.findall(body))
-        names |= set(TOP_FUN.findall(body))
-        names |= set(TOP_VAL.findall(body))
-        by_package.setdefault(pkg, set()).update(names)
-        parsed[path] = (raw, body, pkg, names)
+        declared = set(DECLARED.findall(body))
+        functions = set(ANY_FUN.findall(body))
+        # What this file itself may use without an import: everything it
+        # declares, locals included.
+        own = declared | functions | set(ANY_VAL.findall(body))
+        # What the rest of the package may use: only what is actually visible
+        # from outside this file.
+        exported = declared | functions | set(TOP_VAL.findall(body))
+        by_package.setdefault(pkg, set()).update(exported)
+        parsed[path] = (raw, body, pkg, own)
 
     problems = []
     for path, (raw, body, pkg, own) in parsed.items():

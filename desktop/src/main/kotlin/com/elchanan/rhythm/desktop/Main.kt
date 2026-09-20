@@ -18,17 +18,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.BarChart
@@ -53,6 +60,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -60,6 +68,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -75,7 +84,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -113,12 +124,14 @@ import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.RhythmTheme
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Surface1
+import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import com.elchanan.rhythm.ui.theme.gradientFor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.awt.Toolkit
 import java.io.File
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
@@ -148,8 +161,8 @@ fun main() = application {
         // side of wherever the last one opened, which on a wide monitor puts
         // a first launch off towards an edge for no reason anyone asked for.
         state = rememberWindowState(
-            width = 1100.dp,
-            height = 760.dp,
+            width = windowSize().first,
+            height = windowSize().second,
             position = WindowPosition(Alignment.Center)
         )
     ) {
@@ -229,6 +242,11 @@ private fun RhythmApp() {
     // Learning scores the whole library twice and can take a while on a big
     // one, so the buttons that would start it again are off while it runs.
     var busy by remember { mutableStateOf(false) }
+    var shuffling by remember { mutableStateOf(false) }
+    var repeat by remember { mutableStateOf(RepeatMode.OFF) }
+    // The queue as it was before it was shuffled, so turning shuffle off puts
+    // it back rather than leaving a scrambled order nobody can undo.
+    var unshuffled by remember { mutableStateOf<List<SongEntity>>(emptyList()) }
 
     suspend fun reload() {
         val loaded = withContext(Dispatchers.IO) {
@@ -509,6 +527,51 @@ private fun RhythmApp() {
         }
     }
 
+    /**
+     * Lands on a tab's root, including the tab already showing.
+     *
+     * A detail screen pushed on top counts as somewhere else, and the way
+     * back to the top of a tab should not be several presses of the back
+     * arrow.
+     */
+    /**
+     * Shuffles the queue in place, or puts it back.
+     *
+     * The song playing stays playing and moves to the front of what follows:
+     * shuffling is about what comes next, and a shuffle that also jumps to a
+     * different track is one people press once.
+     */
+    fun toggleShuffle() {
+        val playing = queue.getOrNull(queueIndex)
+        if (shuffling) {
+            shuffling = false
+            val restored = unshuffled.ifEmpty { queue }
+            queue = restored
+            queueIndex = restored.indexOfFirst { it.id == playing?.id }.coerceAtLeast(0)
+            unshuffled = emptyList()
+            return
+        }
+        shuffling = true
+        unshuffled = queue
+        if (playing == null) return
+        val rest = queue.filterNot { it.id == playing.id }.shuffled()
+        queue = listOf(playing) + rest
+        queueIndex = 0
+    }
+
+    fun cycleRepeat() {
+        repeat = when (repeat) {
+            RepeatMode.OFF -> RepeatMode.ALL
+            RepeatMode.ALL -> RepeatMode.ONE
+            RepeatMode.ONE -> RepeatMode.OFF
+        }
+    }
+
+    fun go(index: Int) {
+        tab = index
+        stack = emptyList()
+    }
+
     fun openSettings() {
         stack = stack + Route.Settings
     }
@@ -753,7 +816,15 @@ private fun RhythmApp() {
                     status = "טיימר השינה עצר את הנגינה"
                     return@launch
                 }
-                val next = queueIndex + 1
+                if (repeat == RepeatMode.ONE) {
+                    play(queue, queueIndex, previousCompleted = true)
+                    return@launch
+                }
+                val next = if (repeat == RepeatMode.ALL && queueIndex + 1 !in queue.indices) {
+                    0
+                } else {
+                    queueIndex + 1
+                }
                 if (next in queue.indices) {
                     play(queue, next, previousCompleted = true)
                     return@launch
@@ -816,6 +887,10 @@ private fun RhythmApp() {
             onLike = { like(current) },
             onDislike = { dislike(current) },
             onRate = { rate(current, it) },
+            shuffling = shuffling,
+            repeat = repeat,
+            onShuffle = { toggleShuffle() },
+            onRepeat = { cycleRepeat() },
             sleepArmed = SleepTimer.remainingMs() != null || SleepTimer.stopAfterTrack,
             onSleep = { sleepOpen = true },
             onBookmarks = { bookmarksOpen = true },
@@ -1073,37 +1148,41 @@ private fun RhythmApp() {
                 }
 
                 null -> when (tab) {
-                    0 -> FeedPane(
+                    0 -> HomeScreen(
                         feed = feed,
-                        songs = songs.size,
+                        songCount = songs.size,
                         ratedArtists = artists.count { it.rating > 0 },
+                        albums = library.albums,
+                        stats = stats,
+                        moods = if (prefs.pinMoodRow) Mood.entries.toList() else emptyList(),
                         scanning = scanning,
                         analysing = analysing,
                         unanalysed = songs.count { it.id !in features },
                         status = status,
-                        onPick = { chooseFolder()?.let { scan(listOf(it)) } },
-                        onRescan = { scan(folders) },
-                        onAnalyze = { analyze() },
-                        onShuffle = {
+                        hasFolders = folders.isNotEmpty(),
+                        // The one library shape where every other nudge is
+                        // pointless: everything filed under one name.
+                        singleArtist = library.artists.size <= 2 && songs.size >= 8,
+                        onMood = { openMood(it) },
+                        onRefresh = {
                             scope.launch {
                                 withContext(Dispatchers.IO) { store.feedSeed = store.feedSeed + 1 }
                                 reload()
                             }
                         },
-                        hasFolders = folders.isNotEmpty(),
-                        onPlay = { list, index -> play(list, index) },
-                        moods = if (prefs.pinMoodRow && features.isNotEmpty()) {
-                            Mood.entries.toList()
-                        } else {
-                            emptyList()
-                        },
-                        onMood = { openMood(it) },
+                        onQueue = { stack = stack + Route.Queue },
                         onRecap = {
                             loadRecap()
                             stack = stack + Route.Recap
                         },
                         onSettings = { openSettings() },
-                        onQueue = { stack = stack + Route.Queue }
+                        onPickFolder = { chooseFolder()?.let { scan(listOf(it)) } },
+                        onRescan = { scan(folders) },
+                        onAnalyze = { analyze() },
+                        onRateArtists = { go(3) },
+                        onPlay = { list, index -> play(list, index) },
+                        onOpenList = { stack = stack + Route.Detail(it) },
+                        onMore = { options = it }
                     )
                     1 -> SearchPane(
                         query = query,
@@ -1219,14 +1298,6 @@ private fun RhythmApp() {
         // tab for something opened twice a year would take a quarter of the
         // bar away from the four that are the app.
         NavigationBar(containerColor = Surface1) {
-            // Tapping a tab always lands on that tab's root, including the
-            // tab already showing: a detail screen pushed on top counts as
-            // somewhere else, and the way back to the top of a tab should not
-            // be several presses of the back arrow.
-            fun go(index: Int) {
-                tab = index
-                stack = emptyList()
-            }
             NavTab(tab, 0, "בית", Icons.Filled.Home) { go(0) }
             NavTab(tab, 1, "חיפוש", Icons.Filled.Search) { go(1) }
             NavTab(tab, 2, "ספרייה", Icons.Filled.LibraryMusic) { go(2) }
@@ -1318,6 +1389,14 @@ private fun RowScope.NavTab(
  * that survives a rescan. The two mutable lists - a playlist and the likes -
  * are re-read where they are drawn.
  */
+/**
+ * What happens when a track ends.
+ *
+ * OFF moves on, ONE plays the same file again, ALL wraps the queue back to
+ * its start instead of letting it run out.
+ */
+internal enum class RepeatMode { OFF, ALL, ONE }
+
 private sealed interface Route {
     data class Detail(val list: DetailList) : Route
     data class Artist(val key: String) : Route
@@ -1421,264 +1500,6 @@ private fun applyOverrides(
  * with no explanation is a row of covers.
  */
 @Composable
-private fun SectionHeader(title: String, subtitle: String?) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER, vertical = 6.dp)) {
-        Text(
-            title,
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        if (subtitle != null) {
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-@Composable
-private fun FeedPane(
-    feed: List<FeedSection>,
-    songs: Int,
-    ratedArtists: Int,
-    scanning: Boolean,
-    analysing: Boolean,
-    unanalysed: Int,
-    status: String,
-    hasFolders: Boolean,
-    onPick: () -> Unit,
-    onRescan: () -> Unit,
-    onAnalyze: () -> Unit,
-    onShuffle: () -> Unit,
-    onPlay: (List<SongEntity>, Int) -> Unit,
-    moods: List<Mood>,
-    onMood: (Mood) -> Unit,
-    onRecap: () -> Unit,
-    onSettings: () -> Unit,
-    onQueue: () -> Unit
-) {
-    val visible = feed.filter { section ->
-        when (section.kind) {
-            SectionKind.MIX_ROW -> section.mixes.isNotEmpty()
-            else -> section.songs.isNotEmpty()
-        }
-    }
-
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
-        item {
-            HomeTopBar(
-                onRefresh = onShuffle,
-                onQueue = onQueue,
-                onRecap = onRecap,
-                onSettings = onSettings
-            )
-            HomeHeader(
-                songs = songs,
-                ratedArtists = ratedArtists,
-                scanning = scanning,
-                analysing = analysing,
-                unanalysed = unanalysed,
-                status = status,
-                hasFolders = hasFolders,
-                hasFeed = visible.isNotEmpty(),
-                onPick = onPick,
-                onRescan = onRescan,
-                onAnalyze = onAnalyze,
-                onShuffle = onShuffle
-            )
-            // The mood chips, above the shelves. They filter on what was
-            // measured rather than on anything typed, so they are the one row
-            // that works on a library with no ratings and no history at all -
-            // which on a first run is every library.
-            if (moods.isNotEmpty()) {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = GUTTER),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(bottom = 14.dp)
-                ) {
-                    items(moods) { mood ->
-                        Chip(label = mood.label, selected = false) { onMood(mood) }
-                    }
-                }
-            }
-        }
-        items(visible) { section ->
-            Column(modifier = Modifier.padding(bottom = 14.dp)) {
-                SectionHeader(section.title, section.subtitle)
-                when (section.kind) {
-                    SectionKind.MIX_ROW -> Shelf {
-                        items(section.mixes) { mix ->
-                            MixTile(
-                                title = mix.title,
-                                subtitle = mix.subtitle,
-                                seed = mix.id,
-                                covers = mix.songs.take(4),
-                                onClick = { onPlay(mix.songs, 0) }
-                            )
-                        }
-                    }
-                    // Columns of four, as on the phone. On a wide screen
-                    // several columns show at once, which is the point of the
-                    // shape: a quick pick is a thing to glance down, not a
-                    // row to scroll along.
-                    SectionKind.QUICK_PICKS -> Shelf {
-                        items(section.songs.chunked(4)) { column ->
-                            Column(modifier = Modifier.width(340.dp)) {
-                                for (song in column) {
-                                    CompactRow(
-                                        song = song,
-                                        onClick = {
-                                            onPlay(section.songs, section.songs.indexOf(song))
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    SectionKind.SONG_ROW -> Shelf {
-                        itemsIndexed(section.songs) { index, song ->
-                            Tile(
-                                title = song.title,
-                                subtitle = song.artistName.ifEmpty { "ללא אמן" },
-                                song = song,
-                                onClick = { onPlay(section.songs, index) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun Shelf(content: LazyListScope.() -> Unit) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = GUTTER - 4.dp),
-        modifier = Modifier.padding(top = 4.dp),
-        content = content
-    )
-}
-
-/**
- * The top of the home screen: what the library is, and what it still needs.
- *
- * On the phone this is a greeting card. Here it also carries the scan and
- * analyse actions, because a desktop has no other obvious place to put them
- * and hiding the one button a new install needs behind a settings screen is
- * how a first run ends with an empty window and no idea why.
- */
-/**
- * The mark, the name, and the four things reached from the home screen.
- *
- * The gear is here and not in the navigation bar because that is where the
- * phone puts it, and because four tabs are the app.
- */
-@Composable
-private fun HomeTopBar(
-    onRefresh: () -> Unit,
-    onQueue: () -> Unit,
-    onRecap: () -> Unit,
-    onSettings: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        RhythmMark(size = 30.dp)
-        Spacer(Modifier.width(10.dp))
-        Text(
-            text = "Rhythm",
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.weight(1f)
-        )
-        IconButton(onClick = onRefresh) {
-            Icon(Icons.Filled.Autorenew, contentDescription = "רענון", tint = TextSecondary)
-        }
-        IconButton(onClick = onQueue) {
-            Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = "התור", tint = TextSecondary)
-        }
-        IconButton(onClick = onRecap) {
-            Icon(Icons.Filled.BarChart, contentDescription = "הסיכום שלך", tint = TextSecondary)
-        }
-        IconButton(onClick = onSettings) {
-            Icon(Icons.Filled.Settings, contentDescription = "הגדרות", tint = TextSecondary)
-        }
-    }
-}
-
-@Composable
-private fun HomeHeader(
-    songs: Int,
-    ratedArtists: Int,
-    scanning: Boolean,
-    analysing: Boolean,
-    unanalysed: Int,
-    status: String,
-    hasFolders: Boolean,
-    hasFeed: Boolean,
-    onPick: () -> Unit,
-    onRescan: () -> Unit,
-    onAnalyze: () -> Unit,
-    onShuffle: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = GUTTER, vertical = 14.dp)
-    ) {
-        Text(
-            if (songs == 0) "ברוך הבא" else "הספרייה שלך",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Text(
-            when {
-                songs == 0 -> "בחר תיקיית מוזיקה כדי להתחיל"
-                ratedArtists == 0 -> "$songs שירים · דרג אמנים בטאב \"אמנים\" כדי שהמנוע ילמד"
-                else -> "$songs שירים · $ratedArtists אמנים מדורגים"
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary
-        )
-
-        Row(
-            modifier = Modifier.padding(top = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Button(enabled = !scanning && !analysing, onClick = onPick) { Text("בחר תיקייה") }
-            if (hasFolders) {
-                Button(enabled = !scanning && !analysing, onClick = onRescan) { Text("סרוק מחדש") }
-            }
-            if (unanalysed > 0) {
-                Button(enabled = !scanning && !analysing, onClick = onAnalyze) {
-                    Text("נתח ($unanalysed)")
-                }
-            }
-            if (hasFeed) {
-                Button(enabled = !scanning && !analysing, onClick = onShuffle) { Text("ערבב") }
-            }
-        }
-
-        if (status.isNotBlank()) {
-            Text(
-                status,
-                style = MaterialTheme.typography.bodySmall,
-                color = TextSecondary,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-        }
-    }
-}
-
-@Composable
 private fun SearchPane(
     query: String,
     onQuery: (String) -> Unit,
@@ -1711,124 +1532,6 @@ private fun SearchPane(
     }
 }
 
-/**
- * A mix, shown as what is inside it over the colour its id picks.
- *
- * The collage rather than one cover, because a mix is several records and one
- * of their covers would claim it for that record. The gradient stays under a
- * mix with too few covers to fill the grid.
- */
-@Composable
-private fun MixTile(
-    title: String,
-    subtitle: String,
-    seed: String,
-    covers: List<SongEntity>,
-    onClick: () -> Unit
-) {
-    val (c1, c2) = gradientFor(seed)
-    Column(modifier = Modifier.width(150.dp).clickable(onClick = onClick)) {
-        Box(
-            modifier = Modifier
-                .width(150.dp)
-                .height(150.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(Brush.linearGradient(listOf(c1, c2)))
-        ) {
-            if (covers.size >= 4) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    for (row in 0 until 2) {
-                        Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                            for (column in 0 until 2) {
-                                val cover = rememberArtwork(covers[row * 2 + column])
-                                Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                                    if (cover != null) {
-                                        Image(
-                                            bitmap = cover,
-                                            contentDescription = null,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Text(
-            title,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 6.dp)
-        )
-        Text(
-            subtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
-private fun Tile(title: String, subtitle: String, song: SongEntity?, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .width(CARD)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 4.dp)
-    ) {
-        Art(song = song, size = CARD - 8.dp, corner = 12.dp)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            subtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
-private fun CompactRow(song: SongEntity, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Art(song = song, size = 44.dp, corner = 4.dp)
-        Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
-            Text(
-                song.title,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                song.artistName.ifEmpty { "ללא אמן" },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
 @Composable
 private fun PlayerScreen(
     song: SongEntity,
@@ -1845,6 +1548,10 @@ private fun PlayerScreen(
     onLike: () -> Unit,
     onDislike: () -> Unit,
     onRate: (Int) -> Unit,
+    shuffling: Boolean,
+    repeat: RepeatMode,
+    onShuffle: () -> Unit,
+    onRepeat: () -> Unit,
     sleepArmed: Boolean,
     onSleep: () -> Unit,
     onBookmarks: () -> Unit,
@@ -1915,36 +1622,113 @@ private fun PlayerScreen(
             )
         }
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
-        ) {
-            Text(clock(positionMs), style = MaterialTheme.typography.labelSmall)
-            Slider(
-                value = scrub ?: positionMs.toFloat(),
-                valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
-                onValueChange = { scrub = it },
-                onValueChangeFinished = {
-                    scrub?.let { onSeek(it.toLong()) }
-                    scrub = null
-                },
-                modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
-            )
-            Text(clock(durationMs), style = MaterialTheme.typography.labelSmall)
-        }
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onPrevious) {
-                Icon(Icons.Filled.SkipPrevious, contentDescription = "הקודם")
-            }
-            IconButton(onClick = onToggle) {
-                Icon(
-                    if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (playing) "השהה" else "נגן"
+        // Time runs one way whatever the language, so the scrubber and the
+        // transport keep the left to right reading every media player uses:
+        // the head advances rightwards, elapsed sits under its start, and
+        // "previous" stays to the left of "next". Without this the whole row
+        // mirrors with the rest of the app and the skip arrows point at the
+        // wrong songs.
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                Slider(
+                    value = scrub ?: positionMs.toFloat(),
+                    valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
+                    onValueChange = { scrub = it },
+                    onValueChangeFinished = {
+                        scrub?.let { onSeek(it.toLong()) }
+                        scrub = null
+                    },
+                    colors = SliderDefaults.colors(
+                        thumbColor = Accent,
+                        activeTrackColor = Accent,
+                        inactiveTrackColor = Surface1
+                    )
                 )
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        clock(scrub?.toLong() ?: positionMs),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        clock(durationMs),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary
+                    )
+                }
             }
-            IconButton(onClick = onNext) {
-                Icon(Icons.Filled.SkipNext, contentDescription = "הבא")
+
+            Spacer(Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onShuffle) {
+                    Icon(
+                        Icons.Filled.Shuffle,
+                        contentDescription = "ערבוב",
+                        tint = if (shuffling) Accent else TextSecondary
+                    )
+                }
+                IconButton(onClick = { onSeek((positionMs - 10_000L).coerceAtLeast(0L)) }) {
+                    Icon(
+                        Icons.Filled.Replay10,
+                        contentDescription = "אחורה 10 שניות",
+                        tint = TextSecondary
+                    )
+                }
+                IconButton(onClick = onPrevious) {
+                    Icon(
+                        Icons.Filled.SkipPrevious,
+                        contentDescription = "הקודם",
+                        // Without an explicit tint these two inherit a colour
+                        // near the background and read as missing.
+                        tint = TextPrimary,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(66.dp)
+                        .clip(CircleShape)
+                        .background(Accent)
+                        .clickable(onClick = onToggle),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = if (playing) "השהה" else "נגן",
+                        tint = Color.White,
+                        modifier = Modifier.size(34.dp)
+                    )
+                }
+                IconButton(onClick = onNext) {
+                    Icon(
+                        Icons.Filled.SkipNext,
+                        contentDescription = "הבא",
+                        tint = TextPrimary,
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+                IconButton(
+                    onClick = { onSeek((positionMs + 10_000L).coerceAtMost(durationMs)) }
+                ) {
+                    Icon(
+                        Icons.Filled.Forward10,
+                        contentDescription = "קדימה 10 שניות",
+                        tint = TextSecondary
+                    )
+                }
+                IconButton(onClick = onRepeat) {
+                    Icon(
+                        if (repeat == RepeatMode.ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
+                        contentDescription = "חזרה",
+                        tint = if (repeat == RepeatMode.OFF) TextSecondary else Accent
+                    )
+                }
             }
         }
 
@@ -2137,6 +1921,26 @@ private fun clock(ms: Long): String {
     if (ms <= 0) return "0:00"
     val total = ms / 1000
     return "${total / 60}:${(total % 60).toString().padStart(2, '0')}"
+}
+
+/**
+ * How big to open, given the screen it is opening on.
+ *
+ * A fixed size is wrong in both directions. 1100 by 760 is most of a laptop
+ * screen and a corner of a desk monitor, and on a display running at 150%
+ * scaling it is larger than the desktop it sits on - which is how this opened
+ * "ענק מידיי", filling the screen edge to edge.
+ *
+ * Toolkit reports the screen in the same scaled units Compose measures dp in,
+ * so the two can simply be compared. A share of the screen with a ceiling:
+ * never bigger than a comfortable window, never wider than the screen.
+ */
+private fun windowSize(): Pair<Dp, Dp> {
+    val screen = runCatching { Toolkit.getDefaultToolkit().screenSize }.getOrNull()
+        ?: return 1100.dp to 760.dp
+    val width = minOf(1180f, screen.width * 0.82f).coerceAtLeast(880f)
+    val height = minOf(800f, screen.height * 0.86f).coerceAtLeast(620f)
+    return width.dp to height.dp
 }
 
 /** The system's own file picker, filtered to the two playlist formats. */
