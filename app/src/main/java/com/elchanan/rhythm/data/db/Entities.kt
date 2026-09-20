@@ -201,9 +201,9 @@ data class AudioFeatureEntity(
      * kilobytes of mostly zeros per song - for music the distribution is
      * sharply peaked, so the top slice holds everything a classifier can use.
      *
-     * Empty in the lite build, which ships without the model, and empty for
-     * anything analysed before the model arrived. Both cases have to read as
-     * "not known" rather than "nothing there".
+     * Empty where the model failed to load, and empty for anything analysed
+     * before the model arrived. Both cases have to read as "not known" rather
+     * than "nothing there".
      */
     val tags: String = ""
 )

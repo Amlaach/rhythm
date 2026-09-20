@@ -49,17 +49,13 @@ jobs:
       - name: Build release APK
         run: ./gradlew --no-daemon --stacktrace assembleRelease
 
-      - name: Build debug APK
-        if: always()
-        run: ./gradlew --no-daemon assembleDebug
-
       - name: Collect APKs
         if: always()
         run: |
           mkdir -p out
           find app/build/outputs/apk -name "*.apk" -exec cp {} out/ \; || true
           ls -lh out || true
-          echo "### APKs" >> "$GITHUB_STEP_SUMMARY"
+          echo "### APK" >> "$GITHUB_STEP_SUMMARY"
           echo "version 1.0.${{ github.run_number }} (build ${{ github.run_number }}), commit ${GITHUB_SHA:0:7}" >> "$GITHUB_STEP_SUMMARY"
           ls -lh out >> "$GITHUB_STEP_SUMMARY" || true
 

@@ -12,8 +12,7 @@
 1. יצירת ריפו חדש והעלאת כל התוכן של ה-ZIP לשורש שלו.
 2. ה-workflow שב-`.github/workflows/build.yml` רץ אוטומטית על כל push ל-`main`,
    ואפשר גם להריץ ידנית דרך Actions → Build Rhythm APK → Run workflow.
-3. בסיום, ה-APK מחכה תחת Artifacts בשם `rhythm-apk-<מספר הריצה>`
-   (גם release וגם debug).
+3. בסיום, ה-APK מחכה תחת Artifacts בשם `rhythm-apk-<מספר הריצה>`.
 
 הגרסה נגזרת ממספר הריצה של ה-workflow: ריצה 87 מייצרת `1.0.87` עם
 `versionCode` 87. הגרסה, מספר הבנייה, המהדורה (מלאה/קלה) והקומיט שממנו

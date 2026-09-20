@@ -284,10 +284,10 @@ object StyleTraining {
      */
     fun featuresFor(songId: Long, tags: String, space: AcousticSpace?): FloatArray? {
         val measured = space?.vectors?.get(songId)
-        // Either half is enough on its own. Requiring the tags meant the lite
-        // build could never learn anything at all - it ships without the model,
-        // so every song there has an empty tag string - even though the thirty
-        // six measured numbers were sitting there being ignored.
+        // Either half is enough on its own. Requiring the tags rejected every
+        // song on a device where the model will not load, and every song
+        // analysed before the model arrived, while the thirty six measured
+        // numbers sat there being ignored.
         if (tags.isBlank() && measured == null) return null
         // Twenty five group strengths, not all 521 classes. See
         // AudioTags.groupStrengths: with a few dozen labelled songs, 521

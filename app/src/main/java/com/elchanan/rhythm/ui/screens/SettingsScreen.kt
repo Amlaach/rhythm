@@ -1163,18 +1163,6 @@ fun SettingsScreen(
                 Column(modifier = Modifier.padding(horizontal = gutter)) {
                     Stat("גרסה", BuildConfig.VERSION_NAME)
                     Stat("מספר בנייה", "${BuildConfig.VERSION_CODE}")
-                    // The flavour decides whether the tagging model exists at
-                    // all, which changes what several features can do. It is
-                    // not something anyone should have to work out from the
-                    // name of the file they installed.
-                    Stat(
-                        "מהדורה",
-                        if (BuildConfig.FLAVOR == "full") {
-                            "מלאה — כולל מודל זיהוי הצלילים"
-                        } else {
-                            "קלה — בלי מודל זיהוי הצלילים"
-                        }
-                    )
                     if (BuildConfig.GIT_SHA.isNotBlank()) {
                         Stat("קומיט", BuildConfig.GIT_SHA)
                     }

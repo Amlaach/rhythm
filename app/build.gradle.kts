@@ -66,22 +66,6 @@ android {
         }
     }
 
-    // Two builds of the same app. The tagging model is four megabytes of
-    // weights plus a native runtime, and that is a real cost for someone on a
-    // slow connection or a full phone - so it is a separate download rather
-    // than something everybody carries. The lite build keeps every measured
-    // feature; what it does not have is the model that names what it hears.
-    flavorDimensions += "engine"
-    productFlavors {
-        create("lite") {
-            dimension = "engine"
-            versionNameSuffix = "-lite"
-        }
-        create("full") {
-            dimension = "engine"
-        }
-    }
-
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
@@ -167,7 +151,7 @@ dependencies {
     implementation("com.google.guava:guava:32.1.3-android")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
-    // On-device audio tagging, in the full build only.
+    // On-device audio tagging.
     //
     // The bare interpreter rather than the audio task library: that one
     // declares minSdk 23 and would have taken Android 5 back off the table,
@@ -175,5 +159,5 @@ dependencies {
     // model takes a raw waveform, so the metadata handling the task library
     // exists to provide is not needed, and resampling is already in the
     // analyser.
-    "fullImplementation"("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
 }
