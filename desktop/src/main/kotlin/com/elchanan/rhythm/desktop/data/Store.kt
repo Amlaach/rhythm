@@ -97,6 +97,7 @@ class Store private constructor(private val conn: Connection) {
         )
 
         private const val KEY_FOLDERS = "folders"
+        private const val KEY_SEED = "feedSeed"
     }
 
     // ---------------------------------------------------------------------
@@ -310,6 +311,18 @@ class Store private constructor(private val conn: Connection) {
             .filter { it.isNotBlank() }
             .map { File(it) }
         set(value) = putSetting(KEY_FOLDERS, value.joinToString("\n") { it.absolutePath })
+
+    /**
+     * What the shelves were last shuffled to.
+     *
+     * A stored counter rather than the clock, so the feed is the same on
+     * Tuesday afternoon as it was on Tuesday morning - a home screen that
+     * rearranges itself every time it is looked at is one nobody learns the
+     * shape of. It moves when the user asks it to.
+     */
+    var feedSeed: Long
+        get() = setting(KEY_SEED)?.toLongOrNull() ?: 1L
+        set(value) = putSetting(KEY_SEED, value.toString())
 
     private fun setting(key: String): String? {
         conn.prepareStatement("SELECT v FROM settings WHERE k = ?").use { ps ->
