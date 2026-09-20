@@ -35,6 +35,18 @@ dependencies {
     // on a desktop there is no index to ask, only the files.
     implementation("net.jthink:jaudiotagger:3.0.1")
 
+    // Decoding. These register themselves with javax.sound through its
+    // Service Provider Interface, so nothing below ever names a format: a
+    // file goes through AudioSystem and the right one picks it up. All four
+    // are pure Java, which is what keeps the installer a single file with
+    // nothing for the user to install first - VLCJ would have meant telling
+    // people to go and fetch VLC.
+    implementation("com.googlecode.soundlibs:mp3spi:1.9.5.4")
+    implementation("com.googlecode.soundlibs:vorbisspi:1.0.3.3")
+    implementation("com.googlecode.soundlibs:tritonus-share:0.3.7.4")
+    implementation("org.jflac:jflac-codec:1.5.2")
+    implementation("net.sourceforge.jaadec:jaad:0.8.6")
+
     // The library, ratings and analysis rows. Room is Android only, so the
     // desktop keeps the same data in plain SQLite through JDBC - the entity
     // classes it reads and writes are the ones in :engine, unchanged.
