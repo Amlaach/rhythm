@@ -46,7 +46,6 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ThumbUp
-import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -93,7 +92,7 @@ import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.BgElevated
 import com.elchanan.rhythm.ui.theme.Color_Error
 import com.elchanan.rhythm.ui.theme.Surface1
-import com.elchanan.rhythm.ui.theme.Surface2
+import com.elchanan.rhythm.ui.theme.Surface3
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import com.elchanan.rhythm.ui.theme.TextTertiary
 import com.elchanan.rhythm.ui.theme.gradientFor
@@ -328,13 +327,13 @@ fun LibraryScreen(
                                     },
                                     onLongClick = { toggleGroup(album.songs) }
                                 )
-                                .background(if (picked) Surface2 else Color.Transparent)
+                                .background(if (picked) Accent.copy(alpha = 0.16f) else Color.Transparent)
                                 .padding(horizontal = gutter, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (selectionMode) {
                                 SelectionTick(picked)
-                                Spacer(Modifier.width(8.dp))
+                                Spacer(Modifier.width(10.dp))
                             }
                             Artwork(-1L, album.albumId, album.name, Modifier.size(52.dp), corner = 8)
                             Spacer(Modifier.width(12.dp))
@@ -445,13 +444,13 @@ fun LibraryScreen(
                                     },
                                     onLongClick = { toggleGroup(info.songs) }
                                 )
-                                .background(if (picked) Surface2 else Color.Transparent)
+                                .background(if (picked) Accent.copy(alpha = 0.16f) else Color.Transparent)
                                 .padding(horizontal = gutter, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (selectionMode) {
                                 SelectionTick(picked)
-                                Spacer(Modifier.width(8.dp))
+                                Spacer(Modifier.width(10.dp))
                             }
                             val (c1, c2) = gradientFor("pl:${info.playlist.id}")
                             Box(
@@ -922,13 +921,13 @@ private fun ArtistRow(
                     Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
                 }
             )
-            .background(if (selected) Surface2 else Color.Transparent)
+            .background(if (selected) Accent.copy(alpha = 0.16f) else Color.Transparent)
             .padding(horizontal = gutter, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (selectionMode) {
             SelectionTick(selected)
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(10.dp))
         }
         Box(
             modifier = Modifier
@@ -1066,13 +1065,13 @@ private fun FolderTreeTab(
                             },
                             onLongClick = { onToggleGroup(inside) }
                         )
-                        .background(if (picked) Surface2 else Color.Transparent)
+                        .background(if (picked) Accent.copy(alpha = 0.16f) else Color.Transparent)
                         .padding(horizontal = gutter, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (selectionMode) {
                         SelectionTick(picked)
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(10.dp))
                     }
                     val (c1, c2) = gradientFor(child.path)
                     Box(
@@ -1189,13 +1188,13 @@ private fun FolderListTab(
                         },
                         onLongClick = { onToggleGroup(list) }
                     )
-                    .background(if (picked) Surface2 else Color.Transparent)
+                    .background(if (picked) Accent.copy(alpha = 0.16f) else Color.Transparent)
                     .padding(horizontal = gutter, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (selectionMode) {
                     SelectionTick(picked)
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(10.dp))
                 }
                 val (c1, c2) = gradientFor(path)
                 Box(
@@ -1236,10 +1235,13 @@ private fun FolderListTab(
  */
 @Composable
 internal fun SelectionTick(selected: Boolean) {
+    // The same mark, tint and size a selected song row draws, because a
+    // selected album and a selected song are the same state and two ways of
+    // drawing it would read as two different things.
     Icon(
-        imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+        imageVector = Icons.Filled.CheckCircle,
         contentDescription = null,
-        tint = if (selected) Accent else TextSecondary,
-        modifier = Modifier.size(20.dp)
+        tint = if (selected) Accent else Surface3,
+        modifier = Modifier.size(22.dp)
     )
 }

@@ -126,9 +126,17 @@ class LibraryWorkService : Service() {
 
     // ---------------------------------------------------------------------
 
+    /**
+     * The class-taking getSystemService arrived in API 23 and this app still
+     * runs on 21, where it is not a compile error but a crash the first time
+     * a notification is posted.
+     */
+    private fun notifications(): NotificationManager? =
+        getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val manager = notifications() ?: return
         if (manager.getNotificationChannel(CHANNEL) != null) return
         manager.createNotificationChannel(
             NotificationChannel(
@@ -164,7 +172,7 @@ class LibraryWorkService : Service() {
     }
 
     private fun notify(text: String, done: Int, total: Int) {
-        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val manager = notifications() ?: return
         runCatching { manager.notify(NOTIFICATION_ID, notification(text, done, total)) }
     }
 
