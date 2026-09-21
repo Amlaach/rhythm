@@ -63,9 +63,10 @@ class LibraryWorkService : Service() {
         createChannel()
         startForegroundCompat(notification(getString(R.string.work_preparing), 0, 0))
 
-        // Already busy: the extras of the second request are folded into the
-        // first rather than starting a competing pass, because two scans over
-        // one library is the same answer twice at twice the cost.
+        // Already busy: the second request is dropped rather than started
+        // alongside the first, because two passes over one library is the
+        // same answer twice at twice the cost. The pass already running
+        // covers the same library, so nothing is lost by waiting for it.
         if (work?.isActive == true) return START_NOT_STICKY
 
         val app = applicationContext as RhythmApp

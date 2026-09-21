@@ -42,6 +42,15 @@ class AnalysisManager(
 
     fun start() {
         if (job?.isActive == true) return
+        // Marked running here rather than inside the coroutine.
+        //
+        // The foreground service starts this and then watches the progress to
+        // know when it may stop. Setting the flag inside the coroutine leaves
+        // a window - two database reads wide - in which the pass has been
+        // started and does not yet say so, and a watcher that looked during
+        // it would conclude there was nothing to wait for and stop the
+        // service out from under the work it had just started.
+        _progress.value = _progress.value.copy(running = true)
         job = scope.launch(Dispatchers.Default) {
             try {
                 var total = repo.songCount()
