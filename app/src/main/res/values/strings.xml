@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Rhythm</string>
+    <string name="work_channel">סריקה וניתוח</string>
+    <string name="work_preparing">מתכונן…</string>
+    <string name="work_scanning">סורק את הספרייה…</string>
+    <string name="work_analyzing">מנתח את השירים…</string>
 </resources>

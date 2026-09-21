@@ -66,11 +66,31 @@ class MusicRepository(
         val inExcludedFolder: Int,
         val looksLikeRecording: Int,
         val kept: Int,
+        /**
+         * Songs held on to although this scan did not see them, because the
+         * storage they live on is not attached. Worth saying out loud: it is
+         * the difference between "your card is out" and "half your library
+         * has vanished", and those look identical from the home screen.
+         */
+        val onAbsentStorage: Int,
         val at: Long
     )
 
     private val _lastScan = MutableStateFlow<ScanReport?>(null)
     val lastScan: StateFlow<ScanReport?> = _lastScan.asStateFlow()
+
+    /**
+     * Bumped once at the end of every completed scan.
+     *
+     * The scan can now be run by the foreground service instead of by the
+     * screen that asked for it, so whoever wants to know it has finished
+     * watches this rather than awaiting the call. One counter rather than a
+     * callback, because there may be nobody listening at the time - the app
+     * can be closed while the service carries on - and a counter that was
+     * missed is simply read as a higher number next time.
+     */
+    private val _scans = MutableStateFlow(0L)
+    val scans: StateFlow<Long> = _scans.asStateFlow()
 
     suspend fun rescan(): Int = withContext(Dispatchers.IO) {
         val excluded = prefs.excludedFolders.map { it.lowercase() }
@@ -109,11 +129,60 @@ class MusicRepository(
             }
             .map { song -> applyOverride(song, overrides[song.id]) }
 
+        // What is already known, by path. The path is the only thing about a
+        // song that survives a card being pulled out and put back: MediaStore
+        // hands the same file a new id, and every rating, play count and
+        // bookmark keyed to the old one would otherwise belong to nothing.
+        val existing = dao.allSongs()
+        val byPath = existing.associateBy { it.path }
+
+        // Which storage is actually attached. A song may only be forgotten
+        // when the volume it lives on is present and the song is not on it -
+        // see Volumes for why this is the whole of the difference between a
+        // missing card and a deleted library.
+        val mounted = Volumes.mountedRoots(existing.map { it.path } + found.map { it.path })
+
+        val foundPaths = found.mapTo(HashSet()) { it.path }
+        val gone = existing.filter { song ->
+            song.path !in foundPaths && Volumes.rootOf(song.path) in mounted
+        }
+        val kept = existing.filter { song ->
+            song.path !in foundPaths && Volumes.rootOf(song.path) !in mounted
+        }
+        // Where the same file came back under a different number.
+        val moved = found.mapNotNull { song ->
+            val old = byPath[song.path] ?: return@mapNotNull null
+            if (old.id == song.id) null else old.id to song.id
+        }
+
         // In one transaction, so the observers never see the moment between
         // the old library being cleared and the new one arriving. Without it
-        // every rescan empties the home screen for an instant.
+        // every rescan empties the home screen for an instant - and, more to
+        // the point, a rescan interrupted half way can no longer leave the
+        // library in a state that is neither the old one nor the new one.
         RhythmDatabase.get(context).withTransaction {
-            dao.clearSongs()
+            // The ids move before the new rows land, so what is carried over
+            // is not immediately overwritten by the bare row a fresh scan
+            // writes for the same file.
+            for ((from, to) in moved) {
+                dao.moveStats(from, to)
+                dao.moveFeature(from, to)
+                dao.movePosition(from, to)
+                dao.moveLyrics(from, to)
+                dao.moveOverride(from, to)
+                dao.moveBookmarks(from, to)
+                dao.moveHistory(from, to)
+                dao.movePlaylistItems(from, to)
+                dao.moveAffinityA(from, to)
+                dao.moveAffinityB(from, to)
+                dao.moveTransitionA(from, to)
+                dao.moveTransitionB(from, to)
+            }
+            // Only what is provably gone, and never the whole table. Songs on
+            // a volume that is not attached stay exactly as they were.
+            if (gone.isNotEmpty()) {
+                gone.map { it.id }.chunked(400).forEach { dao.deleteSongsById(it) }
+            }
             found.chunked(400).forEach { dao.insertSongs(it) }
         }
         _lastScan.value = ScanReport(
@@ -122,6 +191,7 @@ class MusicRepository(
             inExcludedFolder = inExcluded,
             looksLikeRecording = recordings,
             kept = found.size,
+            onAbsentStorage = kept.size,
             at = System.currentTimeMillis()
         )
         // make sure every artist that exists on the device has a profile row,
@@ -140,7 +210,11 @@ class MusicRepository(
             }
         artistRows.chunked(300).forEach { dao.insertArtistsIfMissing(it) }
         prefs.lastScanAt = System.currentTimeMillis()
-        found.size
+        _scans.value = _scans.value + 1
+        // The songs still filed under storage that is not attached count as
+        // part of the library, because they are: they come back the moment
+        // the card does, with everything that was learned about them intact.
+        found.size + kept.size
     }
 
     // -----------------------------------------------------------------------

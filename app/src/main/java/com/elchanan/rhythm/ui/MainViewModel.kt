@@ -4,44 +4,45 @@ import android.app.Application
 import android.content.Intent
 import android.content.IntentSender
 import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.elchanan.rhythm.RhythmApp
-import com.elchanan.rhythm.engine.LearnResult
-import com.elchanan.rhythm.engine.RecapData
-import com.elchanan.rhythm.engine.StyleLearning
-import com.elchanan.rhythm.engine.Names
-import androidx.documentfile.provider.DocumentFile
+import com.elchanan.rhythm.data.AnalysisManager
 import com.elchanan.rhythm.data.FileActions
-import com.elchanan.rhythm.data.db.BookmarkEntity
-import com.elchanan.rhythm.data.db.PlaybackPositionEntity
+import com.elchanan.rhythm.data.LibraryWorkService
+import com.elchanan.rhythm.data.LyricsSource
+import com.elchanan.rhythm.data.MusicRepository
 import com.elchanan.rhythm.data.PlaylistExport
 import com.elchanan.rhythm.data.PlaylistImport
-import com.elchanan.rhythm.engine.MoodModel
-import com.elchanan.rhythm.engine.Spoken
 import com.elchanan.rhythm.data.TagFileWriter
 import com.elchanan.rhythm.data.TagFixer
-import com.elchanan.rhythm.data.MusicRepository
-import com.elchanan.rhythm.data.AnalysisManager
 import com.elchanan.rhythm.data.db.ArtistEntity
-import com.elchanan.rhythm.engine.LyricLine
-import com.elchanan.rhythm.engine.Lyrics
-import com.elchanan.rhythm.data.LyricsSource
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
+import com.elchanan.rhythm.data.db.BookmarkEntity
 import com.elchanan.rhythm.data.db.LyricsEntity
+import com.elchanan.rhythm.data.db.PlaybackPositionEntity
 import com.elchanan.rhythm.data.db.PlaylistEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.data.db.TagOverrideEntity
-import com.elchanan.rhythm.engine.FeedSection
-import com.elchanan.rhythm.engine.Mix
-import com.elchanan.rhythm.engine.Mood
-import com.elchanan.rhythm.engine.Recommender
-import com.elchanan.rhythm.engine.ScoreTerm
 import com.elchanan.rhythm.engine.AcousticSpace
 import com.elchanan.rhythm.engine.AudioTags
+import com.elchanan.rhythm.engine.FeedSection
+import com.elchanan.rhythm.engine.LearnResult
+import com.elchanan.rhythm.engine.LyricLine
+import com.elchanan.rhythm.engine.Lyrics
+import com.elchanan.rhythm.engine.Mix
+import com.elchanan.rhythm.engine.Mood
+import com.elchanan.rhythm.engine.MoodModel
+import com.elchanan.rhythm.engine.Names
+import com.elchanan.rhythm.engine.RecapData
+import com.elchanan.rhythm.engine.Recommender
+import com.elchanan.rhythm.engine.ScoreTerm
 import com.elchanan.rhythm.engine.ShelfKind
+import com.elchanan.rhythm.engine.Spoken
 import com.elchanan.rhythm.engine.StyleLearner
+import com.elchanan.rhythm.engine.StyleLearning
 import com.elchanan.rhythm.engine.StyleTraining
 import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.engine.TasteReport
@@ -49,21 +50,22 @@ import com.elchanan.rhythm.engine.Versions
 import com.elchanan.rhythm.playback.PlayerConnection
 import com.elchanan.rhythm.playback.QueueMeta
 import com.elchanan.rhythm.playback.SleepTimer
+import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
 
 /**
  * How long MediaStore has to stay quiet before the library is rebuilt.
@@ -346,6 +348,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Whether the scan now running was asked for by someone who wants telling. */
+    private var announceScan = false
+
     init {
         player.connect()
         _lyricsFolder.value = repo.prefs.lyricsFolderUri
@@ -360,6 +365,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             analysis.refreshCounts()
             if (repo.prefs.lastScanAt == 0L) return@launch
             refreshFeed()
+        }
+        // Every finished scan rebuilds the feed, whoever ran it. Dropping the
+        // first value because it is the starting count and not a scan.
+        viewModelScope.launch {
+            repo.scans.drop(1).collect {
+                refreshFeed()
+                analysis.refreshCounts()
+                _busy.value = false
+                if (announceScan) {
+                    _message.value = "נסרקו ${repo.songCount()} שירים"
+                    announceScan = false
+                }
+            }
         }
     }
 
@@ -399,8 +417,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // library maintenance
     // -----------------------------------------------------------------------
 
+    /**
+     * Rebuilds the library from what the device says is on it.
+     *
+     * Handed to a foreground service when the system will take it, because a
+     * scan over a large library is minutes of work and a cached process is
+     * frozen the moment the screen goes off - which used to stop the pass
+     * dead. The service runs the same repository call this would have; the
+     * branch below is the fallback for when a foreground service cannot be
+     * started, and is what the app did before.
+     */
     fun rescan(showMessage: Boolean = true) {
         if (_busy.value) return
+        // The service owns the pass when it takes it. Nothing is awaited here:
+        // repo.scans is watched from init and rebuilds the feed when the scan
+        // lands, whether this screen is still open by then or not.
+        if (LibraryWorkService.start(getApplication(), scan = true, analyze = false)) {
+            _busy.value = true
+            announceScan = showMessage
+            return
+        }
         viewModelScope.launch {
             _busy.value = true
             val count = runCatching { repo.rescan() }.getOrDefault(0)
@@ -828,7 +864,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // audio analysis
     // -----------------------------------------------------------------------
 
-    fun startAnalysis() = analysis.start()
+    /**
+     * Measures whatever has not been measured yet.
+     *
+     * Same reasoning as [rescan]: analysis is seconds per track, so on a real
+     * library it is the one thing here that genuinely needs to keep running
+     * with the screen off. Falls back to the plain pass when the system will
+     * not start a foreground service.
+     */
+    fun startAnalysis() {
+        if (!LibraryWorkService.start(getApplication(), scan = false, analyze = true)) {
+            analysis.start()
+        }
+    }
 
     fun stopAnalysis() = analysis.stop()
 
