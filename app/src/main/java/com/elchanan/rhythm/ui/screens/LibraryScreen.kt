@@ -1,7 +1,9 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,18 +23,22 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Star
@@ -51,6 +57,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,25 +66,18 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.data.db.SongEntity
+import com.elchanan.rhythm.engine.AlphabetIndexing
+import com.elchanan.rhythm.engine.Folders
 import com.elchanan.rhythm.ui.ArtistInfo
 import com.elchanan.rhythm.ui.LibraryState
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.AlphabetIndex
 import com.elchanan.rhythm.ui.components.Artwork
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.LocalOffer
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.runtime.saveable.rememberSaveable
-import com.elchanan.rhythm.engine.Folders
 import com.elchanan.rhythm.ui.components.Chip
-import com.elchanan.rhythm.ui.theme.TextTertiary
 import com.elchanan.rhythm.ui.components.EmptyState
 import com.elchanan.rhythm.ui.components.SongRow
 import com.elchanan.rhythm.ui.components.StarRow
@@ -90,9 +90,10 @@ import com.elchanan.rhythm.ui.theme.BgElevated
 import com.elchanan.rhythm.ui.theme.Color_Error
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextSecondary
+import com.elchanan.rhythm.ui.theme.TextTertiary
 import com.elchanan.rhythm.ui.theme.gradientFor
-import kotlinx.coroutines.launch
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 /**
  * The library tabs, in the order they are shown.
@@ -119,29 +120,9 @@ private enum class SongSort(val label: String) {
     RATING("דירוג")
 }
 
-/** Hebrew first, then a latin bucket and a catch-all. */
-private val INDEX_LETTERS: List<String> =
-    ("אבגדהוזחטיכלמנסעפצקרשת".map { it.toString() }) + listOf("A", "#")
-
 /** The last segment of a folder path, which is the part people recognise. */
 private fun folderName(path: String): String =
     path.trimEnd('/').substringAfterLast('/').ifEmpty { path }
-
-private fun initialOf(title: String): String {
-    val c = title.trim().firstOrNull() ?: return "#"
-    return when {
-        c in 'א'..'ת' -> when (c) {
-            'ך' -> "כ"
-            'ם' -> "מ"
-            'ן' -> "נ"
-            'ף' -> "פ"
-            'ץ' -> "צ"
-            else -> c.toString()
-        }
-        c.isLetter() -> "A"
-        else -> "#"
-    }
-}
 
 @Composable
 fun LibraryScreen(
@@ -620,8 +601,7 @@ private fun SongTab(
     val gutter = rememberMetrics().gutter
 
     val presentLetters = remember(songs) {
-        val set = songs.mapTo(HashSet()) { initialOf(it.title) }
-        INDEX_LETTERS.filter { it in set }
+        AlphabetIndexing.present(songs.map { it.title })
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -695,7 +675,7 @@ private fun SongTab(
             letters = presentLetters,
             modifier = Modifier.align(Alignment.CenterEnd)
         ) { letter ->
-            val index = songs.indexOfFirst { initialOf(it.title) == letter }
+            val index = songs.indexOfFirst { AlphabetIndexing.initialOf(it.title) == letter }
             if (index >= 0) {
                 scope.launch { listState.scrollToItem(index + 1) }
             }

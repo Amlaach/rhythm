@@ -154,6 +154,29 @@ class Prefs(private val store: Store) {
             value.entries.joinToString(",") { "${it.key}=${it.value}" }
         )
 
+    /**
+     * Even out the volume between tracks.
+     *
+     * Off by default, because it needs the library analysed before it can do
+     * anything and silently doing nothing is a worse first impression than
+     * a switch waiting to be turned on.
+     */
+    var normalizeVolume: Boolean
+        get() = flag("normalizeVolume", false)
+        set(value) = set("normalizeVolume", value)
+
+    /**
+     * Offer to pick a song up where it was left.
+     *
+     * Only ever an offer: the song starts from the beginning and a strip at
+     * the top says where it was left, for a few seconds. Jumping straight
+     * back into the middle of a track nobody asked to resume is the more
+     * annoying half of this feature.
+     */
+    var resumePrompt: Boolean
+        get() = flag("resumePrompt", true)
+        set(value) = set("resumePrompt", value)
+
     /** Clicking the artwork stops and starts it. */
     var tapArtworkToggles: Boolean
         get() = flag("tapArtworkToggles", true)
@@ -232,9 +255,17 @@ class Prefs(private val store: Store) {
     // to exist here and did nothing at all, which is worse than not offering
     // it - a setting that cannot work should not be on screen.
 
-    // No folderTree either. The phone offers a nested tree or a flat list;
-    // this build's folder view is flat by design, so the setting had nothing
-    // to switch between and was never read.
+    /**
+     * Show folders nested, the way they sit on the disk, rather than as one
+     * flat list of every folder that contains a file.
+     *
+     * On by default: it is how the files actually are, and the flat list is
+     * only easier when there are few enough folders for the difference not to
+     * matter - in which case the tree is no harder either.
+     */
+    var folderTree: Boolean
+        get() = flag("folderTree", true)
+        set(value) = set("folderTree", value)
 
     /**
      * Styles that should never be mixed into one another's shelves.

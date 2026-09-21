@@ -132,6 +132,7 @@ import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.EngineTuning
 import com.elchanan.rhythm.engine.Features
 import com.elchanan.rhythm.engine.FeedSection
+import com.elchanan.rhythm.engine.Loudness
 import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.Names
@@ -245,6 +246,10 @@ private fun RhythmApp() {
     var analysing by remember { mutableStateOf(false) }
     var analysisJob by remember { mutableStateOf<Job?>(null) }
     var features by remember { mutableStateOf<Map<Long, AudioFeatureEntity>>(emptyMap()) }
+    // One pass over the measured library, redone only when the measurements
+    // change. Empty until enough of the library has been analysed for a
+    // percentile to mean anything, which is the same as the feature being off.
+    val loudnessGains = remember(features) { Loudness.gains(features.values) }
     var volume by remember { mutableStateOf(1f) }
     var query by remember { mutableStateOf("") }
     // The scored library, held so a feed and a search are two questions to one
@@ -436,6 +441,11 @@ private fun RhythmApp() {
         queue = list
         queueIndex = index
         val song = list[index]
+        // Before the track starts, or the first second of it plays at the
+        // previous song's correction.
+        player.setTrackGain(
+            if (prefs.normalizeVolume) loudnessGains[song.id] ?: 1f else 1f
+        )
         player.play(File(song.path), song.durationMs)
         val resumeAt = resumePoints[song.id]
         if (prefs.resumeSpoken && resumeAt != null) player.seekTo(resumeAt)
@@ -989,32 +999,41 @@ private fun RhythmApp() {
     }
 
     /**
-     * Deletes the file, then forgets everything that was keyed to it.
+     * Deletes the files, then forgets everything that was keyed to them.
      *
-     * The order matters: if the delete fails - read only, on a share that
-     * has gone away, open in something else - nothing is forgotten, and the
-     * song stays exactly as it was rather than becoming a row pointing at a
-     * file that is still there.
+     * The order matters: if a delete fails - read only, on a share that has
+     * gone away, open in something else - nothing is forgotten, and the song
+     * stays exactly as it was rather than becoming a row pointing at a file
+     * that is still there. One failure does not stop the rest, because a
+     * selection of forty with one locked file should still lose thirty nine.
      */
-    fun deleteSong(song: SongEntity) {
+    fun deleteSongs(list: List<SongEntity>) {
+        if (list.isEmpty()) return
         scope.launch {
             val gone = withContext(Dispatchers.IO) {
-                val deleted = runCatching { File(song.path).delete() }.getOrDefault(false)
-                if (deleted) store.forget(song.id)
-                deleted
+                list.filter { song ->
+                    val deleted = runCatching { File(song.path).delete() }.getOrDefault(false)
+                    if (deleted) store.forget(song.id)
+                    deleted
+                }
             }
-            if (!gone) {
-                status = "לא הצלחתי למחוק את הקובץ"
+            if (gone.isEmpty()) {
+                status = if (list.size == 1) {
+                    "לא הצלחתי למחוק את הקובץ"
+                } else {
+                    "לא הצלחתי למחוק אף קובץ"
+                }
                 return@launch
             }
             // Out of the queue too, or the player would walk into a file
             // that is no longer there.
-            val without = queue.filterNot { it.id == song.id }
+            val removed = gone.mapTo(HashSet()) { it.id }
+            val without = queue.filterNot { it.id in removed }
             if (without.size != queue.size) {
                 val playing = queue.getOrNull(queueIndex)
                 queue = without
                 queueIndex = without.indexOfFirst { it.id == playing?.id }
-                if (playing?.id == song.id) {
+                if (playing != null && playing.id in removed) {
                     if (without.isEmpty()) {
                         queueIndex = -1
                         player.stop()
@@ -1024,9 +1043,16 @@ private fun RhythmApp() {
                 }
             }
             reload()
-            status = "${song.title} נמחק"
+            val failed = list.size - gone.size
+            status = when {
+                list.size == 1 -> "${gone[0].title} נמחק"
+                failed == 0 -> "${gone.size} קבצים נמחקו"
+                else -> "${gone.size} קבצים נמחקו · $failed לא נמחקו"
+            }
         }
     }
+
+    fun deleteSong(song: SongEntity) = deleteSongs(listOf(song))
 
     fun removeFromPlaylist(id: Long, song: SongEntity) {
         scope.launch {
@@ -1190,6 +1216,11 @@ private fun RhythmApp() {
                     wasCurrent -> play(without, queueIndex.coerceIn(0, without.size - 1))
                 }
             },
+            // Only for a song that was left properly in the middle, and only
+            // when the setting is on. The long-form auto-resume above has
+            // already jumped by the time this would have been offered, so the
+            // two never both speak about the same song.
+            resumeAt = if (prefs.resumePrompt) resumePoints[current.id] else null,
             onClose = { showPlayer = false },
             onToggle = { player.togglePause() },
             onPrevious = { play(queue, queueIndex - 1) },
@@ -1360,7 +1391,11 @@ private fun RhythmApp() {
                     onExportPlaylists = { chooseFolder()?.let { exportPlaylists(it) } },
                     busy = busy,
                     engineReport = engineReport,
+                    // Cheap enough to derive on the spot: it is a few sums
+                    // over maps the recommender is already holding.
+                    taste = remember(engine) { engine?.tasteReport() },
                     onEvaluate = { evaluateEngine() },
+                    onExcludedChanged = { scan(folders) },
                     onShelvesChanged = { scope.launch { reload() } }
                 )
 
@@ -1556,6 +1591,8 @@ private fun RhythmApp() {
                         },
                         resumePoints = resumePoints,
                         firstTab = prefs.libraryFirstTab,
+                        folderTree = prefs.folderTree,
+                        onShuffle = { shuffleList(it) },
                         onBulkRate = { ids, rating ->
                             scope.launch {
                                 stats = withContext(Dispatchers.IO) {
@@ -1582,6 +1619,18 @@ private fun RhythmApp() {
                                 status = "${list.size} שירים נוספו לתור"
                             }
                         },
+                        onBulkGenre = { ids, genre ->
+                            scope.launch {
+                                withContext(Dispatchers.IO) { store.setGenre(ids, genre) }
+                                reload()
+                                status = if (genre.isBlank()) {
+                                    "הז'אנר נוקה מ־${ids.size} שירים"
+                                } else {
+                                    "$genre הוגדר ל־${ids.size} שירים"
+                                }
+                            }
+                        },
+                        onBulkDelete = { deleteSongs(it) },
                         onBulkAddTo = { playlistId, ids ->
                             scope.launch {
                                 withContext(Dispatchers.IO) {
@@ -2075,7 +2124,8 @@ private fun PlayerScreen(
     onEqualizer: () -> Unit,
     onBookmarks: () -> Unit,
     onJumpTo: (Int) -> Unit,
-    onRemoveFromQueue: (Int) -> Unit
+    onRemoveFromQueue: (Int) -> Unit,
+    resumeAt: Long?
 ) {
     var scrub by remember { mutableStateOf<Float?>(null) }
     // The two panels the phone opens inside the player rather than beside it:
@@ -2083,6 +2133,16 @@ private fun PlayerScreen(
     // whole sheet and neither is any use at half of it.
     var showQueue by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
+    // An offer, not a jump. It is keyed to the song so opening a different
+    // one gets its own offer, and it takes itself away after a few seconds:
+    // a strip that stays forever is permanent clutter, and the moment for
+    // this one has passed once the song is properly under way.
+    var resumeVisible by remember(song.id) { mutableStateOf(resumeAt != null) }
+    LaunchedEffect(song.id, resumeAt) {
+        if (resumeAt == null) return@LaunchedEffect
+        delay(8_000)
+        resumeVisible = false
+    }
     var whyOpen by remember { mutableStateOf(false) }
     var detailsOpen by remember { mutableStateOf(false) }
     val liked = stat?.liked ?: 0
@@ -2301,6 +2361,39 @@ private fun PlayerScreen(
         // "previous" stays to the left of "next". Without this the whole row
         // mirrors with the rest of the app and the skip arrows point at the
         // wrong songs.
+        if (resumeVisible && resumeAt != null && !showQueue && !showLyrics) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Surface1)
+                    .clickable {
+                        onSeek(resumeAt)
+                        resumeVisible = false
+                    }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "המשך מ־${formatDuration(resumeAt)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Accent
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(
+                    onClick = { resumeVisible = false },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "סגור",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             if (!showQueue) {
                 Column(modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {

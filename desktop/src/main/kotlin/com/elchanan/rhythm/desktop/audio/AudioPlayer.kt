@@ -70,6 +70,7 @@ class AudioPlayer {
     @Volatile private var paused = false
     @Volatile private var seekRequestMs = -1L
     @Volatile private var volume = 1.0f
+    @Volatile private var trackGain = 1.0f
 
     /**
      * @param durationMs what the tags said, because a decoded stream usually
@@ -113,6 +114,19 @@ class AudioPlayer {
     /** Linear 0..1, as a volume slider means it. */
     fun setVolume(value: Float) {
         volume = value.coerceIn(0f, 1f)
+    }
+
+    /**
+     * A correction for this particular track's mastering, multiplied into the
+     * volume rather than replacing it.
+     *
+     * Separate from [setVolume] because the two answer different questions -
+     * how loud the listener wants it, and how loud this file happens to be -
+     * and folding them together would mean the slider jumping at every change
+     * of song. One at a time: set before the next track starts.
+     */
+    fun setTrackGain(value: Float) {
+        trackGain = value.coerceIn(0.05f, 1f)
     }
 
     fun stop() {
@@ -270,10 +284,11 @@ class AudioPlayer {
         val control = line.getControl(FloatControl.Type.MASTER_GAIN) as FloatControl
         // The control is in decibels and a slider is not, so silence is the
         // control's own floor rather than log10(0).
-        val db = if (volume <= 0.0001f) {
+        val level = volume * trackGain
+        val db = if (level <= 0.0001f) {
             control.minimum
         } else {
-            (20.0 * log10(volume.toDouble())).toFloat().coerceIn(control.minimum, control.maximum)
+            (20.0 * log10(level.toDouble())).toFloat().coerceIn(control.minimum, control.maximum)
         }
         if (control.value != db) control.value = db
     }

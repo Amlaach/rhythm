@@ -22,6 +22,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -35,11 +36,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.elchanan.rhythm.engine.ActionPlacement
 import com.elchanan.rhythm.engine.EngineTuning
 import com.elchanan.rhythm.engine.PlayerAction
 import com.elchanan.rhythm.engine.ShelfKind
+import com.elchanan.rhythm.engine.TasteReport
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
@@ -85,7 +88,9 @@ internal fun SettingsScreen(
     onExportPlaylists: () -> Unit,
     busy: Boolean,
     engineReport: String,
+    taste: TasteReport?,
     onEvaluate: () -> Unit,
+    onExcludedChanged: () -> Unit,
     onShelvesChanged: () -> Unit
 ) {
     // Read once into state so a flipped switch moves under the finger. Every
@@ -95,6 +100,11 @@ internal fun SettingsScreen(
     var hideDuplicates by remember { mutableStateOf(prefs.hideDuplicates) }
     var searchPersonalized by remember { mutableStateOf(prefs.searchPersonalized) }
     var shelvesOpen by remember { mutableStateOf(false) }
+    var foldersOpen by remember { mutableStateOf(false) }
+    var separationsOpen by remember { mutableStateOf(false) }
+    var excluded by remember { mutableStateOf(prefs.excludedFolders) }
+    var separations by remember { mutableStateOf(prefs.styleSeparations) }
+    var folderTree by remember { mutableStateOf(prefs.folderTree) }
     var stripForeign by remember { mutableStateOf(prefs.tagStripForeign) }
     var writeTags by remember { mutableStateOf(prefs.writeTagsToFiles) }
     var resumeSpoken by remember { mutableStateOf(prefs.resumeSpoken) }
@@ -322,6 +332,38 @@ internal fun SettingsScreen(
                     resumeSpoken = it
                     prefs.resumeSpoken = it
                 }
+                SwitchRow(
+                    title = "תיקיות בתוך תיקיות",
+                    subtitle = "מראה את התיקיות כמו שהן יושבות על הדיסק, " +
+                        "ולא כרשימה שטוחה אחת",
+                    checked = folderTree
+                ) {
+                    folderTree = it
+                    prefs.folderTree = it
+                }
+                // Not a switch, because what gets left out is a list of
+                // whatever this particular disk happens to have on it.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = GUTTER, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("תיקיות שלא ייסרקו", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            text = excluded.joinToString(", ").ifBlank { "כרגע נסרק הכל" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Button(
+                        onClick = { foldersOpen = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("ערוך") }
+                }
             }
 
             item {
@@ -343,6 +385,35 @@ internal fun SettingsScreen(
                     if (lyricsFolder.isNotEmpty()) {
                         OutlinedButton(onClick = { prefs.lyricsFolder = "" }) { Text("נקה") }
                     }
+                }
+            }
+
+            item {
+                SettingSection(
+                    "סגנונות שלא יתערבבו",
+                    "מה שלא נשמע טוב אחד אחרי השני, שורה לכל כלל"
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = GUTTER, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = separations.lines()
+                            .filter { it.isNotBlank() }
+                            .joinToString(" · ")
+                            .ifBlank { "אין כרגע הפרדות" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = { separationsOpen = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("ערוך") }
                 }
             }
 
@@ -396,6 +467,47 @@ internal fun SettingsScreen(
                 // Last, and outlined rather than filled. It throws away every
                 // rating, like and play count in the database, which is the
                 // one thing here that months of listening cannot be got back.
+                val r = taste
+                if (r != null) {
+                    Fact("קשרים סימטריים שנלמדו", "${r.learnedPairs}")
+                    Fact("מעברים מכוונים שנלמדו", "${r.learnedTransitions}")
+                    Fact(
+                        "קצב חציוני בספרייה",
+                        if (r.medianBpm > 0) "${r.medianBpm} BPM" else "—"
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "הסגנונות המובילים שלך",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(horizontal = GUTTER)
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    if (r.topStyles.isEmpty()) {
+                        Text(
+                            "אחרי שתדרג כמה אמנים ותסמן סגנונות, כאן יופיע פרופיל הטעם",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            modifier = Modifier.padding(horizontal = GUTTER)
+                        )
+                    } else {
+                        for ((style, weight) in r.topStyles) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = GUTTER, vertical = 3.dp)
+                            ) {
+                                Text(style, style = MaterialTheme.typography.bodyMedium)
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    String.format(Locale.ROOT, "%.2f", weight),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
                 OutlinedButton(
                     onClick = onResetStats,
                     modifier = Modifier.padding(horizontal = GUTTER)
@@ -403,6 +515,44 @@ internal fun SettingsScreen(
             }
 
         }
+    }
+
+    if (foldersOpen) {
+        LineListDialog(
+            title = "תיקיות שלא ייסרקו",
+            hint = "חלק משם הנתיב, שורה לכל תיקייה. כל קובץ שהנתיב שלו " +
+                "מכיל את הטקסט הזה לא ייכנס לספרייה.\n\nלמשל:\nWhatsApp\nRecordings\nRingtones",
+            initial = excluded.joinToString("\n"),
+            confirm = "שמור וסרוק",
+            onDismiss = { foldersOpen = false },
+            onSave = { text ->
+                val list = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                excluded = list
+                prefs.excludedFolders = list
+                foldersOpen = false
+                // A folder that was excluded is still in the database until
+                // something goes and looks again, so the rescan is part of
+                // saving rather than something to remember to do afterwards.
+                onExcludedChanged()
+            }
+        )
+    }
+
+    if (separationsOpen) {
+        LineListDialog(
+            title = "סגנונות שלא יתערבבו",
+            hint = "שורה לכל כלל, והסגנונות בתוכה מופרדים בפסיק. " +
+                "שני סגנונות באותה שורה לא יופיעו יחד באותו מיקס.\n\nלמשל:\n" +
+                "חסידי, מזרחי\nקלאסי, רוק",
+            initial = separations,
+            confirm = "שמור",
+            onDismiss = { separationsOpen = false },
+            onSave = { text ->
+                separations = text
+                prefs.styleSeparations = text
+                separationsOpen = false
+            }
+        )
     }
 
     if (shelvesOpen) {
@@ -506,6 +656,8 @@ internal fun PlayerSettingsScreen(
 ) {
     var openPlayerOnPlay by remember { mutableStateOf(prefs.openPlayerOnPlay) }
     var autoRadio by remember { mutableStateOf(prefs.autoRadio) }
+    var resumePrompt by remember { mutableStateOf(prefs.resumePrompt) }
+    var normalizeVolume by remember { mutableStateOf(prefs.normalizeVolume) }
     var tapArtwork by remember { mutableStateOf(prefs.tapArtworkToggles) }
     var arrangementOpen by remember { mutableStateOf(false) }
 
@@ -548,6 +700,31 @@ internal fun PlayerSettingsScreen(
                     autoRadio = it
                     prefs.autoRadio = it
                 }
+                SwitchRow(
+                    title = "הצעה להמשיך מהמיקום האחרון",
+                    subtitle = "כששיר נעזב באמצע ופותחים אותו שוב, מוצגת לכמה שניות " +
+                        "הצעה לחזור לנקודה — עם הזמן המדויק. נשמר רק לשירים " +
+                        "שנעזבו אחרי חצי דקה ולפני הסוף",
+                    checked = resumePrompt
+                ) {
+                    resumePrompt = it
+                    prefs.resumePrompt = it
+                }
+                SwitchRow(
+                    title = "איזון עוצמה בין שירים",
+                    subtitle = "מנמיך את השירים החזקים במיוחד כדי שלא תצטרך לגעת " +
+                        "בעוצמה בכל מעבר. דורש שהשירים ינותחו קודם",
+                    checked = normalizeVolume
+                ) {
+                    normalizeVolume = it
+                    prefs.normalizeVolume = it
+                }
+                // No "pause when the volume reaches zero". On the phone that
+                // watches the system media stream, which the volume rocker
+                // moves; here the operating system owns the mixer and does
+                // not tell the app when someone drags it to the bottom. A
+                // switch that cannot see what it claims to watch is worse
+                // than the absence of one.
             }
             item {
                 SettingSection("אקולייזר", "31 תדרים, נשמר בין הפעלות")
@@ -837,3 +1014,47 @@ internal val DESKTOP_PLAYER_ACTIONS: List<PlayerAction> =
     PlayerAction.entries.filterNot {
         it == PlayerAction.SPEED || it == PlayerAction.SHARE
     }
+
+/**
+ * A dialog holding a list written one item per line.
+ *
+ * Used for the two settings that are lists of free text rather than choices:
+ * the folders to leave out of a scan, and the pairs of styles that should
+ * never share a mix. A multi-line box rather than an add-one-at-a-time list,
+ * because these are edited rarely and in bulk - usually pasted in once and
+ * then left alone for months - and a text box can be read, corrected and
+ * reordered in one go where a list of rows cannot.
+ */
+@Composable
+private fun LineListDialog(
+    title: String,
+    hint: String,
+    initial: String,
+    confirm: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text(title) },
+        text = {
+            Column {
+                Text(hint, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 220.dp)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(text) }) { Text(confirm, color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
+}

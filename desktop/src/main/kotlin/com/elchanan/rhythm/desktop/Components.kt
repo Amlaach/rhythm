@@ -3,11 +3,13 @@ package com.elchanan.rhythm.desktop
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,8 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.ThumbDown
@@ -33,12 +35,18 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -328,5 +336,52 @@ internal fun DetailTopBar(title: String, onBack: () -> Unit) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
+    }
+}
+
+/**
+ * The A to Z strip down the side of a long list.
+ *
+ * A library of a few thousand songs is minutes of scrolling and seconds of
+ * dragging this. Drag as well as click, because the point is to sweep to
+ * roughly the right place and then look, not to hit a three millimetre
+ * target; on a mouse the drag is what a scrollbar would have been, except
+ * that it is labelled with where you are going rather than how far.
+ *
+ * Under four buckets it hides itself: an index of three letters is not
+ * faster than the list it sits beside.
+ */
+@Composable
+internal fun AlphabetIndex(
+    letters: List<String>,
+    modifier: Modifier = Modifier,
+    onLetter: (String) -> Unit
+) {
+    if (letters.size < 4) return
+    var height by remember { mutableStateOf(0f) }
+
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
+            .width(22.dp)
+            .onSizeChanged { height = it.height.toFloat() }
+            .pointerInput(letters) {
+                detectVerticalDragGestures { change, _ ->
+                    if (height <= 0f) return@detectVerticalDragGestures
+                    val fraction = (change.position.y / height).coerceIn(0f, 0.999f)
+                    onLetter(letters[(fraction * letters.size).toInt()])
+                }
+            },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceEvenly
+    ) {
+        for (letter in letters) {
+            Text(
+                text = letter,
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary,
+                modifier = Modifier.clickable { onLetter(letter) }
+            )
+        }
     }
 }
