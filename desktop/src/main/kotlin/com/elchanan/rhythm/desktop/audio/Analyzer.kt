@@ -85,12 +85,13 @@ object Analyzer {
             val frameSize = channels * 2
             val wantedFrames = (rate * Analysis.PROBE_SECONDS).toInt()
             val buffer = ByteArray(wantedFrames * frameSize)
+            val scratch = ByteArray(SCRATCH_BYTES)
             // Where the stream head is, in frames from the start.
             var atFrame = 0L
 
             for (startMs in starts) {
                 val wantFrame = (startMs / 1000.0 * rate).toLong()
-                if (!skipTo(stream, wantFrame - atFrame, frameSize)) break
+                if (!skipTo(stream, wantFrame - atFrame, frameSize, scratch)) break
                 atFrame = maxOf(atFrame, wantFrame)
 
                 var filled = 0
@@ -117,18 +118,35 @@ object Analyzer {
     /**
      * Moves the head forward by a number of frames.
      *
+     * By reading and throwing away rather than by skip(). The decoding
+     * happens either way - these are converted streams and there is nothing
+     * to seek over - but skip() on several of the SPI providers walks the
+     * stream in very small steps, and on one of them a byte at a time, which
+     * costs more than the decoding it is skipping. A read into a scratch
+     * buffer asks for a lot at once and lets the provider decide.
+     *
      * @return false when the stream ran out, which ends the pass: every
      *   remaining probe is further in than this one.
      */
-    private fun skipTo(stream: AudioInputStream, frames: Long, frameSize: Int): Boolean {
-        var toSkip = frames * frameSize
-        while (toSkip > 0) {
-            val skipped = stream.skip(toSkip)
-            if (skipped <= 0) return false
-            toSkip -= skipped
+    private fun skipTo(
+        stream: AudioInputStream,
+        frames: Long,
+        frameSize: Int,
+        scratch: ByteArray
+    ): Boolean {
+        if (frames <= 0) return true
+        var left = frames * frameSize
+        while (left > 0) {
+            val want = minOf(left, scratch.size.toLong()).toInt()
+            val read = stream.read(scratch, 0, want)
+            if (read <= 0) return false
+            left -= read
         }
         return true
     }
+
+    /** Big enough that a skip is a few dozen reads rather than thousands. */
+    private const val SCRATCH_BYTES = 256 * 1024
 
     /**
      * Channels averaged here rather than asked of the converter: a stereo to
