@@ -4,13 +4,15 @@ import com.elchanan.rhythm.data.db.ArtistEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.BookmarkEntity
 import com.elchanan.rhythm.data.db.HistoryEntity
-import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.data.db.PlaylistEntity
 import com.elchanan.rhythm.data.db.PlaylistItemEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
+import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.engine.EngineTuning
+import com.elchanan.rhythm.engine.Names
 import com.elchanan.rhythm.engine.Recommender
+import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.engine.TransitionEdge
 import java.io.File
 import java.sql.Connection
@@ -163,6 +165,17 @@ class Store private constructor(private val conn: Connection) {
             )
             """.trimIndent(),
             "CREATE INDEX IF NOT EXISTS bookmarks_songId ON bookmarks(songId)",
+            // Words someone typed or pasted in, which is the one source that
+            // cannot be found again by looking at the file. Tags and sidecar
+            // files are re-read on demand and never stored; this table holds
+            // only what would otherwise be lost.
+            """
+            CREATE TABLE IF NOT EXISTS lyrics (
+                songId INTEGER PRIMARY KEY, text TEXT NOT NULL,
+                synced TEXT NOT NULL, source TEXT NOT NULL,
+                updatedAt INTEGER NOT NULL
+            )
+            """.trimIndent(),
             // Where a long recording was left. Separate from the bookmarks
             // because there is exactly one of these per file and it is
             // overwritten constantly, where a bookmark is made on purpose and
@@ -738,6 +751,171 @@ class Store private constructor(private val conn: Connection) {
         }
     }
 
+    /**
+     * The same rating and style words across a group of artists.
+     *
+     * A null leaves that field as it was: the group dialog can set a rating
+     * without touching anyone's tags, or tag without re-rating, and picking
+     * neither is a no-op rather than a wipe. [replaceStyles] is the
+     * difference between "these are also this" and "these are only this".
+     *
+     * One transaction, because forty artists half updated is a worse state
+     * than forty not updated at all.
+     *
+     * Unlike [setArtistRating] the rating here does not toggle off when it
+     * matches: applying four stars to a group means all of them end on four,
+     * which is the whole point of doing it as a group.
+     */
+    @Synchronized
+    fun bulkUpdateArtists(
+        keys: List<String>,
+        names: Map<String, String>,
+        rating: Int?,
+        styles: List<String>?,
+        replaceStyles: Boolean
+    ) {
+        if (keys.isEmpty() || (rating == null && styles == null)) return
+        val previous = conn.autoCommit
+        conn.autoCommit = false
+        try {
+            for (key in keys) {
+                val name = names[key] ?: key
+                if (rating != null) {
+                    conn.prepareStatement(
+                        "INSERT INTO artists (artistKey, displayName, rating, updatedAt) " +
+                            "VALUES (?,?,?,?) ON CONFLICT(artistKey) DO UPDATE SET " +
+                            "rating = excluded.rating, updatedAt = excluded.updatedAt"
+                    ).use { ps ->
+                        ps.setString(1, key)
+                        ps.setString(2, name)
+                        ps.setInt(3, rating)
+                        ps.setLong(4, System.currentTimeMillis())
+                        ps.executeUpdate()
+                    }
+                }
+                if (styles != null) {
+                    val merged = if (replaceStyles) {
+                        Styles.join(styles)
+                    } else {
+                        Styles.join(Styles.parse(artistStyles(key)) + styles)
+                    }
+                    setArtistStyles(key, name, merged)
+                }
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = previous
+        }
+    }
+
+    /** The style words already on an artist, or empty when there is no row. */
+    @Synchronized
+    fun artistStyles(artistKey: String): String {
+        conn.prepareStatement("SELECT styles FROM artists WHERE artistKey = ?").use { ps ->
+            ps.setString(1, artistKey)
+            val rs = ps.executeQuery()
+            return if (rs.next()) rs.getString("styles").orEmpty() else ""
+        }
+    }
+
+    /**
+     * Artists typed in one per line as "name | rating | styles".
+     *
+     * For the case the group dialog cannot serve: a list written elsewhere,
+     * or dictated, and pasted in whole. A blank field leaves what was there,
+     * so the same list can be pasted twice without the second paste undoing
+     * anything, and a line starting with # is a comment.
+     *
+     * Returns how many lines were taken, which is the only honest way to
+     * report on free text: it says nothing about whether the names matched
+     * anything in the library, because an artist can be rated before their
+     * music is scanned.
+     */
+    @Synchronized
+    fun importArtistLines(text: String): Int {
+        var count = 0
+        for (raw in text.lines()) {
+            val line = raw.trim()
+            if (line.isEmpty() || line.startsWith("#")) continue
+            val parts = line.split('|').map { it.trim() }
+            val name = parts.getOrNull(0).orEmpty()
+            if (name.isEmpty()) continue
+            val rating = parts.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 5) ?: 0
+            val styles = parts.getOrNull(2).orEmpty()
+            val key = Names.normalizeKey(name)
+            if (rating > 0) {
+                conn.prepareStatement(
+                    "INSERT INTO artists (artistKey, displayName, rating, updatedAt) " +
+                        "VALUES (?,?,?,?) ON CONFLICT(artistKey) DO UPDATE SET " +
+                        "rating = excluded.rating, updatedAt = excluded.updatedAt"
+                ).use { ps ->
+                    ps.setString(1, key)
+                    ps.setString(2, name)
+                    ps.setInt(3, rating)
+                    ps.setLong(4, System.currentTimeMillis())
+                    ps.executeUpdate()
+                }
+            }
+            if (styles.isNotBlank()) setArtistStyles(key, name, styles)
+            count++
+        }
+        return count
+    }
+
+    /**
+     * The words someone wrote for a song, or null when nobody has.
+     *
+     * Only the manual ones live here. What is in the file's tags, or in a
+     * .lrc beside it, is read from the file every time [SongLyrics] is asked
+     * - copying it into the database would mean a correction made in a tag
+     * editor silently having no effect.
+     */
+    @Synchronized
+    fun lyrics(songId: Long): Pair<String, String>? {
+        conn.prepareStatement("SELECT text, synced FROM lyrics WHERE songId = ?").use { ps ->
+            ps.setLong(1, songId)
+            val rs = ps.executeQuery()
+            if (!rs.next()) return null
+            val text = rs.getString("text").orEmpty()
+            val synced = rs.getString("synced").orEmpty()
+            return if (text.isBlank() && synced.isBlank()) null else text to synced
+        }
+    }
+
+    /**
+     * Saves words for a song, or clears them when both halves are empty.
+     *
+     * Clearing rather than storing a blank row, so that emptying the editor
+     * puts the song back to whatever its file says rather than pinning it to
+     * nothing - which is what someone who cleared the box is asking for.
+     */
+    @Synchronized
+    fun setLyrics(songId: Long, text: String, synced: String) {
+        if (text.isBlank() && synced.isBlank()) {
+            conn.prepareStatement("DELETE FROM lyrics WHERE songId = ?").use { ps ->
+                ps.setLong(1, songId)
+                ps.executeUpdate()
+            }
+            return
+        }
+        conn.prepareStatement(
+            "INSERT INTO lyrics (songId, text, synced, source, updatedAt) VALUES (?,?,?,?,?) " +
+                "ON CONFLICT(songId) DO UPDATE SET text = excluded.text, " +
+                "synced = excluded.synced, source = excluded.source, " +
+                "updatedAt = excluded.updatedAt"
+        ).use { ps ->
+            ps.setLong(1, songId)
+            ps.setString(2, text)
+            ps.setString(3, synced)
+            ps.setString(4, "manual")
+            ps.setLong(5, System.currentTimeMillis())
+            ps.executeUpdate()
+        }
+    }
+
     // ---------------------------------------------------------------------
     // Playlists
     // ---------------------------------------------------------------------
@@ -1207,6 +1385,7 @@ class Store private constructor(private val conn: Connection) {
                 "DELETE FROM playlist_items WHERE songId = ?",
                 "DELETE FROM tag_overrides WHERE songId = ?",
                 "DELETE FROM audio_features WHERE songId = ?",
+                "DELETE FROM lyrics WHERE songId = ?",
                 "DELETE FROM affinity WHERE a = ? OR b = ?",
                 "DELETE FROM transitions WHERE a = ? OR b = ?"
             )) {

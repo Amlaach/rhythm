@@ -72,6 +72,7 @@ import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -79,6 +80,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -133,6 +135,7 @@ import com.elchanan.rhythm.engine.EngineTuning
 import com.elchanan.rhythm.engine.Features
 import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.Loudness
+import com.elchanan.rhythm.engine.LyricLine
 import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.Names
@@ -151,6 +154,7 @@ import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.RhythmTheme
 import com.elchanan.rhythm.ui.theme.Surface1
+import com.elchanan.rhythm.ui.theme.Surface2
 import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import com.elchanan.rhythm.ui.theme.TextTertiary
@@ -1173,12 +1177,25 @@ private fun RhythmApp() {
     // The words for what is playing, read off the disk when the track
     // changes rather than held for the whole library.
     var playerWords by remember { mutableStateOf<Words?>(null) }
-    LaunchedEffect(current?.id, showPlayer) {
+    // Bumped when the editor saves, so the panel behind it redraws with what
+    // was just written instead of what the file said a moment ago.
+    var lyricsRevision by remember { mutableStateOf(0) }
+    LaunchedEffect(current?.id, showPlayer, lyricsRevision) {
         val song = current
         playerWords = if (song == null || !showPlayer) {
             null
         } else {
-            withContext(Dispatchers.IO) { SongLyrics.find(song, prefs.lyricsFolder) }
+            withContext(Dispatchers.IO) {
+                // What someone typed wins over what the file says: they
+                // typed it because the file was wrong or empty.
+                val saved = store.lyrics(song.id)
+                if (saved != null) {
+                    val (plain, lrc) = saved
+                    Words(plain = plain, lrc = lrc)
+                } else {
+                    SongLyrics.find(song, prefs.lyricsFolder)
+                }
+            }
         }
     }
 
@@ -1221,6 +1238,18 @@ private fun RhythmApp() {
             // already jumped by the time this would have been offered, so the
             // two never both speak about the same song.
             resumeAt = if (prefs.resumePrompt) resumePoints[current.id] else null,
+            onSaveLyrics = { plain, lrc ->
+                val id = current.id
+                scope.launch {
+                    withContext(Dispatchers.IO) { store.setLyrics(id, plain, lrc) }
+                    lyricsRevision++
+                    status = if (plain.isBlank() && lrc.isBlank()) {
+                        "המילים נמחקו"
+                    } else {
+                        "המילים נשמרו"
+                    }
+                }
+            },
             onClose = { showPlayer = false },
             onToggle = { player.togglePause() },
             onPrevious = { play(queue, queueIndex - 1) },
@@ -1643,7 +1672,34 @@ private fun RhythmApp() {
                     )
                     else -> ArtistsPane(
                         artists = library.artists,
-                        onOpen = { stack = stack + Route.Artist(it.key) }
+                        onOpen = { stack = stack + Route.Artist(it.key) },
+                        onBulkUpdate = { keys, rating, styles, replace ->
+                            scope.launch {
+                                // The display names come from the library
+                                // rather than the keys, so an artist who has
+                                // no row yet is created with their real name
+                                // and not a normalised one.
+                                val names = library.artists.associate {
+                                    it.key to it.displayName
+                                }
+                                withContext(Dispatchers.IO) {
+                                    store.bulkUpdateArtists(
+                                        keys, names, rating, styles, replace
+                                    )
+                                }
+                                reload()
+                                status = "עודכנו ${keys.size} אמנים"
+                            }
+                        },
+                        onBulkImport = { text ->
+                            scope.launch {
+                                val n = withContext(Dispatchers.IO) {
+                                    store.importArtistLines(text)
+                                }
+                                reload()
+                                status = "עודכנו $n אמנים"
+                            }
+                        }
                     )
                 }
             }
@@ -2125,7 +2181,8 @@ private fun PlayerScreen(
     onBookmarks: () -> Unit,
     onJumpTo: (Int) -> Unit,
     onRemoveFromQueue: (Int) -> Unit,
-    resumeAt: Long?
+    resumeAt: Long?,
+    onSaveLyrics: (String, String) -> Unit
 ) {
     var scrub by remember { mutableStateOf<Float?>(null) }
     // The two panels the phone opens inside the player rather than beside it:
@@ -2133,6 +2190,7 @@ private fun PlayerScreen(
     // whole sheet and neither is any use at half of it.
     var showQueue by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
+    var editingLyrics by remember(song.id) { mutableStateOf(false) }
     // An offer, not a jump. It is keyed to the song so opening a different
     // one gets its own offer, and it takes itself away after a few seconds:
     // a strip that stays forever is permanent clutter, and the moment for
@@ -2213,6 +2271,7 @@ private fun PlayerScreen(
                 words = words,
                 positionMs = positionMs,
                 modifier = Modifier.weight(1f),
+                onEdit = { editingLyrics = true },
                 onSeek = onSeek
             )
             else -> Box(
@@ -2512,6 +2571,155 @@ private fun PlayerScreen(
     if (detailsOpen) {
         SongDetailsDialog(song = song, feature = feature, onDismiss = { detailsOpen = false })
     }
+    if (editingLyrics) {
+        LyricsEditorDialog(
+            initial = words?.lrc?.takeIf { it.isNotBlank() } ?: words?.plain.orEmpty(),
+            positionMs = positionMs,
+            playing = playing,
+            onTogglePlay = onToggle,
+            onDismiss = { editingLyrics = false },
+            onSave = { plain, lrc ->
+                onSaveLyrics(plain, lrc)
+                editingLyrics = false
+            }
+        )
+    }
+}
+
+/**
+ * Typing, pasting or timing a song's words.
+ *
+ * Two modes in one dialog, because they are two halves of the same job. The
+ * first is a text box: paste what you have, whether that is plain words or a
+ * whole LRC file with timestamps already in it - which of the two it is is
+ * decided by looking at the text rather than by asking.
+ *
+ * The second times the lines against the song as it plays. One button, one
+ * line at a time, pressed on the beat: this is the only way timings get made
+ * that is not slower than writing them out by hand, and it is why the dialog
+ * can keep playing underneath itself.
+ */
+@Composable
+private fun LyricsEditorDialog(
+    initial: String,
+    positionMs: Long,
+    playing: Boolean,
+    onTogglePlay: () -> Unit,
+    onDismiss: () -> Unit,
+    onSave: (String, String) -> Unit
+) {
+    var text by remember { mutableStateOf(initial) }
+    var syncing by remember { mutableStateOf(false) }
+    var stampIndex by remember { mutableStateOf(0) }
+    var stamps by remember { mutableStateOf(listOf<LyricLine>()) }
+
+    val lines = remember(text) {
+        // Stripped first, so timing an LRC that is already timed starts from
+        // its words rather than from its timestamps.
+        Lyrics.stripTimestamps(text).lines().map { it.trim() }.filter { it.isNotEmpty() }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text(if (syncing) "סנכרון שורות" else "מילות השיר") },
+        text = {
+            if (!syncing) {
+                Column(modifier = Modifier.heightIn(max = 380.dp)) {
+                    Text(
+                        "אפשר להדביק כאן טקסט רגיל, או קובץ LRC שלם עם חותמות זמן.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 280.dp)
+                    )
+                }
+            } else {
+                Column(modifier = Modifier.heightIn(max = 380.dp)) {
+                    Text(
+                        "השיר מתנגן — לחיצה על \"סמן\" מצמידה את הזמן הנוכחי לשורה המסומנת.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = lines.getOrNull(stampIndex) ?: "הסתיים",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Accent,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Surface2)
+                            .padding(12.dp),
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "$stampIndex מתוך ${lines.size} שורות סומנו",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                val line = lines.getOrNull(stampIndex) ?: return@Button
+                                stamps = stamps + LyricLine(positionMs, line)
+                                stampIndex++
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                        ) { Text("סמן") }
+                        // A mistimed line is the normal case, not the
+                        // exception, so undo is a first class button rather
+                        // than a reason to start the song again.
+                        OutlinedButton(onClick = {
+                            if (stampIndex > 0) {
+                                stampIndex--
+                                stamps = stamps.dropLast(1)
+                            }
+                        }) { Text("אחורה") }
+                        OutlinedButton(onClick = onTogglePlay) {
+                            Text(if (playing) "עצור" else "נגן")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                if (syncing) {
+                    onSave(Lyrics.stripTimestamps(text).trim(), Lyrics.buildLrc(stamps))
+                } else {
+                    // What was pasted decides which of the two it is. Someone
+                    // who pastes an LRC has already done the timing and
+                    // should not be asked to say so.
+                    val looksLikeLrc = text.contains('[') &&
+                        Regex("\\[\\d{1,2}:\\d{2}").containsMatchIn(text)
+                    onSave(
+                        if (looksLikeLrc) Lyrics.stripTimestamps(text) else text.trim(),
+                        if (looksLikeLrc) text else ""
+                    )
+                }
+            }) { Text("שמור", color = Accent) }
+        },
+        dismissButton = {
+            Row {
+                if (!syncing && lines.isNotEmpty()) {
+                    TextButton(onClick = {
+                        syncing = true
+                        stampIndex = 0
+                        stamps = emptyList()
+                    }) { Text("סנכרן", color = TextSecondary) }
+                }
+                Spacer(Modifier.width(4.dp))
+                TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+            }
+        }
+    )
 }
 
 /**
@@ -2591,15 +2799,28 @@ private fun LyricsPanel(
     words: Words?,
     positionMs: Long,
     modifier: Modifier = Modifier,
+    onEdit: () -> Unit,
     onSeek: (Long) -> Unit
 ) {
     if (words == null) {
-        Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Column(
+            modifier = modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
             Text(
                 "אין מילים לשיר הזה",
                 style = MaterialTheme.typography.bodyLarge,
                 color = TextSecondary
             )
+            Spacer(Modifier.height(12.dp))
+            // The way in when the file has nothing: paste what you have.
+            // Without this the panel is a dead end on exactly the songs
+            // that need it most.
+            Button(
+                onClick = onEdit,
+                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+            ) { Text("ערוך / הדבק") }
         }
         return
     }
@@ -2614,6 +2835,8 @@ private fun LyricsPanel(
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center
             )
+            Spacer(Modifier.height(16.dp))
+            TextButton(onClick = onEdit) { Text("ערוך / הדבק", color = TextSecondary) }
         }
         return
     }
