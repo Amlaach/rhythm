@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Owns the ExoPlayer instance and the media session.
@@ -410,7 +411,7 @@ class PlaybackService : MediaSessionService() {
     private suspend fun startRadioFromCurrent(songId: Long) {
         val song = repo.songById(songId) ?: return
         val engine = runCatching { repo.buildRecommender() }.getOrNull() ?: return
-        val list = engine.radio(song, 40)
+        val list = withContext(Dispatchers.Default) { engine.radio(song, 40) }
         if (list.isEmpty()) return
         QueueMeta.reset()
         QueueMeta.markAuto(list.drop(1).map { it.id })
@@ -728,8 +729,12 @@ class PlaybackService : MediaSessionService() {
                     player.getMediaItemAt(i).mediaId.toLongOrNull()?.let { recent.add(it) }
                     i--
                 }
+                val timeline = player.currentTimeline
+                val seedId = player.currentMediaItem?.mediaId
                 val engine = repo.buildRecommender()
-                val more = engine.continuation(recent, existing, 15)
+                val more = withContext(Dispatchers.Default) { engine.continuation(recent, existing, 15) }
+                // The user may replace/reorder the queue while ranking runs.
+                if (player.currentTimeline != timeline || player.currentMediaItem?.mediaId != seedId) return@launch
                 if (more.isNotEmpty()) {
                     QueueMeta.markAuto(more.map { it.id })
                     player.addMediaItems(more.map { MediaItems.toMediaItem(it) })

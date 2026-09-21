@@ -138,6 +138,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val featuresById: StateFlow<Map<Long, AudioFeatureEntity>> =
         repo.features
             .map { list -> list.filter { it.energy > 0f }.associateBy { it.songId } }
+            .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     val library: StateFlow<LibraryState> =
@@ -240,15 +241,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val playlists: StateFlow<List<PlaylistInfo>> =
         combine(repo.playlists, repo.playlistItems, repo.songs) { lists, items, songs ->
             val byId = songs.associateBy { it.id }
+            val itemsByPlaylist = items.groupBy { it.playlistId }
             lists.map { pl ->
                 PlaylistInfo(
                     playlist = pl,
-                    songs = items.filter { it.playlistId == pl.id }
+                    songs = itemsByPlaylist[pl.id].orEmpty()
                         .sortedBy { it.position }
                         .mapNotNull { byId[it.songId] }
                 )
             }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        }.flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _feed = MutableStateFlow<List<FeedSection>>(emptyList())
     val feed: StateFlow<List<FeedSection>> = _feed.asStateFlow()
@@ -534,7 +537,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun startRadio(song: SongEntity) {
         viewModelScope.launch {
             val e = engine ?: repo.buildRecommender().also { engine = it }
-            val list = e.radio(song, 40)
+            val list = withContext(Dispatchers.Default) { e.radio(song, 40) }
             QueueMeta.reset()
             QueueMeta.markAuto(list.drop(1).map { it.id })
             player.play(list, 0)
@@ -790,7 +793,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun createMix(song: SongEntity, andPlay: Boolean = false, onReady: () -> Unit = {}) {
         viewModelScope.launch {
             val e = engine ?: repo.buildRecommender().also { engine = it }
-            val list = e.radio(song, 60)
+            val list = withContext(Dispatchers.Default) { e.radio(song, 60) }
             openList(
                 title = "מיקס: ${song.title}",
                 subtitle = "${list.size} שירים סביב ${song.artistName}",
@@ -1403,10 +1406,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 return@launch
             }
-            val ordered = engine?.let { e ->
-                val head = list.maxByOrNull { e.totalScore(it) } ?: list.first()
-                e.sequence(head, list.filter { it.id != head.id }.take(80))
-            } ?: list
+            val currentEngine = engine
+            val ordered = withContext(Dispatchers.Default) {
+                currentEngine?.let { e ->
+                    val head = list.maxByOrNull { e.totalScore(it) } ?: list.first()
+                    e.sequence(head, list.filter { it.id != head.id }.take(80))
+                } ?: list
+            }
             openList(mood.label, mood.subtitle, ordered, "mood:${mood.name}")
             onReady()
         }
