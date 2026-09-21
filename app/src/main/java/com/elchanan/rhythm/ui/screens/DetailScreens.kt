@@ -1,7 +1,9 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -39,6 +42,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,12 +58,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.engine.Styles
+import com.elchanan.rhythm.ui.AlbumInfo
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.Artwork
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
 import com.elchanan.rhythm.ui.components.Chip
-import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.components.EmptyState
 import com.elchanan.rhythm.ui.components.SongRow
 import com.elchanan.rhythm.ui.components.StarRow
@@ -67,6 +69,7 @@ import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
+import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import com.elchanan.rhythm.ui.theme.gradientFor
 
@@ -381,11 +384,31 @@ private fun ratingHint(rating: Int): String = when (rating) {
     else -> "עוד לא דורג"
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AlbumsScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -> Unit) {
     val library by vm.library.collectAsStateWithLifecycle()
+    // The same gesture as the list view of the same albums, and the same bar
+    // underneath it. A cover in a grid is still a row of songs.
+    var selection by remember { mutableStateOf(setOf<Long>()) }
+    val selectionMode = selection.isNotEmpty()
+
+    fun toggle(album: AlbumInfo) {
+        val ids = album.songs.map { it.id }
+        if (ids.isEmpty()) return
+        selection = if (selection.containsAll(ids)) selection - ids.toSet() else selection + ids
+    }
+
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = "אלבומים", onBack = onBack)
+        if (selectionMode) {
+            SelectionBar(
+                vm = vm,
+                selection = selection,
+                songs = library.songs.filter { it.id in selection },
+                onClear = { selection = emptySet() }
+            )
+        }
         LazyVerticalGrid(
             // Two columns on a phone, more as the window widens, without ever
             // squeezing a cover below a legible size.
@@ -395,19 +418,51 @@ fun AlbumsScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -> Unit
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             items(library.albums, key = { it.albumId }) { album ->
+                val picked = album.songs.isNotEmpty() &&
+                    selection.containsAll(album.songs.map { it.id })
                 Column(
-                    modifier = Modifier.clickable {
-                        vm.openList(album.name, album.artistName, album.songs, "album:${album.albumId}")
-                        onOpenDetail()
-                    }
-                ) {
-                    Artwork(
-                        -1L,
-                        album.albumId,
-                        album.name,
-                        Modifier.fillMaxWidth().aspectRatio(1f),
-                        corner = 12
+                    modifier = Modifier.combinedClickable(
+                        onClick = {
+                            if (selectionMode) {
+                                toggle(album)
+                            } else {
+                                vm.openList(
+                                    album.name,
+                                    album.artistName,
+                                    album.songs,
+                                    "album:${album.albumId}"
+                                )
+                                onOpenDetail()
+                            }
+                        },
+                        onLongClick = { toggle(album) }
                     )
+                ) {
+                    Box {
+                        Artwork(
+                            -1L,
+                            album.albumId,
+                            album.name,
+                            Modifier.fillMaxWidth().aspectRatio(1f),
+                            corner = 12
+                        )
+                        // Over the cover rather than beside it: in a grid
+                        // there is no margin to put it in, and a tick that
+                        // shifted the artwork would make the whole grid jump
+                        // the moment anything was selected.
+                        if (selectionMode) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(6.dp)
+                                    .clip(CircleShape)
+                                    .background(Surface1.copy(alpha = 0.85f))
+                                    .padding(3.dp)
+                            ) {
+                                SelectionTick(picked)
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(6.dp))
                     Text(album.name, style = MaterialTheme.typography.titleSmall, maxLines = 1)
                     Text(

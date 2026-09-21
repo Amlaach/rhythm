@@ -1,8 +1,10 @@
 package com.elchanan.rhythm.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +30,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -43,6 +46,7 @@ import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -89,6 +93,7 @@ import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.BgElevated
 import com.elchanan.rhythm.ui.theme.Color_Error
 import com.elchanan.rhythm.ui.theme.Surface1
+import com.elchanan.rhythm.ui.theme.Surface2
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import com.elchanan.rhythm.ui.theme.TextTertiary
 import com.elchanan.rhythm.ui.theme.gradientFor
@@ -124,6 +129,7 @@ private enum class SongSort(val label: String) {
 private fun folderName(path: String): String =
     path.trimEnd('/').substringAfterLast('/').ifEmpty { path }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LibraryScreen(
     vm: MainViewModel,
@@ -151,6 +157,25 @@ fun LibraryScreen(
     // deselected, so there is no separate mode to turn on: having anything
     // selected *is* the mode. The tabs that show songs all read this.
     val selectionMode = selection.isNotEmpty()
+
+    /**
+     * Long pressing a group takes the whole group.
+     *
+     * An album, an artist, a folder and a playlist are all, from here, a set
+     * of songs - so selecting one selects its songs and everything the
+     * selection bar already does applies to it. One selection model with
+     * several ways into it, rather than a separate bar per kind of row, each
+     * offering a subset of the same actions.
+     *
+     * A group that is already entirely selected comes back out, so the same
+     * gesture undoes itself.
+     */
+    fun toggleGroup(songs: List<SongEntity>) {
+        val ids = songs.map { it.id }
+        if (ids.isEmpty()) return
+        selection = if (selection.containsAll(ids)) selection - ids.toSet()
+        else selection + ids
+    }
 
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
@@ -251,10 +276,21 @@ fun LibraryScreen(
                         }
                     }
                     items(library.artists, key = { it.key }) { artist ->
-                        ArtistRow(artist) {
-                            vm.openArtist(artist)
-                            onOpenArtist()
-                        }
+                        ArtistRow(
+                            artist = artist,
+                            selected = artist.songs.isNotEmpty() &&
+                                selection.containsAll(artist.songs.map { it.id }),
+                            selectionMode = selectionMode,
+                            onLongClick = { toggleGroup(artist.songs) },
+                            onClick = {
+                                if (selectionMode) {
+                                    toggleGroup(artist.songs)
+                                } else {
+                                    vm.openArtist(artist)
+                                    onOpenArtist()
+                                }
+                            }
+                        )
                     }
                 }
 
@@ -271,21 +307,35 @@ fun LibraryScreen(
                         }
                     }
                     items(library.albums, key = { it.albumId }) { album ->
+                        val picked = album.songs.isNotEmpty() &&
+                            selection.containsAll(album.songs.map { it.id })
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    vm.openList(
-                                        album.name,
-                                        album.artistName,
-                                        album.songs,
-                                        "album:${album.albumId}"
-                                    )
-                                    onOpenDetail()
-                                }
+                                .combinedClickable(
+                                    onClick = {
+                                        if (selectionMode) {
+                                            toggleGroup(album.songs)
+                                        } else {
+                                            vm.openList(
+                                                album.name,
+                                                album.artistName,
+                                                album.songs,
+                                                "album:${album.albumId}"
+                                            )
+                                            onOpenDetail()
+                                        }
+                                    },
+                                    onLongClick = { toggleGroup(album.songs) }
+                                )
+                                .background(if (picked) Surface2 else Color.Transparent)
                                 .padding(horizontal = gutter, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            if (selectionMode) {
+                                SelectionTick(picked)
+                                Spacer(Modifier.width(8.dp))
+                            }
                             Artwork(-1L, album.albumId, album.name, Modifier.size(52.dp), corner = 8)
                             Spacer(Modifier.width(12.dp))
                             Column {
@@ -373,22 +423,36 @@ fun LibraryScreen(
                     }
 
                     items(playlists, key = { it.playlist.id }) { info ->
+                        val picked = info.songs.isNotEmpty() &&
+                            selection.containsAll(info.songs.map { it.id })
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    vm.openList(
-                                        info.playlist.name,
-                                        "${info.songs.size} שירים",
-                                        info.songs,
-                                        "pl:${info.playlist.id}",
-                                        playlistId = info.playlist.id
-                                    )
-                                    onOpenDetail()
-                                }
+                                .combinedClickable(
+                                    onClick = {
+                                        if (selectionMode) {
+                                            toggleGroup(info.songs)
+                                        } else {
+                                            vm.openList(
+                                                info.playlist.name,
+                                                "${info.songs.size} שירים",
+                                                info.songs,
+                                                "pl:${info.playlist.id}",
+                                                playlistId = info.playlist.id
+                                            )
+                                            onOpenDetail()
+                                        }
+                                    },
+                                    onLongClick = { toggleGroup(info.songs) }
+                                )
+                                .background(if (picked) Surface2 else Color.Transparent)
                                 .padding(horizontal = gutter, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            if (selectionMode) {
+                                SelectionTick(picked)
+                                Spacer(Modifier.width(8.dp))
+                            }
                             val (c1, c2) = gradientFor("pl:${info.playlist.id}")
                             Box(
                                 modifier = Modifier
@@ -483,6 +547,12 @@ fun LibraryScreen(
                             vm = vm,
                             library = library,
                             gutter = gutter,
+                            selection = selection,
+                            onToggleGroup = { toggleGroup(it) },
+                            onToggleSong = { id ->
+                                selection = if (id in selection) selection - id
+                                else selection + id
+                            },
                             onMore = { sheetSong = it },
                             onOpenDetail = onOpenDetail
                         )
@@ -491,6 +561,8 @@ fun LibraryScreen(
                             vm = vm,
                             songs = library.songs,
                             gutter = gutter,
+                            selection = selection,
+                            onToggleGroup = { toggleGroup(it) },
                             onOpenDetail = onOpenDetail
                         )
                     }
@@ -684,7 +756,7 @@ private fun SongTab(
 }
 
 @Composable
-private fun SelectionBar(
+internal fun SelectionBar(
     vm: MainViewModel,
     selection: Set<Long>,
     songs: List<SongEntity>,
@@ -829,17 +901,35 @@ private fun BarAction(icon: ImageVector, label: String, onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ArtistRow(artist: ArtistInfo, onClick: () -> Unit) {
+private fun ArtistRow(
+    artist: ArtistInfo,
+    selected: Boolean = false,
+    selectionMode: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
+    onClick: () -> Unit
+) {
     val (c1, c2) = gradientFor(artist.key)
     val gutter = rememberMetrics().gutter
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .then(
+                if (onLongClick == null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                }
+            )
+            .background(if (selected) Surface2 else Color.Transparent)
             .padding(horizontal = gutter, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (selectionMode) {
+            SelectionTick(selected)
+            Spacer(Modifier.width(8.dp))
+        }
         Box(
             modifier = Modifier
                 .size(48.dp)
@@ -877,14 +967,19 @@ private fun ArtistRow(artist: ArtistInfo, onClick: () -> Unit) {
  * position, so switching away and back lands where it was left, and the system
  * back button climbs a level instead of leaving the library.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FolderTreeTab(
     vm: MainViewModel,
     library: LibraryState,
     gutter: Dp,
+    selection: Set<Long>,
+    onToggleGroup: (List<SongEntity>) -> Unit,
+    onToggleSong: (Long) -> Unit,
     onMore: (SongEntity) -> Unit,
     onOpenDetail: () -> Unit
 ) {
+    val selectionMode = selection.isNotEmpty()
     val root = remember(library.songs) { Folders.build(library.songs) }
     var path by rememberSaveable { mutableStateOf(root.path) }
     // A rescan can remove the folder being looked at, and a path that no
@@ -957,13 +1052,28 @@ private fun FolderTreeTab(
             }
 
             items(here.children, key = { it.path }) { child ->
+                // Everything under it, not only what sits directly in it:
+                // long pressing a folder of folders means the lot, which is
+                // the same thing "play all" on it means.
+                val inside = remember(child) { Folders.allSongs(child) }
+                val picked = inside.isNotEmpty() && selection.containsAll(inside.map { it.id })
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { path = child.path }
+                        .combinedClickable(
+                            onClick = {
+                                if (selectionMode) onToggleGroup(inside) else path = child.path
+                            },
+                            onLongClick = { onToggleGroup(inside) }
+                        )
+                        .background(if (picked) Surface2 else Color.Transparent)
                         .padding(horizontal = gutter, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    if (selectionMode) {
+                        SelectionTick(picked)
+                        Spacer(Modifier.width(8.dp))
+                    }
                     val (c1, c2) = gradientFor(child.path)
                     Box(
                         modifier = Modifier
@@ -1013,7 +1123,16 @@ private fun FolderTreeTab(
                     liked = stats?.liked ?: 0,
                     rating = stats?.rating ?: 0,
                     playCount = stats?.playCount ?: 0,
-                    onClick = { vm.playList(here.songs, here.songs.indexOf(song), here.name) },
+                    selected = song.id in selection,
+                    selectionMode = selectionMode,
+                    onClick = {
+                        if (selectionMode) {
+                            onToggleSong(song.id)
+                        } else {
+                            vm.playList(here.songs, here.songs.indexOf(song), here.name)
+                        }
+                    },
+                    onLongClick = { onToggleSong(song.id) },
                     onMore = { onMore(song) },
                     onLike = { vm.like(song.id) },
                     onDislike = { vm.dislike(song.id) }
@@ -1030,13 +1149,17 @@ private fun FolderTreeTab(
 }
 
 /** The older flat list, for anyone who preferred it. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FolderListTab(
     vm: MainViewModel,
     songs: List<SongEntity>,
     gutter: Dp,
+    selection: Set<Long>,
+    onToggleGroup: (List<SongEntity>) -> Unit,
     onOpenDetail: () -> Unit
 ) {
+    val selectionMode = selection.isNotEmpty()
     val folders = remember(songs) {
         songs.groupBy { it.folder }
             .map { (path, list) -> path to list }
@@ -1051,16 +1174,29 @@ private fun FolderListTab(
     }
     LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
         items(folders, key = { it.first }) { (path, list) ->
+            val picked = list.isNotEmpty() && selection.containsAll(list.map { it.id })
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable {
-                        vm.openList(folderName(path), path, list, "folder:$path")
-                        onOpenDetail()
-                    }
+                    .combinedClickable(
+                        onClick = {
+                            if (selectionMode) {
+                                onToggleGroup(list)
+                            } else {
+                                vm.openList(folderName(path), path, list, "folder:$path")
+                                onOpenDetail()
+                            }
+                        },
+                        onLongClick = { onToggleGroup(list) }
+                    )
+                    .background(if (picked) Surface2 else Color.Transparent)
                     .padding(horizontal = gutter, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (selectionMode) {
+                    SelectionTick(picked)
+                    Spacer(Modifier.width(8.dp))
+                }
                 val (c1, c2) = gradientFor(path)
                 Box(
                     modifier = Modifier
@@ -1089,4 +1225,21 @@ private fun FolderListTab(
             }
         }
     }
+}
+
+/**
+ * The tick that appears on the left of a row once something is selected.
+ *
+ * Only while selecting: a checkbox on every row all the time turns a library
+ * into a form, and the gesture that starts selection is a long press, which
+ * needs no affordance because nothing else in the app uses it.
+ */
+@Composable
+internal fun SelectionTick(selected: Boolean) {
+    Icon(
+        imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+        contentDescription = null,
+        tint = if (selected) Accent else TextSecondary,
+        modifier = Modifier.size(20.dp)
+    )
 }
