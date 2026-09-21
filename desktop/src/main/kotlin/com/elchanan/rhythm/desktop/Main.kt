@@ -1,8 +1,11 @@
 package com.elchanan.rhythm.desktop
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,28 +29,40 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.automirrored.filled.Subject
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.Autorenew
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.automirrored.filled.Subject
-import androidx.compose.material.icons.filled.Bedtime
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -54,19 +70,21 @@ import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -83,60 +101,71 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import com.elchanan.rhythm.data.db.ArtistEntity
-import com.elchanan.rhythm.data.db.AudioFeatureEntity
-import com.elchanan.rhythm.data.db.BookmarkEntity
-import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.data.PlaylistExport
 import com.elchanan.rhythm.data.PlaylistImport
 import com.elchanan.rhythm.data.TagFixer
+import com.elchanan.rhythm.data.db.ArtistEntity
+import com.elchanan.rhythm.data.db.AudioFeatureEntity
+import com.elchanan.rhythm.data.db.BookmarkEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
+import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.desktop.audio.Analyzer
 import com.elchanan.rhythm.desktop.audio.AudioPlayer
 import com.elchanan.rhythm.desktop.audio.Equalizer
 import com.elchanan.rhythm.desktop.data.Store
-import com.elchanan.rhythm.engine.FeedSection
+import com.elchanan.rhythm.engine.ActionPlacement
+import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.EngineTuning
 import com.elchanan.rhythm.engine.Features
+import com.elchanan.rhythm.engine.FeedSection
+import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.engine.Mood
-import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.Names
-import com.elchanan.rhythm.engine.Spoken
+import com.elchanan.rhythm.engine.PlayerAction
 import com.elchanan.rhythm.engine.Recap
-import com.elchanan.rhythm.engine.StyleLearning
 import com.elchanan.rhythm.engine.RecapData
 import com.elchanan.rhythm.engine.Recommender
-import com.elchanan.rhythm.engine.Versions
+import com.elchanan.rhythm.engine.ScoreTerm
 import com.elchanan.rhythm.engine.SectionKind
 import com.elchanan.rhythm.engine.ShelfKind
+import com.elchanan.rhythm.engine.Spoken
+import com.elchanan.rhythm.engine.StyleLearning
 import com.elchanan.rhythm.engine.Styles
+import com.elchanan.rhythm.engine.Versions
+import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.RhythmTheme
-import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
+import com.elchanan.rhythm.ui.theme.TextTertiary
 import com.elchanan.rhythm.ui.theme.gradientFor
+import java.awt.Toolkit
+import java.io.File
+import java.util.Locale
+import javax.swing.JFileChooser
+import javax.swing.UIManager
+import javax.swing.filechooser.FileNameExtensionFilter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.awt.Toolkit
-import java.io.File
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
-import javax.swing.UIManager
 
 /**
  * The Windows build's entry point.
@@ -214,6 +243,7 @@ private fun RhythmApp() {
     var status by remember { mutableStateOf("") }
     var scanning by remember { mutableStateOf(false) }
     var analysing by remember { mutableStateOf(false) }
+    var analysisJob by remember { mutableStateOf<Job?>(null) }
     var features by remember { mutableStateOf<Map<Long, AudioFeatureEntity>>(emptyMap()) }
     var volume by remember { mutableStateOf(1f) }
     var query by remember { mutableStateOf("") }
@@ -230,6 +260,10 @@ private fun RhythmApp() {
     // inside each screen so every list in the app opens the same one.
     var options by remember { mutableStateOf<SongEntity?>(null) }
     val prefs = remember(store) { Prefs(store) }
+    // Read once: a nudge that has been turned down stays down, and the flag
+    // only ever changes from this screen.
+    var tagTipVisible by remember { mutableStateOf(!prefs.tagTipSeen) }
+    var ratingTipVisible by remember { mutableStateOf(!prefs.ratingTipSeen) }
     var welcomeDone by remember { mutableStateOf(prefs.welcomeSeen) }
     var recap by remember { mutableStateOf<RecapData?>(null) }
     var proposals by remember { mutableStateOf<List<TagFixer.Proposal>>(emptyList()) }
@@ -321,10 +355,7 @@ private fun RhythmApp() {
         reload()
         volume = prefs.volume / 100f
         player.setVolume(volume)
-        player.equalizer.enabled = prefs.eqEnabled
-        prefs.eqBands.forEachIndexed { band, gain ->
-            player.equalizer.setGain(band, gain.toFloat())
-        }
+        player.equalizer.restore(prefs.eqEnabled, prefs.eqBands, prefs.eqPreamp)
     }
 
     /**
@@ -425,27 +456,51 @@ private fun RhythmApp() {
         val todo = songs.filter { it.id !in features }
         if (todo.isEmpty()) return
         analysing = true
-        scope.launch {
+        analysisJob = scope.launch {
             var done = 0
             var unreadable = 0
-            for (song in todo) {
-                val row = withContext(Dispatchers.IO) {
-                    val f = Analyzer.analyze(song)
-                    if (f != null) store.putFeature(f)
-                    f
+            try {
+                for (song in todo) {
+                    val row = withContext(Dispatchers.IO) {
+                        val f = Analyzer.analyze(song)
+                        if (f != null) store.putFeature(f)
+                        f
+                    }
+                    done++
+                    if (row == null) unreadable++
+                    status = "מנתח… $done מתוך ${todo.size}"
                 }
-                done++
-                if (row == null) unreadable++
-                status = "מנתח… $done מתוך ${todo.size}"
+            } finally {
+                analysing = false
+                analysisJob = null
+                // Every row measured so far is already on disk, so the
+                // shelves are rebuilt whether the pass finished or was
+                // stopped: a halted analysis still leaves the feed better
+                // than it found it. NonCancellable because the stop button
+                // cancels this very coroutine, and without it the refresh
+                // would be dropped along with the loop.
+                withContext(NonCancellable) {
+                    reload()
+                    // reload() has just written the ordinary count over the
+                    // status, so the files that could not be read are said
+                    // afterwards or not at all - and silently skipping them
+                    // is how someone ends up wondering why a shelf never
+                    // mentions half their library.
+                    if (unreadable > 0) status = "$status · $unreadable קבצים לא נקראו"
+                }
             }
-            reload()
-            analysing = false
-            // reload() has just written the ordinary count over the status,
-            // so the files that could not be read are said afterwards or not
-            // at all - and silently skipping them is how someone ends up
-            // wondering why a shelf never mentions half their library.
-            if (unreadable > 0) status = "$status · $unreadable קבצים לא נקראו"
         }
+    }
+
+    /**
+     * Stop an analysis pass part way.
+     *
+     * Analysis is the one thing here that takes minutes, and someone who
+     * started it on a large library needs a way out that is not quitting the
+     * app. What was measured is kept.
+     */
+    fun stopAnalysis() {
+        analysisJob?.cancel()
     }
 
     fun scan(roots: List<File>) {
@@ -878,6 +933,101 @@ private fun RhythmApp() {
         )
     }
 
+    /**
+     * A list of sixty built out from one song, opened rather than played.
+     *
+     * The phone's "create a mix from this": it does not interrupt what is
+     * playing, it hands you a list to look at and decide about.
+     */
+    fun createMix(song: SongEntity) {
+        val list = engine?.radio(song, 60).orEmpty()
+        if (list.isEmpty()) {
+            status = "אין עדיין מספיק בספרייה כדי לבנות מיקס"
+            return
+        }
+        stack = stack + Route.Detail(
+            DetailList(
+                title = "מיקס: ${song.title}",
+                subtitle = "${list.size} שירים סביב ${song.artistName.ifEmpty { "השיר" }}",
+                songs = list,
+                gradientKey = "mix:seed:${song.id}"
+            )
+        )
+    }
+
+    fun setSongStyles(song: SongEntity, styles: String) {
+        scope.launch {
+            withContext(Dispatchers.IO) { store.setSongStyles(song.id, styles, auto = false) }
+            reload()
+        }
+    }
+
+    fun setGenre(song: SongEntity, genre: String) {
+        scope.launch {
+            withContext(Dispatchers.IO) { store.setGenre(listOf(song.id), genre) }
+            reload()
+            status = if (genre.isBlank()) "הז'אנר נוקה" else "$genre הוגדר"
+        }
+    }
+
+    fun setSpoken(song: SongEntity, spoken: Boolean) {
+        scope.launch {
+            stats = withContext(Dispatchers.IO) {
+                store.setSpoken(song.id, spoken)
+                store.stats()
+            }
+            status = if (spoken) "סומן כהרצאה" else "סומן כמוזיקה"
+        }
+    }
+
+    fun resetPlayCount(song: SongEntity) {
+        scope.launch {
+            withContext(Dispatchers.IO) { store.resetPlayCount(song.id) }
+            reload()
+            status = "אופסו ההשמעות של ${song.title}"
+        }
+    }
+
+    /**
+     * Deletes the file, then forgets everything that was keyed to it.
+     *
+     * The order matters: if the delete fails - read only, on a share that
+     * has gone away, open in something else - nothing is forgotten, and the
+     * song stays exactly as it was rather than becoming a row pointing at a
+     * file that is still there.
+     */
+    fun deleteSong(song: SongEntity) {
+        scope.launch {
+            val gone = withContext(Dispatchers.IO) {
+                val deleted = runCatching { File(song.path).delete() }.getOrDefault(false)
+                if (deleted) store.forget(song.id)
+                deleted
+            }
+            if (!gone) {
+                status = "לא הצלחתי למחוק את הקובץ"
+                return@launch
+            }
+            // Out of the queue too, or the player would walk into a file
+            // that is no longer there.
+            val without = queue.filterNot { it.id == song.id }
+            if (without.size != queue.size) {
+                val playing = queue.getOrNull(queueIndex)
+                queue = without
+                queueIndex = without.indexOfFirst { it.id == playing?.id }
+                if (playing?.id == song.id) {
+                    if (without.isEmpty()) {
+                        queueIndex = -1
+                        player.stop()
+                    } else {
+                        play(without, 0)
+                    }
+                }
+            }
+            reload()
+            status = "${song.title} נמחק"
+        }
+    }
+
     fun removeFromPlaylist(id: Long, song: SongEntity) {
         scope.launch {
             withContext(Dispatchers.IO) { store.removeFromPlaylist(id, song.id) }
@@ -976,6 +1126,36 @@ private fun RhythmApp() {
     }
 
     val current = queue.getOrNull(queueIndex)
+
+    // Read once per composition: the map lives in the settings table, and
+    // asking it for every control on every frame would be a query inside
+    // layout.
+    val actionPrefs = remember(showPlayer) { prefs.playerActions }
+    val placement: (PlayerAction) -> ActionPlacement = remember(actionPrefs) {
+        { action ->
+            // Two of the phone's actions have nothing behind them here - see
+            // DESKTOP_PLAYER_ACTIONS - so they are hidden whatever is stored,
+            // rather than drawn as a button that does nothing when an old
+            // arrangement or a shared database says they were on.
+            if (action in DESKTOP_PLAYER_ACTIONS) {
+                PlayerAction.placementOf(actionPrefs, action)
+            } else {
+                ActionPlacement.HIDDEN
+            }
+        }
+    }
+    // The words for what is playing, read off the disk when the track
+    // changes rather than held for the whole library.
+    var playerWords by remember { mutableStateOf<Words?>(null) }
+    LaunchedEffect(current?.id, showPlayer) {
+        val song = current
+        playerWords = if (song == null || !showPlayer) {
+            null
+        } else {
+            withContext(Dispatchers.IO) { SongLyrics.find(song, prefs.lyricsFolder) }
+        }
+    }
+
     if (showPlayer && current != null) {
         PlayerScreen(
             song = current,
@@ -984,6 +1164,32 @@ private fun RhythmApp() {
             positionMs = state.positionMs,
             durationMs = state.durationMs,
             playing = state.playing,
+            placement = placement,
+            tapArtwork = prefs.tapArtworkToggles,
+            queue = queue,
+            queueIndex = queueIndex,
+            words = playerWords,
+            scoreTerms = remember(current.id, engine) {
+                engine?.explain(current).orEmpty()
+            },
+            totalScore = remember(current.id, engine) { engine?.totalScore(current) ?: 0.0 },
+            onRadio = { startRadio(current) },
+            onEqualizer = { stack = stack + Route.Equalizer; showPlayer = false },
+            onBookmarks = { bookmarksOpen = true },
+            onJumpTo = { play(queue, it) },
+            onRemoveFromQueue = { position ->
+                val wasCurrent = position == queueIndex
+                val without = queue.toMutableList().also { it.removeAt(position) }
+                queue = without
+                if (position < queueIndex) queueIndex--
+                when {
+                    without.isEmpty() -> {
+                        queueIndex = -1
+                        player.stop()
+                    }
+                    wasCurrent -> play(without, queueIndex.coerceIn(0, without.size - 1))
+                }
+            },
             onClose = { showPlayer = false },
             onToggle = { player.togglePause() },
             onPrevious = { play(queue, queueIndex - 1) },
@@ -998,11 +1204,7 @@ private fun RhythmApp() {
             onRepeat = { cycleRepeat() },
             sleepArmed = SleepTimer.remainingMs() != null || SleepTimer.stopAfterTrack,
             onSleep = { sleepOpen = true },
-            onMore = { options = current },
-            onQueue = {
-                showPlayer = false
-                stack = stack + Route.Queue
-            }
+            onMore = { options = current }
         )
         SleepAndBookmarks(
             song = current,
@@ -1164,6 +1366,11 @@ private fun RhythmApp() {
 
                 Route.PlayerSettings -> PlayerSettingsScreen(
                     prefs = prefs,
+                    onBack = { stack = stack.dropLast(1) },
+                    onOpenEqualizer = { stack = stack + Route.Equalizer }
+                )
+                Route.Equalizer -> EqualizerScreen(
+                    prefs = prefs,
                     equalizer = player.equalizer,
                     onBack = { stack = stack.dropLast(1) }
                 )
@@ -1268,6 +1475,8 @@ private fun RhythmApp() {
                         // The one library shape where every other nudge is
                         // pointless: everything filed under one name.
                         singleArtist = library.artists.size <= 2 && songs.size >= 8,
+                        tagTipVisible = tagTipVisible,
+                        ratingTipVisible = ratingTipVisible,
                         onMood = { openMood(it) },
                         onRefresh = {
                             scope.launch {
@@ -1284,6 +1493,15 @@ private fun RhythmApp() {
                         onRescan = { scan(folders) },
                         onAnalyze = { analyze() },
                         onRateArtists = { go(3) },
+                        onStopAnalysis = { stopAnalysis() },
+                        onDismissTagTip = {
+                            tagTipVisible = false
+                            scope.launch { withContext(Dispatchers.IO) { prefs.tagTipSeen = true } }
+                        },
+                        onDismissRatingTip = {
+                            ratingTipVisible = false
+                            scope.launch { withContext(Dispatchers.IO) { prefs.ratingTipSeen = true } }
+                        },
                         onPlay = { list, index -> play(list, index) },
                         onOpenList = { stack = stack + Route.Detail(it) },
                         onMore = { options = it }
@@ -1301,12 +1519,14 @@ private fun RhythmApp() {
                                 engine?.search(query, personal = personal).orEmpty()
                             }
                         },
+                        library = library,
                         stats = stats,
                         current = current?.id,
                         onPlay = { list, index -> play(list, index) },
                         onLike = { like(it) },
                         onDislike = { dislike(it) },
-                        onMore = { options = it }
+                        onMore = { options = it },
+                        onOpenList = { stack = stack + Route.Detail(it) }
                     )
                     2 -> LibraryPane(
                         library = library,
@@ -1418,10 +1638,27 @@ private fun RhythmApp() {
         SongOptionsDialog(
             song = song,
             stat = stats[song.id],
+            feature = features[song.id],
             playlists = library.playlists,
+            scoreTerms = remember(song.id, engine) { engine?.explain(song).orEmpty() },
+            totalScore = remember(song.id, engine) { engine?.totalScore(song) ?: 0.0 },
+            // Only when the menu was opened from inside a list, which is the
+            // only place taking a song off one means anything.
+            inPlaylist = (stack.lastOrNull() as? Route.Detail)?.list?.playlistId,
             onDismiss = { options = null },
             onRate = { rate(song, it) },
             onRadio = { startRadio(song) },
+            onMix = { createMix(song) },
+            onRemoveFromPlaylist = {
+                (stack.lastOrNull() as? Route.Detail)?.list?.playlistId?.let {
+                    removeFromPlaylist(it, song)
+                }
+            },
+            onStyles = { setSongStyles(song, it) },
+            onGenre = { setGenre(song, it) },
+            onSpoken = { setSpoken(song, it) },
+            onResetPlays = { resetPlayCount(song) },
+            onDelete = { deleteSong(song) },
             onOpenArtist = {
                 stack = stack + Route.Artist(song.artistKey)
                 tab = 3
@@ -1514,6 +1751,7 @@ private sealed interface Route {
     data object Albums : Route
     data object Settings : Route
     data object PlayerSettings : Route
+    data object Equalizer : Route
     data object Algorithm : Route
     data object Tags : Route
     data object Recap : Route
@@ -1669,31 +1907,137 @@ private fun SearchPane(
     query: String,
     onQuery: (String) -> Unit,
     results: List<SongEntity>,
+    library: LibraryModel,
     stats: Map<Long, SongStatsEntity>,
     current: Long?,
     onPlay: (List<SongEntity>, Int) -> Unit,
     onLike: (SongEntity) -> Unit,
     onDislike: (SongEntity) -> Unit,
-    onMore: (SongEntity) -> Unit
+    onMore: (SongEntity) -> Unit,
+    onOpenList: (DetailList) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         OutlinedTextField(
             value = query,
             onValueChange = onQuery,
-            label = { Text("חיפוש") },
+            label = { Text("חיפוש שיר, אמן או אלבום") },
             singleLine = true,
+            leadingIcon = {
+                Icon(Icons.Filled.Search, contentDescription = null, tint = TextSecondary)
+            },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { onQuery("") }) {
+                        Icon(Icons.Filled.Close, contentDescription = "נקה", tint = TextSecondary)
+                    }
+                }
+            },
             modifier = Modifier.fillMaxWidth().padding(GUTTER)
         )
+        if (query.isBlank()) {
+            // Nothing typed yet, so the screen offers the ways in that do not
+            // need a name remembered. The phone has the same three, and the
+            // same row of styles under them - which come from the tags the
+            // user typed onto artists, so the list is theirs rather than a
+            // fixed genre list.
+            BrowsePane(
+                library = library,
+                stats = stats,
+                onOpenList = onOpenList
+            )
+            return@Column
+        }
         SongList(
             songs = results,
             stats = stats,
             current = current,
-            empty = if (query.isBlank()) "הקלד כדי לחפש" else "לא נמצא כלום",
+            empty = "לא נמצא כלום",
             onPlay = { index -> onPlay(results, index) },
             onLike = onLike,
             onDislike = onDislike,
             onMore = onMore
         )
+    }
+}
+
+/** The ways into a library that do not start with remembering a name. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BrowsePane(
+    library: LibraryModel,
+    stats: Map<Long, SongStatsEntity>,
+    onOpenList: (DetailList) -> Unit
+) {
+    val liked = library.liked(stats)
+    val unheard = library.songs.filter { (stats[it.id]?.playCount ?: 0) == 0 }
+    val played = library.songs
+        .filter { (stats[it.id]?.playCount ?: 0) > 0 }
+        .sortedByDescending { stats[it.id]?.playCount ?: 0 }
+    val styles = library.artists
+        .flatMap { Styles.parse(it.styles) }
+        .groupingBy { it }
+        .eachCount()
+        .entries
+        .sortedByDescending { it.value }
+        .take(18)
+
+    LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
+        item { SectionHeader("עיון מהיר", null) }
+        item {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Chip(label = "השירים האהובים · ${liked.size}", selected = false) {
+                    onOpenList(
+                        DetailList("אהובים", "כל מה שסימנת בלייק", liked, "auto:liked")
+                    )
+                }
+                Chip(label = "עדיין לא שמעת · ${unheard.size}", selected = false) {
+                    onOpenList(DetailList("עדיין לא שמעת", null, unheard, "unheard"))
+                }
+                Chip(label = "הכי מושמעים · ${played.size}", selected = false) {
+                    onOpenList(DetailList("הכי מושמעים", null, played, "top"))
+                }
+            }
+        }
+        if (styles.isNotEmpty()) {
+            item {
+                SectionHeader("לפי סגנון", "מגיע מהתגיות שהגדרת לאמנים")
+            }
+            item {
+                FlowRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = GUTTER, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (entry in styles) {
+                        val style = entry.key
+                        Chip(label = style, selected = false) {
+                            val lower = style.lowercase(Locale.ROOT)
+                            val keys = library.artists
+                                .filter { a ->
+                                    Styles.parse(a.styles)
+                                        .any { it.lowercase(Locale.ROOT) == lower }
+                                }
+                                .mapTo(HashSet()) { it.key }
+                            val list = library.songs.filter { it.artistKey in keys }
+                            onOpenList(
+                                DetailList(
+                                    "סגנון: $style",
+                                    "${list.size} שירים",
+                                    list,
+                                    "style:$style"
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1705,6 +2049,13 @@ private fun PlayerScreen(
     positionMs: Long,
     durationMs: Long,
     playing: Boolean,
+    placement: (PlayerAction) -> ActionPlacement,
+    tapArtwork: Boolean,
+    queue: List<SongEntity>,
+    queueIndex: Int,
+    words: Words?,
+    scoreTerms: List<ScoreTerm>,
+    totalScore: Double,
     onClose: () -> Unit,
     onToggle: () -> Unit,
     onPrevious: () -> Unit,
@@ -1720,14 +2071,24 @@ private fun PlayerScreen(
     sleepArmed: Boolean,
     onSleep: () -> Unit,
     onMore: () -> Unit,
-    onQueue: () -> Unit
+    onRadio: () -> Unit,
+    onEqualizer: () -> Unit,
+    onBookmarks: () -> Unit,
+    onJumpTo: (Int) -> Unit,
+    onRemoveFromQueue: (Int) -> Unit
 ) {
     var scrub by remember { mutableStateOf<Float?>(null) }
+    // The two panels the phone opens inside the player rather than beside it:
+    // the queue and the words. Only one at a time, because both want the
+    // whole sheet and neither is any use at half of it.
+    var showQueue by remember { mutableStateOf(false) }
+    var showLyrics by remember { mutableStateOf(false) }
+    var whyOpen by remember { mutableStateOf(false) }
+    var detailsOpen by remember { mutableStateOf(false) }
     val liked = stat?.liked ?: 0
     val rating = stat?.rating ?: 0
-
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(
@@ -1741,54 +2102,199 @@ private fun PlayerScreen(
             // directly below already say it.
             Spacer(Modifier.weight(1f))
             // The menu is always here. It is the one control that cannot be
-            // switched off, because it is what everything not given a button
-            // of its own goes into - the words, the bookmarks, the radio.
+            // switched off, because it is what anything switched off the
+            // header goes into.
             IconButton(onClick = onMore) {
                 Icon(Icons.Filled.MoreVert, contentDescription = "עוד", tint = TextSecondary)
             }
-            IconButton(onClick = onSleep) {
-                Icon(
-                    Icons.Filled.Bedtime,
-                    contentDescription = "טיימר שינה",
-                    tint = if (sleepArmed) Accent else TextSecondary
-                )
+            if (placement(PlayerAction.SLEEP) == ActionPlacement.BUTTON) {
+                IconButton(onClick = onSleep) {
+                    Icon(
+                        Icons.Filled.Bedtime,
+                        contentDescription = "טיימר שינה",
+                        tint = if (sleepArmed) Accent else TextSecondary
+                    )
+                }
             }
-            IconButton(onClick = onQueue) {
-                Icon(
-                    Icons.AutoMirrored.Filled.QueueMusic,
-                    contentDescription = "תור",
-                    tint = TextSecondary
-                )
+            if (placement(PlayerAction.LYRICS) == ActionPlacement.BUTTON) {
+                IconButton(onClick = {
+                    showLyrics = !showLyrics
+                    if (showLyrics) showQueue = false
+                }) {
+                    Icon(
+                        Icons.Filled.FormatQuote,
+                        contentDescription = "מילות השיר",
+                        tint = if (showLyrics) Accent else TextSecondary
+                    )
+                }
+            }
+            if (placement(PlayerAction.QUEUE) == ActionPlacement.BUTTON) {
+                IconButton(onClick = {
+                    showQueue = !showQueue
+                    if (showQueue) showLyrics = false
+                }) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.QueueMusic,
+                        contentDescription = "תור",
+                        tint = if (showQueue) Accent else TextSecondary
+                    )
+                }
             }
         }
-
-        Art(song = song, size = 300.dp, corner = 12.dp)
-
-        Text(
-            song.title,
-            style = MaterialTheme.typography.headlineSmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 20.dp)
-        )
-        Text(
-            song.artistName.ifEmpty { "ללא אמן" },
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        // What the analyser measured, said plainly. The engine reasons about
-        // these numbers constantly and never shows them, which makes a shelf
-        // it built out of them look like a guess.
-        feature?.let { f ->
-            Text(
-                "${f.bpm.toInt()} BPM · ${Features.modeLabel(f)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp)
+        when {
+            showQueue -> QueuePanel(
+                queue = queue,
+                index = queueIndex,
+                modifier = Modifier.weight(1f),
+                onPlay = onJumpTo,
+                onRemove = onRemoveFromQueue
             )
+            showLyrics -> LyricsPanel(
+                words = words,
+                positionMs = positionMs,
+                modifier = Modifier.weight(1f),
+                onSeek = onSeek
+            )
+            else -> Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Art(
+                    song = song,
+                    size = 300.dp,
+                    corner = 12.dp,
+                    modifier = Modifier
+                        .pointerInput(song.id, tapArtwork) {
+                            if (!tapArtwork) return@pointerInput
+                            // The cover is the biggest thing on the screen and
+                            // the easiest thing to hit without looking, which
+                            // is most of why people want this.
+                            detectTapGestures(onTap = { onToggle() })
+                        }
+                        .pointerInput(song.id) {
+                            var drag = 0f
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    // RTL: dragging right goes forward.
+                                    if (drag > 70f) onNext() else if (drag < -70f) onPrevious()
+                                    drag = 0f
+                                }
+                            ) { _, amount -> drag += amount }
+                        }
+                )
+            }
         }
-
+        if (!showQueue) {
+            Text(
+                song.title,
+                style = MaterialTheme.typography.headlineSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 12.dp)
+            )
+            Text(
+                song.artistName.ifEmpty { "ללא אמן" },
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            // What you can do to the song that is playing, on one line. It
+            // scrolls sideways rather than wrapping, so a narrow window can
+            // still reach the last button.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                if (placement(PlayerAction.LIKE) == ActionPlacement.BUTTON) {
+                    IconButton(onClick = onDislike) {
+                        Icon(
+                            if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
+                            contentDescription = if (liked == -1) "בטל דיסלייק" else "דיסלייק",
+                            tint = if (liked == -1) Accent else TextSecondary
+                        )
+                    }
+                    IconButton(onClick = onLike) {
+                        Icon(
+                            if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                            contentDescription = if (liked == 1) "בטל לייק" else "לייק",
+                            tint = if (liked == 1) Accent else TextSecondary
+                        )
+                    }
+                }
+                if (placement(PlayerAction.RADIO) == ActionPlacement.BUTTON) {
+                    IconButton(onClick = onRadio) {
+                        Icon(
+                            Icons.Filled.Radio,
+                            contentDescription = "התחל רדיו מהשיר",
+                            tint = TextSecondary
+                        )
+                    }
+                }
+                if (placement(PlayerAction.DETAILS) == ActionPlacement.BUTTON) {
+                    IconButton(onClick = { detailsOpen = true }) {
+                        Icon(
+                            Icons.Filled.Info,
+                            contentDescription = "פרטי השיר",
+                            tint = TextSecondary
+                        )
+                    }
+                }
+                if (placement(PlayerAction.WHY) == ActionPlacement.BUTTON) {
+                    IconButton(onClick = { whyOpen = true }) {
+                        Icon(
+                            Icons.Filled.Insights,
+                            contentDescription = "למה זה הומלץ",
+                            tint = TextSecondary
+                        )
+                    }
+                }
+                if (placement(PlayerAction.EQUALIZER) == ActionPlacement.BUTTON) {
+                    IconButton(onClick = onEqualizer) {
+                        Icon(
+                            Icons.Filled.GraphicEq,
+                            contentDescription = "אקולייזר",
+                            tint = TextSecondary
+                        )
+                    }
+                }
+                if (placement(PlayerAction.BOOKMARK) == ActionPlacement.BUTTON) {
+                    IconButton(onClick = onBookmarks) {
+                        Icon(
+                            Icons.Filled.BookmarkBorder,
+                            contentDescription = "סימניות",
+                            tint = TextSecondary
+                        )
+                    }
+                }
+            }
+            if (placement(PlayerAction.RATING) == ActionPlacement.BUTTON) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Without this the stars sit directly under the artist
+                    // line and read as a rating of the artist, which is a
+                    // different thing the app also offers.
+                    Text(
+                        "דירוג השיר",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    StarRow(rating = rating, onRate = onRate, size = 20)
+                    Spacer(Modifier.width(10.dp))
+                    feature?.let { f ->
+                        Text(
+                            // Key only. The modal estimate drives the engine
+                            // but reads as jargon on screen.
+                            "${f.bpm.toInt()} BPM · ${Features.keyLabel(f.musicalKey, f.mode)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
+            }
+        }
         // Time runs one way whatever the language, so the scrubber and the
         // transport keep the left to right reading every media player uses:
         // the head advances rightwards, elapsed sits under its start, and
@@ -1796,38 +2302,38 @@ private fun PlayerScreen(
         // mirrors with the rest of the app and the skip arrows point at the
         // wrong songs.
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                Slider(
-                    value = scrub ?: positionMs.toFloat(),
-                    valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
-                    onValueChange = { scrub = it },
-                    onValueChangeFinished = {
-                        scrub?.let { onSeek(it.toLong()) }
-                        scrub = null
-                    },
-                    colors = SliderDefaults.colors(
-                        thumbColor = Accent,
-                        activeTrackColor = Accent,
-                        inactiveTrackColor = Surface1
+            if (!showQueue) {
+                Column(modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                    Slider(
+                        value = scrub ?: positionMs.toFloat(),
+                        valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
+                        onValueChange = { scrub = it },
+                        onValueChangeFinished = {
+                            scrub?.let { onSeek(it.toLong()) }
+                            scrub = null
+                        },
+                        colors = SliderDefaults.colors(
+                            thumbColor = Accent,
+                            activeTrackColor = Accent,
+                            inactiveTrackColor = Surface1
+                        )
                     )
-                )
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        clock(scrub?.toLong() ?: positionMs),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        clock(durationMs),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary
-                    )
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            clock(scrub?.toLong() ?: positionMs),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            clock(durationMs),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                    }
                 }
             }
-
             Spacer(Modifier.height(10.dp))
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -1839,6 +2345,15 @@ private fun PlayerScreen(
                         contentDescription = "ערבוב",
                         tint = if (shuffling) Accent else TextSecondary
                     )
+                }
+                if (placement(PlayerAction.SEEK) == ActionPlacement.BUTTON) {
+                    IconButton(onClick = { onSeek((positionMs - 10_000L).coerceAtLeast(0L)) }) {
+                        Icon(
+                            Icons.Filled.Replay10,
+                            contentDescription = "אחורה 10 שניות",
+                            tint = TextSecondary
+                        )
+                    }
                 }
                 IconButton(onClick = onPrevious) {
                     Icon(
@@ -1873,54 +2388,277 @@ private fun PlayerScreen(
                         modifier = Modifier.size(40.dp)
                     )
                 }
+                if (placement(PlayerAction.SEEK) == ActionPlacement.BUTTON) {
+                    IconButton(onClick = { onSeek(positionMs + 10_000L) }) {
+                        Icon(
+                            Icons.Filled.Forward10,
+                            contentDescription = "קדימה 10 שניות",
+                            tint = TextSecondary
+                        )
+                    }
+                }
                 IconButton(onClick = onRepeat) {
                     Icon(
-                        if (repeat == RepeatMode.ONE) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
+                        if (repeat == RepeatMode.ONE) Icons.Filled.RepeatOne
+                        else Icons.Filled.Repeat,
                         contentDescription = "חזרה",
                         tint = if (repeat == RepeatMode.OFF) TextSecondary else Accent
                     )
                 }
             }
         }
+    }
+    if (whyOpen) {
+        WhyDialog(
+            title = song.title,
+            terms = scoreTerms,
+            total = totalScore,
+            onDismiss = { whyOpen = false }
+        )
+    }
+    if (detailsOpen) {
+        SongDetailsDialog(song = song, feature = feature, onDismiss = { detailsOpen = false })
+    }
+}
 
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-            IconButton(onClick = onDislike) {
-                Icon(
-                    if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
-                    contentDescription = if (liked == -1) "בטל דיסלייק" else "דיסלייק",
-                    tint = if (liked == -1) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
+/**
+ * What follows what, inside the player.
+ *
+ * The phone shows the queue here rather than only as a screen of its own,
+ * because "what is next" is a question asked while looking at what is
+ * playing. The full screen version is still reachable from the menu.
+ */
+@Composable
+private fun QueuePanel(
+    queue: List<SongEntity>,
+    index: Int,
+    modifier: Modifier = Modifier,
+    onPlay: (Int) -> Unit,
+    onRemove: (Int) -> Unit
+) {
+    if (queue.isEmpty()) {
+        Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Text("התור ריק", style = MaterialTheme.typography.bodyLarge, color = TextSecondary)
+        }
+        return
+    }
+    val listState = rememberLazyListState()
+    // Open on what is playing rather than at the top, but only on open:
+    // keying this to the contents would yank the list back on every removal.
+    LaunchedEffect(Unit) {
+        if (index in queue.indices) listState.scrollToItem(index)
+    }
+    LazyColumn(
+        state = listState,
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(bottom = 8.dp)
+    ) {
+        itemsIndexed(queue, key = { position, song -> "$position:${song.id}" }) { position, song ->
+            // The one place the phone separates what you queued from what the
+            // radio appended, so the heading says which is which.
+            if (position == index + 1) {
+                Text(
+                    "הבא בתור",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 4.dp)
                 )
             }
-            for (star in 1..5) {
-                IconButton(onClick = { onRate(star) }) {
-                    Icon(
-                        if (star <= rating) Icons.Filled.Star else Icons.Filled.StarBorder,
-                        contentDescription = "$star",
-                        tint = if (star <= rating) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+            SongRow(
+                song = song,
+                isCurrent = position == index,
+                onClick = { onPlay(position) },
+                trailing = {
+                    IconButton(
+                        onClick = { onRemove(position) },
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "הסר מהתור",
+                            tint = TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            )
+        }
+    }
+}
+
+/**
+ * The words, inside the player, following the song.
+ *
+ * The same panel the phone opens over its artwork: when there are
+ * timestamps the current line is lit and the list scrolls to it, and
+ * pressing a line jumps to its moment.
+ */
+@Composable
+private fun LyricsPanel(
+    words: Words?,
+    positionMs: Long,
+    modifier: Modifier = Modifier,
+    onSeek: (Long) -> Unit
+) {
+    if (words == null) {
+        Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Text(
+                "אין מילים לשיר הזה",
+                style = MaterialTheme.typography.bodyLarge,
+                color = TextSecondary
+            )
+        }
+        return
+    }
+    val timed = remember(words.lrc) { Lyrics.parseLrc(words.lrc) }
+    if (timed.isEmpty()) {
+        Column(
+            modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                words.plain,
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center
+            )
+        }
+        return
+    }
+    val active = timed.indexOfLast { it.timeMs <= positionMs + 250 }
+    val listState = rememberLazyListState()
+    LaunchedEffect(active) {
+        if (active >= 0) {
+            // Kept a couple of lines down rather than at the top, so what is
+            // about to be sung is visible too.
+            runCatching { listState.animateScrollToItem(maxOf(0, active - 2)) }
+        }
+    }
+    LazyColumn(
+        state = listState,
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        itemsIndexed(timed) { i, line ->
+            Text(
+                text = line.text.ifBlank { "♪" },
+                style = if (i == active) MaterialTheme.typography.titleLarge
+                else MaterialTheme.typography.bodyLarge,
+                fontWeight = if (i == active) FontWeight.Bold else FontWeight.Normal,
+                color = when {
+                    i == active -> Accent
+                    i < active -> TextTertiary
+                    else -> TextSecondary
+                },
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().clickable { onSeek(line.timeMs) }
+            )
+        }
+    }
+}
+
+/**
+ * What the file actually is: where it lives, how long, and what the analyser
+ * measured. The measured half is only there once the song has been analysed,
+ * and saying so beats showing zeroes.
+ */
+@Composable
+private fun SongDetailsDialog(
+    song: SongEntity,
+    feature: AudioFeatureEntity?,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("פרטי השיר") },
+        text = {
+            Column(modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                DetailLine("שם", song.title)
+                DetailLine("אמן", song.artistName.ifEmpty { "ללא אמן" })
+                if (song.albumName.isNotBlank()) DetailLine("אלבום", song.albumName)
+                DetailLine("אורך", formatDuration(song.durationMs))
+                DetailLine("תיקייה", song.folder)
+                DetailLine("קובץ", song.path.substringAfterLast(java.io.File.separatorChar))
+                if (feature != null) {
+                    Spacer(Modifier.height(8.dp))
+                    DetailLine("קצב", "${feature.bpm.toInt()} BPM")
+                    DetailLine("סולם", Features.modeLabel(feature))
+                } else {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "השיר עדיין לא נותח, אז אין קצב וסולם להציג.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
                     )
                 }
             }
-            IconButton(onClick = onLike) {
-                Icon(
-                    if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-                    contentDescription = if (liked == 1) "בטל לייק" else "לייק",
-                    tint = if (liked == 1) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                )
-            }
-        }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }
+    )
+}
+
+@Composable
+private fun DetailLine(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = TextSecondary,
+            modifier = Modifier.width(70.dp)
+        )
+        Text(value, style = MaterialTheme.typography.bodySmall, maxLines = 3)
     }
+}
+
+/** The actual score terms the ranker used for this track. */
+@Composable
+internal fun WhyDialog(
+    title: String,
+    terms: List<ScoreTerm>,
+    total: Double,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("למה \"$title\"") },
+        text = {
+            Column(modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                if (terms.isEmpty()) {
+                    Text(
+                        "הפיד עוד לא נבנה. אחרי רענון יופיע כאן הפירוק המלא.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                } else {
+                    Text("ניקוד כולל: %.2f".format(total), style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(8.dp))
+                    for (term in terms) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(term.label, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    term.detail,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondary
+                                )
+                            }
+                            Text(
+                                (if (term.value >= 0) "+" else "") + "%.2f".format(term.value),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (term.value >= 0) Accent else TextSecondary
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }
+    )
 }
 
 /**

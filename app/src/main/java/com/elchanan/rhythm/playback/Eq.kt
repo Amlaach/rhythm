@@ -2,6 +2,8 @@ package com.elchanan.rhythm.playback
 
 import android.media.audiofx.Equalizer
 import com.elchanan.rhythm.data.Prefs
+import com.elchanan.rhythm.engine.EqBands
+import com.elchanan.rhythm.engine.EqSettings
 
 /**
  * How the settings screen reaches the live equalisers.

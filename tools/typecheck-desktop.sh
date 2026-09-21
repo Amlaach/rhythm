@@ -18,8 +18,12 @@ set -e
 SRC=$(cd "$(dirname "$0")/.." && pwd)
 OUT=${RHYTHM_TYPECHECK_OUT:-${TMPDIR:-/tmp}/rhythm-typecheck}
 
-rm -rf "$OUT"
+# The sources are replaced and everything Gradle built is left alone, so a
+# second run is incremental - seconds rather than the minute and a half a
+# cold start costs. Set RHYTHM_TYPECHECK_CLEAN to force a fresh tree.
+[ -n "$RHYTHM_TYPECHECK_CLEAN" ] && rm -rf "$OUT"
 mkdir -p "$OUT"
+rm -rf "$OUT/app" "$OUT/engine/src" "$OUT/desktop/src" "$OUT/tools"
 # The working tree, not the commit: the point is to check what is about to be
 # committed, and a new file is untracked right up until it is added.
 (cd "$SRC" && tar -cf - \

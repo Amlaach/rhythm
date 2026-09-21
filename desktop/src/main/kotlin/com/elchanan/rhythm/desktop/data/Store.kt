@@ -1103,6 +1103,132 @@ class Store private constructor(private val conn: Connection) {
         }
     }
 
+    /**
+     * A genre the user set, replacing whatever the file said.
+     *
+     * The genre in a downloaded file is whoever tagged it's opinion, and on a
+     * library built from downloads it is usually blank, wrong, or the name of
+     * the site it came from. Empty means "use the file's".
+     */
+    @Synchronized
+    fun setGenre(songIds: List<Long>, genre: String) {
+        if (songIds.isEmpty()) return
+        conn.autoCommit = false
+        try {
+            conn.prepareStatement(
+                "INSERT INTO song_stats (songId, genre) VALUES (?,?) " +
+                    "ON CONFLICT(songId) DO UPDATE SET genre = excluded.genre"
+            ).use { ps ->
+                for (id in songIds) {
+                    ps.setLong(1, id)
+                    ps.setString(2, genre.trim())
+                    ps.addBatch()
+                }
+                ps.executeBatch()
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = true
+        }
+    }
+
+    /** The user overruling the speech detector, either way. */
+    @Synchronized
+    fun setSpoken(songId: Long, spoken: Boolean) {
+        conn.prepareStatement(
+            "INSERT INTO song_stats (songId, spoken) VALUES (?,?) " +
+                "ON CONFLICT(songId) DO UPDATE SET spoken = excluded.spoken"
+        ).use { ps ->
+            ps.setLong(1, songId)
+            ps.setInt(2, if (spoken) 1 else 0)
+            ps.executeUpdate()
+        }
+    }
+
+    /**
+     * Forgets that one song was ever played, keeping what the user said.
+     *
+     * Counts get inflated by things that were not really listening - a song
+     * left on repeat overnight, a machine lent to someone - and once they are
+     * wrong there is no arguing with the shelves built on top of them. This
+     * is the way to argue with them. The like, the rating and the tags stay:
+     * those were said on purpose.
+     */
+    @Synchronized
+    fun resetPlayCount(songId: Long) {
+        conn.autoCommit = false
+        try {
+            conn.prepareStatement(
+                """
+                UPDATE song_stats
+                SET playCount = 0, skipCount = 0, completeCount = 0, listenedMs = 0,
+                    lastPlayedAt = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0,
+                    dWeekend = 0, dWeekday = 0
+                WHERE songId = ?
+                """.trimIndent()
+            ).use { ps ->
+                ps.setLong(1, songId)
+                ps.executeUpdate()
+            }
+            // The history rows too, or "recently played" would still show it.
+            conn.prepareStatement("DELETE FROM history WHERE songId = ?").use { ps ->
+                ps.setLong(1, songId)
+                ps.executeUpdate()
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = true
+        }
+    }
+
+    /**
+     * Drops everything the app knew about a song whose file is gone.
+     *
+     * A rescan removes the song row on its own but not the stats, the
+     * position, the bookmarks or the learned edges - those are keyed on an id
+     * derived from the path, and a file written to that same path later would
+     * inherit a stranger's history.
+     */
+    @Synchronized
+    fun forget(songId: Long) {
+        conn.autoCommit = false
+        try {
+            for (sql in listOf(
+                "DELETE FROM song_stats WHERE songId = ?",
+                "DELETE FROM history WHERE songId = ?",
+                "DELETE FROM positions WHERE songId = ?",
+                "DELETE FROM bookmarks WHERE songId = ?",
+                "DELETE FROM playlist_items WHERE songId = ?",
+                "DELETE FROM tag_overrides WHERE songId = ?",
+                "DELETE FROM audio_features WHERE songId = ?",
+                "DELETE FROM affinity WHERE a = ? OR b = ?",
+                "DELETE FROM transitions WHERE a = ? OR b = ?"
+            )) {
+                conn.prepareStatement(sql).use { ps ->
+                    ps.setLong(1, songId)
+                    if (sql.contains("OR b = ?")) ps.setLong(2, songId)
+                    ps.executeUpdate()
+                }
+            }
+            conn.prepareStatement("DELETE FROM songs WHERE id = ?").use { ps ->
+                ps.setLong(1, songId)
+                ps.executeUpdate()
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = true
+        }
+    }
+
     /** Throws away every tag the app guessed, keeping every one that was typed. */
     @Synchronized
     fun clearLearnedStyles() {

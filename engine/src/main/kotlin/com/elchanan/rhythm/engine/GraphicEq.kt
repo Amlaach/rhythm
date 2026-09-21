@@ -1,4 +1,4 @@
-package com.elchanan.rhythm.playback
+package com.elchanan.rhythm.engine
 
 import kotlin.math.PI
 import kotlin.math.abs
@@ -24,8 +24,12 @@ import kotlin.math.sinh
  * a stereo stream, a few hundred thousand multiply-adds a second, low enough
  * that it does not show up against decoding the file in the first place.
  *
- * Everything in this file is arithmetic with no Android in it, which is what
- * makes it testable off the device.
+ * Everything in this file is arithmetic with no Android in it, which is why
+ * it sits in :engine: the phone runs these filters inside an ExoPlayer audio
+ * processor and the desktop runs them inside its own playback loop, over the
+ * same coefficients from the same solver. Thirty one bands that behaved
+ * differently on the two builds would be thirty one bands nobody could
+ * describe.
  */
 object EqBands {
 

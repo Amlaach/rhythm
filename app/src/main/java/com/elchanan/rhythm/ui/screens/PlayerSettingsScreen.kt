@@ -38,9 +38,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.elchanan.rhythm.ui.ActionPlacement
+import com.elchanan.rhythm.engine.ActionPlacement
 import com.elchanan.rhythm.ui.MainViewModel
-import com.elchanan.rhythm.ui.PlayerAction
+import com.elchanan.rhythm.engine.PlayerAction
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent

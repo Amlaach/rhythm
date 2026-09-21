@@ -2,9 +2,9 @@ package com.elchanan.rhythm.data
 
 import android.content.Context
 import androidx.core.content.edit
+import com.elchanan.rhythm.engine.EqBands
 import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.engine.Styles
-import com.elchanan.rhythm.playback.EqBands
 
 /**
  * Small, boring settings store. Everything the recommendation engine can be

@@ -80,11 +80,11 @@ internal fun formatDuration(ms: Long): String {
  * carry artwork, and most files in a library of downloads do not.
  */
 @Composable
-internal fun Art(song: SongEntity?, size: Dp, corner: Dp) {
+internal fun Art(song: SongEntity?, size: Dp, corner: Dp, modifier: Modifier = Modifier) {
     val image = rememberArtwork(song)
     val (c1, c2) = gradientFor(song?.artistKey.orEmpty())
     Box(
-        modifier = Modifier
+        modifier = modifier
             .width(size)
             .height(size)
             .clip(RoundedCornerShape(corner))

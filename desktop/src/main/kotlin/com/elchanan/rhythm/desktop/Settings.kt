@@ -17,11 +17,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -36,8 +36,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import com.elchanan.rhythm.desktop.audio.Equalizer
+import com.elchanan.rhythm.engine.ActionPlacement
 import com.elchanan.rhythm.engine.EngineTuning
+import com.elchanan.rhythm.engine.PlayerAction
 import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
@@ -493,24 +494,44 @@ private val LIBRARY_TAB_CHOICES = listOf(
 /**
  * The player and the sound, which on the phone is one screen and here is too.
  *
- * The equaliser is in it rather than behind its own entry, because "make the
- * bass louder" and "open the player when I press play" are the same kind of
- * decision and nobody goes looking for them in two places.
+ * The equaliser opens from here rather than living inside it. Thirty one
+ * faders, a response curve and a row of presets are a surface of their own,
+ * and the phone gives them a screen of their own for the same reason.
  */
 @Composable
 internal fun PlayerSettingsScreen(
     prefs: Prefs,
-    equalizer: Equalizer,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenEqualizer: () -> Unit
 ) {
     var openPlayerOnPlay by remember { mutableStateOf(prefs.openPlayerOnPlay) }
     var autoRadio by remember { mutableStateOf(prefs.autoRadio) }
+    var tapArtwork by remember { mutableStateOf(prefs.tapArtworkToggles) }
+    var arrangementOpen by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = "הגדרות הנגן והשמע", onBack = onBack)
         LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
             item {
                 SettingSection("הנגן", null)
+                ActionRow(
+                    title = "סידור הכפתורים והתפריט",
+                    subtitle = "לאיזו פעולה יהיה כפתור משלה במסך הנגן, לאיזו פריט " +
+                        "בתפריט שלוש הנקודות, ואיזו תוסתר",
+                    action = "פתח",
+                    enabled = true,
+                    primary = false,
+                    onClick = { arrangementOpen = true }
+                )
+                SwitchRow(
+                    title = "לחיצה על התמונה עוצרת וממשיכה",
+                    subtitle = "התמונה הגדולה במסך הנגן היא הדבר הכי קל לפגוע בו " +
+                        "בלי להסתכל",
+                    checked = tapArtwork
+                ) {
+                    tapArtwork = it
+                    prefs.tapArtworkToggles = it
+                }
                 SwitchRow(
                     title = "פתיחת הנגן בהשמעה",
                     subtitle = "המסך המלא נפתח ברגע שמשהו מתחיל",
@@ -529,80 +550,76 @@ internal fun PlayerSettingsScreen(
                 }
             }
             item {
-                SettingSection("אקולייזר", "שש רצועות, נשמר בין הפעלות")
-                EqualizerPanel(prefs = prefs, equalizer = equalizer)
+                SettingSection("אקולייזר", "31 תדרים, נשמר בין הפעלות")
+                ActionRow(
+                    title = "אקולייזר",
+                    subtitle = "31 תדרים עם עקומת התגובה שהשמע באמת מקבל, " +
+                        "מוכנים מראש, ועוצמה כללית",
+                    action = "פתח",
+                    enabled = true,
+                    primary = false,
+                    onClick = onOpenEqualizer
+                )
             }
         }
+    }
+    if (arrangementOpen) {
+        PlayerActionsDialog(prefs = prefs, onDismiss = { arrangementOpen = false })
     }
 }
 
+/**
+ * Where every action sits: its own button on the player, an item in the
+ * three dot menu, or nowhere at all.
+ *
+ * Every choice is written straight through. There is nothing to confirm - a
+ * placement that moved without the player following it would be a lie about
+ * what the app is doing.
+ */
 @Composable
-private fun EqualizerPanel(prefs: Prefs, equalizer: Equalizer) {
-    // The sliders read from the filter and write to it directly. There is no
-    // copy of these six numbers anywhere else, which is what stops a slider
-    // and the sound it is meant to change from disagreeing. They are written
-    // to the database as well, but only on the way past.
-    var version by remember { mutableStateOf(0) }
-    var on by remember { mutableStateOf(equalizer.enabled) }
-
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(
-                onClick = {
-                    on = !on
-                    equalizer.enabled = on
-                    prefs.eqEnabled = on
-                },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (on) Accent else Surface2
-                )
-            ) { Text(if (on) "מופעל" else "כבוי") }
-            OutlinedButton(
-                onClick = {
-                    equalizer.reset()
-                    prefs.eqBands = List(Prefs.BAND_COUNT) { 0 }
-                    version++
-                },
-                modifier = Modifier.padding(start = 8.dp)
-            ) { Text("אפס") }
-        }
-        Spacer(Modifier.height(8.dp))
-        for (band in Equalizer.FREQUENCIES.indices) {
-            val hz = Equalizer.FREQUENCIES[band].toInt()
-            val label = if (hz >= 1000) "${hz / 1000}kHz" else "${hz}Hz"
-            var live by remember(version, band) { mutableStateOf(equalizer.gain(band)) }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.width(56.dp)
-                )
-                Slider(
-                    value = live,
-                    valueRange = -Equalizer.MAX_DB..Equalizer.MAX_DB,
-                    onValueChange = {
-                        live = it
-                        equalizer.setGain(band, it)
-                    },
-                    // Saved when the slider is let go, not while it is moving:
-                    // a drag across the width of the window is a few hundred
-                    // values, and every one of them would be a write.
-                    onValueChangeFinished = {
-                        prefs.eqBands = Equalizer.FREQUENCIES.indices.map {
-                            equalizer.gain(it).toInt()
+private fun PlayerActionsDialog(prefs: Prefs, onDismiss: () -> Unit) {
+    var actions by remember { mutableStateOf(prefs.playerActions) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("סידור הכפתורים והתפריט") },
+        text = {
+            LazyColumn(modifier = Modifier.heightIn(max = 460.dp)) {
+                item {
+                    Text(
+                        "לכל פעולה אפשר לבחור: כפתור משלה במסך הנגן, פריט בתפריט " +
+                            "השלוש נקודות, או מוסתרת לגמרי.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
+                items(DESKTOP_PLAYER_ACTIONS) { action ->
+                    val current = PlayerAction.placementOf(actions, action)
+                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                        Text(action.label, style = MaterialTheme.typography.bodyLarge)
+                        if (action.about.isNotEmpty()) {
+                            Text(
+                                action.about,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
                         }
-                    },
-                    enabled = on,
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-                )
-                Text(
-                    "${live.toInt()} dB",
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.width(52.dp)
-                )
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            for (choice in ActionPlacement.entries) {
+                                Chip(label = choice.label, selected = current == choice) {
+                                    actions = actions + (action.key to choice.name)
+                                    prefs.playerActions = actions
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        }
-    }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }
+    )
 }
 
 /**
@@ -799,3 +816,24 @@ private fun Knob(
         )
     }
 }
+
+/**
+ * The actions this build can actually carry out.
+ *
+ * Two of the phone's are missing rather than hidden, and the difference
+ * matters: a hidden action is one the user can switch back on, and these two
+ * would do nothing if they did.
+ *
+ * Speed needs the decoder to resample while keeping the pitch. ExoPlayer
+ * does that on the phone; javax.sound hands over raw PCM and a line to pour
+ * it into, so the same thing here means a time stretch written by hand -
+ * real work, and not work this screen should pretend is already done.
+ *
+ * Share is Android's own idea. Windows has no equivalent to hand a file to
+ * whichever application the user picks from a sheet, and a button that opens
+ * a file manager instead is a different feature wearing the same name.
+ */
+internal val DESKTOP_PLAYER_ACTIONS: List<PlayerAction> =
+    PlayerAction.entries.filterNot {
+        it == PlayerAction.SPEED || it == PlayerAction.SHARE
+    }

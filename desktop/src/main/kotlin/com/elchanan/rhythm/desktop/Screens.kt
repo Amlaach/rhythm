@@ -13,35 +13,44 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.PlaylistRemove
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.FormatQuote
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -52,9 +61,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,14 +73,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
+import com.elchanan.rhythm.engine.Capo
+import com.elchanan.rhythm.engine.MusicalMode
+import com.elchanan.rhythm.engine.ScoreTerm
 import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.AppBackground
+import com.elchanan.rhythm.ui.theme.Color_Error
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import com.elchanan.rhythm.ui.theme.gradientFor
@@ -956,21 +974,93 @@ internal fun DetailListScreen(
 internal fun SongOptionsDialog(
     song: SongEntity,
     stat: SongStatsEntity?,
+    feature: AudioFeatureEntity?,
     playlists: List<PlaylistInfo>,
+    scoreTerms: List<ScoreTerm>,
+    totalScore: Double,
+    inPlaylist: Long?,
     onDismiss: () -> Unit,
     onRate: (Int) -> Unit,
     onRadio: () -> Unit,
+    onMix: () -> Unit,
     onOpenArtist: () -> Unit,
     onOpenAlbum: () -> Unit,
     onAddTo: (Long) -> Unit,
     onCreateWith: (String) -> Unit,
+    onRemoveFromPlaylist: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
     onLyrics: () -> Unit,
-    onBookmarks: () -> Unit
+    onBookmarks: () -> Unit,
+    onStyles: (String) -> Unit,
+    onGenre: (String) -> Unit,
+    onSpoken: (Boolean) -> Unit,
+    onResetPlays: () -> Unit,
+    onDelete: () -> Unit
 ) {
     var picking by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf(false) }
+    var whyOpen by remember { mutableStateOf(false) }
+    var capoOpen by remember { mutableStateOf(false) }
+    var tagsOpen by remember { mutableStateOf(false) }
+    var genreOpen by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+
+    if (whyOpen) {
+        WhyDialog(
+            title = song.title,
+            terms = scoreTerms,
+            total = totalScore,
+            onDismiss = { whyOpen = false }
+        )
+        return
+    }
+    if (capoOpen) {
+        CapoDialog(feature = feature, onDismiss = { capoOpen = false })
+        return
+    }
+    if (tagsOpen) {
+        SongTagDialog(
+            current = Styles.parse(stat?.styles.orEmpty()),
+            guessed = stat?.stylesAuto == 1,
+            onDismiss = { tagsOpen = false },
+            onApply = { onStyles(Styles.join(it)); onDismiss() }
+        )
+        return
+    }
+    if (genreOpen) {
+        GenreDialog(
+            initial = stat?.genre.orEmpty().ifBlank { song.genre.orEmpty() },
+            onDismiss = { genreOpen = false },
+            onApply = { onGenre(it); onDismiss() }
+        )
+        return
+    }
+    if (confirmReset) {
+        ConfirmDialog(
+            title = "לאפס את ההשמעות?",
+            body = "מספר ההשמעות של \"${song.title}\" יתאפס, והשיר ייעלם מ\"הושמעו " +
+                "לאחרונה\". הלייק, הדירוג והתגיות נשארים.",
+            confirm = "אפס",
+            danger = false,
+            onConfirm = { onResetPlays(); onDismiss() },
+            onDismiss = { confirmReset = false }
+        )
+        return
+    }
+    if (confirmDelete) {
+        ConfirmDialog(
+            title = "למחוק את הקובץ?",
+            body = "\"${song.title}\" יימחק מהמחשב עצמו, לא רק מהאפליקציה. " +
+                "אי אפשר לבטל את זה.",
+            confirm = "מחק",
+            danger = true,
+            onConfirm = { onDelete(); onDismiss() },
+            onDismiss = { confirmDelete = false }
+        )
+        return
+    }
 
     if (naming) {
         NamePlaylistDialog(
@@ -1045,16 +1135,23 @@ internal fun SongOptionsDialog(
                     onAddToQueue()
                     onDismiss()
                 }
+                OptionRow(Icons.Filled.AutoAwesome, "צור מיקס מהשיר הזה") {
+                    onMix()
+                    onDismiss()
+                }
                 OptionRow(Icons.Filled.Radio, "רדיו מהשיר הזה") {
                     onRadio()
                     onDismiss()
                 }
-                // The two the phone keeps in this menu rather than on the
+                // The ones the phone keeps in this menu rather than on the
                 // player's header, so the header stays at three icons.
                 OptionRow(Icons.Filled.FormatQuote, "מילות השיר") {
                     onLyrics()
                     onDismiss()
                 }
+                OptionRow(Icons.Filled.MusicNote, "אקורדים וקאפו") { capoOpen = true }
+                OptionRow(Icons.Filled.Insights, "למה זה הומלץ לי") { whyOpen = true }
+                OptionRow(Icons.Filled.LocalOffer, "תגיות סגנון לשיר") { tagsOpen = true }
                 OptionRow(Icons.Filled.Bookmark, "סימניות") {
                     onBookmarks()
                     onDismiss()
@@ -1066,6 +1163,34 @@ internal fun SongOptionsDialog(
                 OptionRow(Icons.Filled.Album, "עבור לאלבום") {
                     onOpenAlbum()
                     onDismiss()
+                }
+                if (inPlaylist != null) {
+                    OptionRow(Icons.Filled.PlaylistRemove, "הסר מהרשימה") {
+                        onRemoveFromPlaylist()
+                        onDismiss()
+                    }
+                }
+                OptionRow(Icons.Filled.LocalOffer, "שנה ז'אנר") { genreOpen = true }
+                // The detector's verdict, and a way to disagree with it.
+                // Shown as the opposite of what it currently thinks, so the
+                // row says what pressing it will do rather than what is
+                // already true.
+                val markedSpoken = stat?.spoken == 1
+                OptionRow(
+                    if (markedSpoken) Icons.Filled.MusicNote else Icons.Filled.RecordVoiceOver,
+                    if (markedSpoken) "זה בעצם מוזיקה" else "סמן כהרצאה או שיעור"
+                ) {
+                    onSpoken(!markedSpoken)
+                    onDismiss()
+                }
+                // Only worth offering when there is something to clear.
+                if ((stat?.playCount ?: 0) > 0) {
+                    OptionRow(Icons.Filled.RestartAlt, "אפס את מספר ההשמעות") {
+                        confirmReset = true
+                    }
+                }
+                OptionRow(Icons.Filled.Delete, "מחק את הקובץ מהמחשב", tint = Color_Error) {
+                    confirmDelete = true
                 }
             }
         },
@@ -1081,6 +1206,7 @@ private fun OptionRow(
     label: String,
     hint: String? = null,
     enabled: Boolean = true,
+    tint: Color = Accent,
     onClick: () -> Unit
 ) {
     Row(
@@ -1093,7 +1219,7 @@ private fun OptionRow(
         Icon(
             icon,
             contentDescription = null,
-            tint = if (enabled) Accent else TextSecondary
+            tint = if (enabled) tint else TextSecondary
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -1282,4 +1408,269 @@ internal fun AlbumsScreen(
             }
         }
     }
+}
+
+/**
+ * Capo positions for the song's key, and the chords that key contains.
+ *
+ * The detected key is a starting point, not a verdict - it can be wrong, and
+ * a guitarist will hear that within one bar. So it is labelled as detected,
+ * and changing it is a single click rather than something buried in a
+ * setting. All of the arithmetic is [Capo] in :engine, the same the phone
+ * asks.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CapoDialog(feature: AudioFeatureEntity?, onDismiss: () -> Unit) {
+    val detectedKey = feature?.musicalKey ?: -1
+    val detectedMode = MusicalMode.byOrdinalOrNull(feature?.scaleMode ?: -1)
+    // tonicIsMajor, not brightFamily: this decides which chord gets fingered.
+    val detectedBright = detectedMode?.tonicIsMajor ?: (feature?.mode == 1)
+    var key by remember(detectedKey) { mutableStateOf(detectedKey) }
+    var bright by remember(detectedBright) { mutableStateOf(detectedBright) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("אקורדים וקאפו") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())
+            ) {
+                if (key !in 0..11) {
+                    Text(
+                        "השיר עדיין לא נותח, אז אין סולם להתבסס עליו. " +
+                            "אפשר לבחור סולם ידנית:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                } else {
+                    Text(
+                        "הסולם שזוהה: ${Capo.keyName(key, bright)}" +
+                            (detectedMode?.takeIf { it.ordinal > 1 }?.let { " · ${it.label}" }
+                                ?: ""),
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        "זיהוי אוטומטי מתוך הצליל — אם זה נשמע לא נכון, שנה למטה.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                // Note names are Latin, and a bare "G#" dropped into a Hebrew
+                // paragraph comes out as "#G" - the sharp jumps to the wrong
+                // side. Laying the row out left to right fixes the spelling
+                // and puts the chromatic scale in rising order too.
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for (pc in 0..11) {
+                            Chip(label = Capo.NAMES[pc], selected = pc == key) { key = pc }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Chip(label = "מז'ורי", selected = bright) { bright = true }
+                    Chip(label = "מינורי", selected = !bright) { bright = false }
+                }
+                if (key in 0..11) {
+                    Spacer(Modifier.height(16.dp))
+                    Text("קאפו", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "בסריג המסומן, נגן את הצורות של הסולם שמימין",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    for (option in Capo.options(key, bright)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (option.fret == 0) "בלי קאפו" else "סריג ${option.fret}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (option.open) Accent else TextSecondary
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                text = Capo.keyName(option.playKey, bright) +
+                                    if (option.open) "  ✓" else "",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    textDirection = TextDirection.Ltr
+                                ),
+                                color = if (option.open) Accent else TextSecondary
+                            )
+                        }
+                    }
+                    Text(
+                        "✓ = אקורדים פתוחים, בלי בָּארֶה",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary
+                    )
+                    val chords = detectedMode?.let { Capo.scaleChords(key, it) }
+                        ?: Capo.scaleChords(
+                            key,
+                            if (bright) MusicalMode.MAJOR else MusicalMode.MINOR
+                        )
+                    if (chords.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text("האקורדים של הסולם", style = MaterialTheme.typography.titleSmall)
+                        // Said plainly, because it is the difference between a
+                        // shortlist and a transcription: nothing here listened
+                        // to the recording.
+                        Text(
+                            "אלה האקורדים שקיימים בסולם — לא האקורדים שהשיר מנגן. " +
+                                "האפליקציה לא מזהה אקורדים מתוך ההקלטה.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            chords.joinToString("   "),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                textDirection = TextDirection.Ltr
+                            ),
+                            color = Accent
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }
+    )
+}
+
+/** Style words on one song, which override the artist's for it alone. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SongTagDialog(
+    current: List<String>,
+    guessed: Boolean,
+    onDismiss: () -> Unit,
+    onApply: (List<String>) -> Unit
+) {
+    var selected by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("תגיות לשיר הזה") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    "תגית על שיר בודד מחליפה את תגיות האמן עבורו בלבד.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                if (guessed) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "התגיות האלה נוחשו על ידי האפליקציה ולא נבחרו על ידך. " +
+                            "שינוי כאן הופך אותן לשלך, והלמידה כבר לא תדרוס אותן.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Accent
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (style in Styles.SUGGESTED) {
+                        val on = selected.any { it.equals(style, ignoreCase = true) }
+                        Chip(label = style, selected = on) {
+                            selected = if (on) {
+                                selected.filterNot { it.equals(style, ignoreCase = true) }
+                            } else {
+                                selected + style
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onApply(selected) }) { Text("שמור", color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
+}
+
+/**
+ * Sets a genre on a song.
+ *
+ * The suggestions are the app's own style words, because a genre on a
+ * downloaded file is usually blank or the name of the site it came from, and
+ * a list of familiar words is faster than typing and keeps the spelling
+ * consistent - which is what lets the engine group by it at all. Free text
+ * stays allowed for everything the list does not cover.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun GenreDialog(initial: String, onDismiss: () -> Unit, onApply: (String) -> Unit) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("ז'אנר") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    label = { Text("למשל: חסידי") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(10.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (style in Styles.SUGGESTED) {
+                        Chip(label = style, selected = text == style) { text = style }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onApply(text.trim()) }) { Text("שמור", color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
+}
+
+/** Asks before something that cannot be taken back. */
+@Composable
+internal fun ConfirmDialog(
+    title: String,
+    body: String,
+    confirm: String,
+    danger: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text(title) },
+        text = { Text(body, color = TextSecondary) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(confirm, color = if (danger) Color_Error else Accent)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
 }

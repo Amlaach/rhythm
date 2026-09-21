@@ -1,7 +1,13 @@
-package com.elchanan.rhythm.ui
+package com.elchanan.rhythm.engine
 
 /**
  * Where a player control appears.
+ *
+ * Here rather than beside either player for the same reason [ShelfKind] is:
+ * it is a set of stable keys that both builds store against and read back,
+ * and two copies of a list of sixteen keys is two lists that drift. The keys
+ * are what a saved arrangement means; the labels are what the settings
+ * screen shows.
  *
  * Three states rather than a switch, because "show it" and "show it as its own
  * button" are different questions. Someone who wants the lyrics reachable but

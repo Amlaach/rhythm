@@ -1,6 +1,8 @@
 package com.elchanan.rhythm.desktop
 
 import com.elchanan.rhythm.desktop.data.Store
+import com.elchanan.rhythm.engine.EqBands
+import com.elchanan.rhythm.engine.PlayerAction
 import com.elchanan.rhythm.engine.ShelfKind
 
 /**
@@ -127,16 +129,84 @@ class Prefs(private val store: Store) {
         get() = store.get("lyricsFolder").orEmpty()
         set(value) = store.put("lyricsFolder", value)
 
-    /** The equaliser's six band gains, in dB, and whether it is on. */
+    /**
+     * Where each player control sits, as `key=placement` pairs.
+     *
+     * One string rather than a setting each, so adding a control later needs
+     * no migration: an unknown key is ignored and a missing one falls back
+     * to its own default. The keys are [PlayerAction]'s, shared with the
+     * phone, so an arrangement means the same thing on both.
+     */
+    var playerActions: Map<String, String>
+        get() = store.get("playerActions").orEmpty()
+            .split(',')
+            .mapNotNull { pair ->
+                val parts = pair.split('=')
+                if (parts.size == 2 && parts[0].isNotBlank()) {
+                    parts[0].trim() to parts[1].trim()
+                } else {
+                    null
+                }
+            }
+            .toMap()
+        set(value) = store.put(
+            "playerActions",
+            value.entries.joinToString(",") { "${it.key}=${it.value}" }
+        )
+
+    /** Clicking the artwork stops and starts it. */
+    var tapArtworkToggles: Boolean
+        get() = flag("tapArtworkToggles", true)
+        set(value) = set("tapArtworkToggles", value)
+
+    /**
+     * Whether the "rate some artists" nudge has been turned down.
+     *
+     * A nudge with no way out stops being a nudge, so the dismissal is kept
+     * rather than held in the screen: turning a suggestion down once has to
+     * mean it stays down across restarts.
+     */
+    var ratingTipSeen: Boolean
+        get() = flag("ratingTipSeen", false)
+        set(value) = set("ratingTipSeen", value)
+
+    /** Whether the tag repair pointer has been turned down. */
+    var tagTipSeen: Boolean
+        get() = flag("tagTipSeen", false)
+        set(value) = set("tagTipSeen", value)
+
+    /** Whether the thirty one band equaliser is doing anything. */
     var eqEnabled: Boolean
         get() = flag("eqEnabled", false)
         set(value) = set("eqEnabled", value)
 
+    /**
+     * One gain per ISO third octave centre, in millibels.
+     *
+     * Millibels and not decibels, and thirty one of them and not six,
+     * because these are the numbers [com.elchanan.rhythm.engine.EqSettings]
+     * takes - the same store the phone writes. A list stored short or
+     * missing reads as flat rather than having to be handled at every use.
+     */
     var eqBands: List<Int>
-        get() = store.get("eqBands").orEmpty()
-            .split(',').mapNotNull { it.trim().toIntOrNull() }
-            .takeIf { it.size == BAND_COUNT } ?: List(BAND_COUNT) { 0 }
+        get() {
+            val stored = store.get("eqBands").orEmpty()
+                .split(',').mapNotNull { it.trim().toIntOrNull() }
+            return List(EqBands.COUNT) { stored.getOrNull(it) ?: 0 }
+        }
         set(value) = store.put("eqBands", value.joinToString(","))
+
+    /**
+     * Gain applied before the filters, in millibels.
+     *
+     * Its own control because boosting and turning down are different
+     * intentions: someone adding 8 dB of bass wants more bass, not a louder
+     * track, and without this the only way to get one without the other is
+     * to pull the other thirty sliders down by hand.
+     */
+    var eqPreamp: Int
+        get() = number("eqPreamp", 0)
+        set(value) = store.put("eqPreamp", value.toString())
 
     /** How loud, kept between launches so a quiet setting is not a surprise. */
     var volume: Int
@@ -186,7 +256,4 @@ class Prefs(private val store: Store) {
         get() = number("lastScanCount", 0)
         set(value) = store.put("lastScanCount", value.toString())
 
-    companion object {
-        const val BAND_COUNT = 6
-    }
 }

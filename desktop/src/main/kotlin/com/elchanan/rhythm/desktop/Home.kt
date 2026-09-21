@@ -3,6 +3,7 @@ package com.elchanan.rhythm.desktop
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -57,6 +59,7 @@ import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.Mix
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.SectionKind
+import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.HeaderMid
@@ -95,6 +98,8 @@ internal fun HomeScreen(
     status: String,
     hasFolders: Boolean,
     singleArtist: Boolean,
+    tagTipVisible: Boolean,
+    ratingTipVisible: Boolean,
     onMood: (Mood) -> Unit,
     onRefresh: () -> Unit,
     onRecap: () -> Unit,
@@ -103,6 +108,9 @@ internal fun HomeScreen(
     onRescan: () -> Unit,
     onAnalyze: () -> Unit,
     onRateArtists: () -> Unit,
+    onStopAnalysis: () -> Unit,
+    onDismissTagTip: () -> Unit,
+    onDismissRatingTip: () -> Unit,
     onPlay: (List<SongEntity>, Int) -> Unit,
     onOpenList: (DetailList) -> Unit,
     onMore: (SongEntity) -> Unit
@@ -174,26 +182,32 @@ internal fun HomeScreen(
         ) {
             item { GreetingCard(songCount, ratedArtists) }
 
-            // One nudge at a time, and only while it is still relevant. A
-            // library filed under a single artist comes first, because every
-            // other suggestion is meaningless until that is fixed.
-            item {
-                when {
-                    singleArtist -> Banner(
+            // A one off pointer to the tag repair tool, ahead of the rest
+            // because a library filed under a single artist makes every other
+            // suggestion meaningless until that is fixed.
+            if (tagTipVisible && singleArtist) {
+                item {
+                    Banner(
                         icon = Icons.Filled.Sell,
                         title = "כל השירים רשומים על אמן אחד",
                         body = "התגיות בקבצים שהורדו מהאינטרנט לרוב שגויות. " +
                             "בהגדרות יש תיקון אוטומטי שמפריד את שם האמן משם השיר",
                         action = "להגדרות",
-                        onClick = onSettings
+                        onClick = { onDismissTagTip(); onSettings() },
+                        onDismiss = onDismissTagTip
                     )
+                }
+            }
 
+            // One nudge at a time, and only while it is still relevant.
+            item {
+                when {
                     analysing -> Banner(
                         icon = Icons.Filled.GraphicEq,
                         title = "מנתח את הספרייה",
                         body = status.ifBlank { "מודד קצב, סולם, אנרגיה וגוון" },
-                        action = "",
-                        onClick = {}
+                        action = "עצור",
+                        onClick = onStopAnalysis
                     )
 
                     unanalysed > 0 -> Banner(
@@ -204,12 +218,13 @@ internal fun HomeScreen(
                         onClick = onAnalyze
                     )
 
-                    ratedArtists < 12 -> Banner(
+                    ratingTipVisible && ratedArtists < 12 -> Banner(
                         icon = Icons.Filled.Star,
                         title = "כמה אמנים עוד לא מדורגים",
                         body = "כמה דירוגים משנים את הפיד יותר מכל דבר אחר",
                         action = "דרג",
-                        onClick = onRateArtists
+                        onClick = onRateArtists,
+                        onDismiss = onDismissRatingTip
                     )
 
                     else -> Unit
@@ -473,21 +488,34 @@ private fun FeedSectionView(
                 actionLabel = "נגן הכל",
                 onAction = { onPlay(section.songs, 0) }
             )
-            // Columns of four, as on the phone. On a wide window several
-            // columns show at once, which is the point of the shape: a quick
-            // pick is a thing to glance down, not a row to scroll along.
-            LazyRow(contentPadding = PaddingValues(horizontal = GUTTER)) {
-                items(section.songs.chunked(4)) { column ->
-                    Column(modifier = Modifier.width(360.dp)) {
-                        for (song in column) {
-                            QuickPickRow(
-                                song = song,
-                                liked = stats[song.id]?.liked ?: 0,
-                                onClick = {
-                                    onPlay(section.songs, section.songs.indexOf(song))
-                                },
-                                onMore = { onMore(song) }
-                            )
+            // Two shelves share this kind and each gets the shape that does
+            // its own job, exactly as on the phone. Speed dial is the handful
+            // you keep returning to, and a returning song is known by its
+            // sleeve - so, tiles. Quick picks are the ranker's wider choice,
+            // where the title and the artist carry the identification and the
+            // whole ranked list should stay scrollable - so, columns of four.
+            if (ShelfKind.of(section.id) == ShelfKind.SPEED_DIAL) {
+                QuickPickTiles(
+                    songs = section.songs.take(9),
+                    onPlay = { song ->
+                        onPlay(section.songs, section.songs.indexOf(song))
+                    },
+                    onMore = onMore
+                )
+            } else {
+                LazyRow(contentPadding = PaddingValues(horizontal = GUTTER)) {
+                    items(section.songs.chunked(4)) { column ->
+                        Column(modifier = Modifier.width(360.dp)) {
+                            for (song in column) {
+                                QuickPickRow(
+                                    song = song,
+                                    liked = stats[song.id]?.liked ?: 0,
+                                    onClick = {
+                                        onPlay(section.songs, section.songs.indexOf(song))
+                                    },
+                                    onMore = { onMore(song) }
+                                )
+                            }
                         }
                     }
                 }
@@ -739,3 +767,78 @@ private fun MixCard(mix: Mix, onOpen: () -> Unit, onPlay: () -> Unit) {
 
 /** A mix card is wider than a song card, as it is on the phone. */
 private val MIX_CARD: Dp = 176.dp
+
+/**
+ * The speed dial, as covers with the title written across them.
+ *
+ * These are the songs you keep returning to, and a returning song is known
+ * by its sleeve long before its name is read. A window is wide, so the nine
+ * sit in a row of three columns rather than the phone's stacked grid - same
+ * tiles, same nine, laid out for the shape of the screen they are on.
+ */
+@Composable
+private fun QuickPickTiles(
+    songs: List<SongEntity>,
+    onPlay: (SongEntity) -> Unit,
+    onMore: (SongEntity) -> Unit
+) {
+    if (songs.isEmpty()) return
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = GUTTER),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        items(songs.chunked(3)) { column ->
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (song in column) {
+                    QuickPickTile(
+                        song = song,
+                        onPlay = { onPlay(song) },
+                        onMore = { onMore(song) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickPickTile(
+    song: SongEntity,
+    onPlay: () -> Unit,
+    onMore: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(CARD)
+            .clip(RoundedCornerShape(10.dp))
+            .pointerInput(song.id) {
+                detectTapGestures(onTap = { onPlay() }, onLongPress = { onMore() })
+            }
+    ) {
+        Art(song = song, size = CARD, corner = 0.dp)
+        // Without this the title lands on whatever the sleeve happens to be
+        // and is unreadable on about half of them. The scrim darkens only the
+        // strip the words sit on, leaving the artwork above it alone.
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(CARD * 0.45f)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f))
+                    )
+                )
+        )
+        Text(
+            text = song.title,
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(horizontal = 8.dp, vertical = 7.dp)
+        )
+    }
+}
