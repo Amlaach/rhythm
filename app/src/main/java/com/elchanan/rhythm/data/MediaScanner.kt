@@ -18,20 +18,6 @@ import java.util.Locale
 object MediaScanner {
 
     /**
-     * Every audio file the device says is music, whatever its length.
-     *
-     * The length filter deliberately does not happen here any more. MediaStore
-     * inserts a row the moment it notices a file and fills the metadata in
-     * afterwards, so for a while a real song has a duration of zero or none at
-     * all - and `DURATION >= 45000` is false for both, in SQL where a
-     * comparison against null is never true. A library still being indexed was
-     * therefore scanned as though most of it did not exist.
-     *
-     * Deciding what to keep is the repository's job, where a file of unknown
-     * length can be kept rather than silently dropped, and where each filter
-     * can say how much it removed.
-     */
-    /**
      * Asks the system to look again at the folders the library already knows.
      *
      * MediaStore only contains what it has been told about. A file copied in
@@ -60,6 +46,21 @@ object MediaScanner {
         }
     }
 
+    /**
+     * Every audio file on the device that is not a ringtone, whatever its
+     * length and whatever the system thinks it is.
+     *
+     * The length filter deliberately does not happen here. MediaStore
+     * inserts a row the moment it notices a file and fills the metadata in
+     * afterwards, so for a while a real song has a duration of zero or none at
+     * all - and `DURATION >= 45000` is false for both, in SQL where a
+     * comparison against null is never true. A library still being indexed was
+     * therefore scanned as though most of it did not exist.
+     *
+     * Deciding what to keep is the repository's job, where a file of unknown
+     * length can be kept rather than silently dropped, and where each filter
+     * can say how much it removed.
+     */
     fun scan(context: Context): List<SongEntity> {
         val projection = mutableListOf(
             MediaStore.Audio.Media._ID,
@@ -112,15 +113,28 @@ object MediaScanner {
         // was invisible on exactly the devices most likely to have one.
         val seen = HashSet<Long>()
         for (collection in collections(context)) {
-            val cursor: Cursor = runCatching {
-                context.contentResolver.query(
-                    collection, projection.toTypedArray(), selection, null, null
-                )
-            }.getOrNull() ?: continue
+            val cursor = query(context, collection, projection, selection)
+                // A column this device does not have would fail the whole
+                // query, and a scan that returns nothing reads as a library
+                // that was emptied. The narrower question is the one every
+                // Android has answered since the beginning.
+                ?: query(context, collection, projection, FALLBACK_SELECTION)
+                ?: continue
             read(cursor, out, seen)
         }
         return out
     }
+
+    private fun query(
+        context: Context,
+        collection: android.net.Uri,
+        projection: List<String>,
+        selection: String
+    ): Cursor? = runCatching {
+        context.contentResolver.query(
+            collection, projection.toTypedArray(), selection, null, null
+        )
+    }.getOrNull()
 
     /**
      * The audio collections to ask, one per attached volume.
@@ -208,4 +222,7 @@ object MediaScanner {
 
     /** A courtesy to the system service, not a queue to be drained. */
     private const val MAX_INDEX_REQUESTS = 400
+
+    /** What to ask when the fuller question is refused. */
+    private const val FALLBACK_SELECTION = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
 }

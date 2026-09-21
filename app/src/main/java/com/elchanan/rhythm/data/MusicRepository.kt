@@ -157,11 +157,22 @@ class MusicRepository(
         val mounted = Volumes.mountedRoots(existing.map { it.path } + found.map { it.path })
 
         val foundPaths = found.mapTo(HashSet()) { it.path }
-        val gone = existing.filter { song ->
-            song.path !in foundPaths && Volumes.rootOf(song.path) in mounted
+        // A device that reports no audio at all has almost certainly refused
+        // the question - a permission withdrawn, a provider that failed, a
+        // media store still rebuilding after an update - rather than had its
+        // music deleted. Forgetting a whole library on that evidence is the
+        // one mistake here that cannot be undone, so nothing is forgotten
+        // until something is found.
+        val gone = if (onDevice.isEmpty()) {
+            emptyList()
+        } else {
+            existing.filter { song ->
+                song.path !in foundPaths && Volumes.rootOf(song.path) in mounted
+            }
         }
+        val goneIds = gone.mapTo(HashSet()) { it.id }
         val kept = existing.filter { song ->
-            song.path !in foundPaths && Volumes.rootOf(song.path) !in mounted
+            song.path !in foundPaths && song.id !in goneIds
         }
         // Where the same file came back under a different number.
         val moved = found.mapNotNull { song ->
