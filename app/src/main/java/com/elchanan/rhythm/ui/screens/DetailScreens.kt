@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -189,6 +190,7 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
     var confirmReset by remember { mutableStateOf(false) }
     val gutter = rememberMetrics().gutter
 
+    var groupByAlbum by rememberSaveable(artist?.key) { mutableStateOf(false) }
     val info = artist
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = info?.displayName.orEmpty(), onBack = onBack)
@@ -198,6 +200,14 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
         }
         val live = library.artists.firstOrNull { it.key == info.key } ?: info
         val selectedStyles = Styles.parse(live.styles)
+        val artistAlbums = remember(live.songs, library.albums) {
+            val ids = live.songs.map { it.id }.toSet()
+            library.albums.mapNotNull { album ->
+                val tracks = album.songs.filter { it.id in ids }
+                if (tracks.isEmpty()) null else album.copy(songs = tracks)
+            }
+        }
+        val displayedSongs = if (groupByAlbum) artistAlbums.flatMap { it.songs } else live.songs
 
         LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
             item {
@@ -241,7 +251,7 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
                     Spacer(Modifier.height(14.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
-                            onClick = { vm.playList(live.songs) },
+                            onClick = { vm.playList(displayedSongs) },
                             colors = ButtonDefaults.buttonColors(containerColor = Accent)
                         ) {
                             Icon(Icons.Filled.PlayArrow, contentDescription = null)
@@ -311,15 +321,37 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
                     }
                     Spacer(Modifier.height(16.dp))
                     Text("השירים", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip("כל השירים", selected = !groupByAlbum, onClick = { groupByAlbum = false })
+                        Chip("לפי אלבומים", selected = groupByAlbum, onClick = { groupByAlbum = true })
+                    }
                 }
             }
 
-            items(live.songs, key = { it.id }) { song ->
+            items(displayedSongs, key = { it.id }) { song ->
+                if (groupByAlbum) {
+                    val album = artistAlbums.firstOrNull { it.albumId == song.albumId }
+                    if (album != null && album.songs.firstOrNull()?.id == song.id) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Artwork(song.id, song.albumId, album.name, Modifier.size(48.dp), corner = 8)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(album.name, style = MaterialTheme.typography.titleMedium)
+                                Text("${album.songs.size} שירים", color = TextSecondary,
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
                 SongRow(
                     song = song,
                     liked = library.stats[song.id]?.liked ?: 0,
                     rating = library.stats[song.id]?.rating ?: 0,
-                    onClick = { vm.playList(live.songs, live.songs.indexOf(song)) },
+                    onClick = { vm.playList(displayedSongs, displayedSongs.indexOf(song)) },
                     onMore = { sheetSong = song },
                     onLike = { vm.like(song.id) },
                     onDislike = { vm.dislike(song.id) }

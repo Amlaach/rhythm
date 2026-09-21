@@ -36,6 +36,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -103,7 +105,13 @@ fun RhythmRoot(
     var welcomeDone by remember { mutableStateOf(vm.prefs.welcomeSeen) }
 
     val message by vm.message.collectAsStateWithLifecycle()
-    val playerState by vm.player.state.collectAsStateWithLifecycle()
+    // Position ticks belong to playback controls, not the entire navigation tree.
+    val navigationPlayerState = remember(vm) {
+        vm.player.state.map { it.copy(positionMs = 0L, bufferedMs = 0L) }.distinctUntilChanged()
+    }
+    val playerState by navigationPlayerState.collectAsStateWithLifecycle(
+        initialValue = vm.player.state.value.copy(positionMs = 0L, bufferedMs = 0L)
+    )
     val library by vm.library.collectAsStateWithLifecycle()
 
     LaunchedEffect(message) {
@@ -198,11 +206,12 @@ fun RhythmRoot(
                 Column(modifier = Modifier.background(BgElevated)) {
                     // Hidden while the full player is up - it is the same controls.
                     if (currentSong != null && !playerOpen) {
+                        val miniState by vm.player.state.collectAsStateWithLifecycle()
                         MiniPlayer(
                             song = currentSong,
-                            isPlaying = playerState.isPlaying,
-                            progress = if (playerState.durationMs > 0)
-                                playerState.positionMs.toFloat() / playerState.durationMs else 0f,
+                            isPlaying = miniState.isPlaying,
+                            progress = if (miniState.durationMs > 0)
+                                miniState.positionMs.toFloat() / miniState.durationMs else 0f,
                             liked = library.stats[currentSong.id]?.liked ?: 0,
                             onToggle = { vm.player.togglePlayPause() },
                             onNext = { vm.player.next() },

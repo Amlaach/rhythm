@@ -79,6 +79,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -928,6 +929,8 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
     val state by vm.player.state.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
     val autoIds by vm.autoAddedIds.collectAsStateWithLifecycle()
+    var showSavePlaylist by remember { mutableStateOf(false) }
+    var playlistName by remember { mutableStateOf("") }
     val songs = state.queueIds.mapNotNull { library.songsById[it] }
 
     // the first entry after the current one that the radio appended by itself
@@ -958,6 +961,34 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val rowHeight = with(LocalDensity.current) { 54.dp.toPx() }
 
+    if (showSavePlaylist) {
+        AlertDialog(
+            onDismissRequest = { showSavePlaylist = false },
+            title = { Text("שמירת תור כפלייליסט") },
+            text = {
+                OutlinedTextField(
+                    value = playlistName,
+                    onValueChange = { playlistName = it },
+                    label = { Text("שם הפלייליסט") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = playlistName.isNotBlank() && state.queueIds.isNotEmpty(),
+                    onClick = {
+                        vm.saveQueueAsPlaylist(playlistName)
+                        showSavePlaylist = false
+                    }
+                ) { Text("שמור") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSavePlaylist = false }) { Text("ביטול") }
+            }
+        )
+    }
+
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxHeight(),
@@ -965,6 +996,17 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
     ) {
         item {
             Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp)) {
+                TextButton(
+                    enabled = state.queueIds.isNotEmpty(),
+                    onClick = {
+                        playlistName = ""
+                        showSavePlaylist = true
+                    }
+                ) {
+                    Icon(Icons.Filled.PlaylistAdd, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("שמור תור כפלייליסט")
+                }
                 Text(
                     text = "התור",
                     style = MaterialTheme.typography.titleMedium,

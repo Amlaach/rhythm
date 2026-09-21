@@ -43,7 +43,8 @@ class PlayerConnection(
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
     private val listener = object : Player.Listener {
-        override fun onEvents(player: Player, events: Player.Events) = sync()
+        override fun onEvents(player: Player, events: Player.Events) =
+            sync(refreshQueue = events.contains(Player.EVENT_TIMELINE_CHANGED))
     }
 
     fun connect() {
@@ -85,12 +86,12 @@ class PlayerConnection(
         }
     }
 
-    private fun sync() {
+    private fun sync(refreshQueue: Boolean = true) {
         val c = controller ?: return
-        val ids = ArrayList<Long>(c.mediaItemCount)
-        for (i in 0 until c.mediaItemCount) {
-            ids.add(c.getMediaItemAt(i).mediaId.toLongOrNull() ?: -1L)
-        }
+        // Play/pause, seek and buffer events do not change the queue.
+        val ids = if (refreshQueue) {
+            List(c.mediaItemCount) { i -> c.getMediaItemAt(i).mediaId.toLongOrNull() ?: -1L }
+        } else _state.value.queueIds
         _state.value = PlayerUiState(
             connected = true,
             currentSongId = c.currentMediaItem?.mediaId?.toLongOrNull(),
