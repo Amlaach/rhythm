@@ -2,6 +2,8 @@ package com.elchanan.rhythm.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,36 +15,52 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.FormatQuote
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.automirrored.filled.PlaylistAddCheck
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FormatQuote
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.PlaylistRemove
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -52,29 +70,46 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
+import com.elchanan.rhythm.engine.AlphabetIndexing
+import com.elchanan.rhythm.engine.Capo
+import com.elchanan.rhythm.engine.Folders
+import com.elchanan.rhythm.engine.MusicalMode
+import com.elchanan.rhythm.engine.ScoreTerm
 import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.AppBackground
+import com.elchanan.rhythm.ui.theme.Color_Error
 import com.elchanan.rhythm.ui.theme.Surface1
+import com.elchanan.rhythm.ui.theme.Surface2
 import com.elchanan.rhythm.ui.theme.TextSecondary
+import com.elchanan.rhythm.ui.theme.TextTertiary
 import com.elchanan.rhythm.ui.theme.gradientFor
+import java.util.Locale
+import kotlinx.coroutines.launch
 
 /**
  * A list the user drilled into: a playlist, an album, a folder, the likes.
@@ -130,7 +165,11 @@ internal fun SongList(
     onDislike: (SongEntity) -> Unit,
     onMore: (SongEntity) -> Unit,
     selection: Set<Long> = emptySet(),
-    onToggleSelect: ((Long) -> Unit)? = null
+    onToggleSelect: ((Long) -> Unit)? = null,
+    // Hoisted so the alphabet index can scroll the list it sits beside.
+    // Callers that have nothing to say about scrolling leave it alone.
+    state: LazyListState = rememberLazyListState(),
+    contentPadding: PaddingValues = PaddingValues(bottom = 24.dp)
 ) {
     if (songs.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -139,8 +178,9 @@ internal fun SongList(
         return
     }
     LazyColumn(
+        state = state,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 24.dp)
+        contentPadding = contentPadding
     ) {
         itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
             val selecting = selection.isNotEmpty()
@@ -196,10 +236,14 @@ internal fun LibraryPane(
     spoken: List<SongEntity>,
     resumePoints: Map<Long, Long>,
     firstTab: String,
+    folderTree: Boolean,
+    onShuffle: (List<SongEntity>) -> Unit,
     onBulkRate: (List<Long>, Int) -> Unit,
     onBulkLike: (List<Long>) -> Unit,
     onBulkQueue: (List<SongEntity>) -> Unit,
-    onBulkAddTo: (Long, List<Long>) -> Unit
+    onBulkAddTo: (Long, List<Long>) -> Unit,
+    onBulkGenre: (List<Long>, String) -> Unit,
+    onBulkDelete: (List<SongEntity>) -> Unit
 ) {
     // Opens on whichever tab the settings name, and only reads that setting
     // once - changing it later should not yank the screen out from under
@@ -211,10 +255,23 @@ internal fun LibraryPane(
     }
     var newList by remember { mutableStateOf(false) }
     var sort by remember { mutableStateOf(SongSort.TITLE) }
+    var filter by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
     // What is ticked. Empty means nobody is selecting anything, which is also
     // what makes the selection bar appear and disappear on its own.
     var selection by remember { mutableStateOf(emptySet<Long>()) }
     var addingSelection by remember { mutableStateOf(false) }
+
+    // Title or artist, case folded, substring. Not the search engine: this is
+    // a filter on a list that is already on screen, and anything cleverer
+    // would make the rows move around for reasons that are not visible.
+    fun matching(list: List<SongEntity>, text: String): List<SongEntity> {
+        if (text.isBlank()) return list
+        val q = text.lowercase(Locale.ROOT)
+        return list.filter {
+            it.titleLower.contains(q) || it.artistName.lowercase(Locale.ROOT).contains(q)
+        }
+    }
 
     fun sorted(list: List<SongEntity>): List<SongEntity> = when (sort) {
         SongSort.TITLE -> list.sortedBy { it.titleLower }
@@ -254,28 +311,96 @@ internal fun LibraryPane(
         // Only while something is ticked. A permanent action bar is a strip of
         // buttons that do nothing most of the time.
         if (selection.isNotEmpty()) {
+            val chosen = remember(selection, library.songs) {
+                val byId = library.songs.associateBy { it.id }
+                selection.mapNotNull { byId[it] }
+            }
             SelectionBar(
                 count = selection.size,
                 onClear = { selection = emptySet() },
+                onPlay = {
+                    if (chosen.isNotEmpty()) onPlay(chosen, 0)
+                    selection = emptySet()
+                },
                 onRate = { onBulkRate(selection.toList(), it) },
                 onLike = {
                     onBulkLike(selection.toList())
                     selection = emptySet()
                 },
                 onQueue = {
-                    val byId = library.songs.associateBy { it.id }
-                    onBulkQueue(selection.mapNotNull { byId[it] })
+                    onBulkQueue(chosen)
                     selection = emptySet()
                 },
-                onAddTo = { addingSelection = true }
+                onAddTo = { addingSelection = true },
+                onGenre = {
+                    onBulkGenre(selection.toList(), it)
+                    selection = emptySet()
+                },
+                onDelete = {
+                    onBulkDelete(chosen)
+                    selection = emptySet()
+                }
             )
         }
 
         Box(modifier = Modifier.weight(1f)) {
             when (LibraryTab.entries[tab]) {
                 LibraryTab.SONGS -> {
-                    val ordered = remember(library.songs, sort, stats) { sorted(library.songs) }
+                    val ordered = remember(library.songs, sort, stats, filter) {
+                        sorted(matching(library.songs, filter))
+                    }
+                    val listState = rememberLazyListState()
+                    val letters = remember(ordered) {
+                        AlphabetIndexing.present(ordered.map { it.title })
+                    }
                     Column {
+                        // Typing beats scrolling and beats the sort chips too,
+                        // once a library is past a few hundred songs. It
+                        // filters rather than searches: this is the list you
+                        // are already looking at, narrowed.
+                        OutlinedTextField(
+                            value = filter,
+                            onValueChange = { filter = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = GUTTER, vertical = 4.dp),
+                            placeholder = { Text("סינון מהיר", color = TextSecondary) },
+                            singleLine = true,
+                            trailingIcon = if (filter.isEmpty()) {
+                                null
+                            } else {
+                                {
+                                    IconButton(onClick = { filter = "" }) {
+                                        Icon(
+                                            Icons.Filled.Close,
+                                            contentDescription = "נקה",
+                                            tint = TextSecondary
+                                        )
+                                    }
+                                }
+                            }
+                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = GUTTER, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = {
+                                    if (ordered.isNotEmpty()) onShuffle(ordered)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                            ) {
+                                Icon(Icons.Filled.Shuffle, contentDescription = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text("ערבב הכל")
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                "${ordered.size} שירים",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = GUTTER),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -289,21 +414,48 @@ internal fun LibraryPane(
                             }
                         }
                         Spacer(Modifier.height(6.dp))
-                        SongList(
-                            songs = ordered,
-                            stats = stats,
-                            current = current,
-                            empty = "אין שירים",
-                            onPlay = { index -> onPlay(ordered, index) },
-                            onLike = onLike,
-                            onDislike = onDislike,
-                            onMore = onMore,
-                            selection = selection,
-                            onToggleSelect = { id ->
-                                selection =
-                                    if (id in selection) selection - id else selection + id
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            SongList(
+                                songs = ordered,
+                                stats = stats,
+                                current = current,
+                                empty = if (filter.isBlank()) {
+                                    "אין שירים"
+                                } else {
+                                    "שום שיר לא תואם"
+                                },
+                                onPlay = { index -> onPlay(ordered, index) },
+                                onLike = onLike,
+                                onDislike = onDislike,
+                                onMore = onMore,
+                                selection = selection,
+                                onToggleSelect = { id ->
+                                    selection =
+                                        if (id in selection) selection - id else selection + id
+                                },
+                                state = listState,
+                                // Room down the side for the index, so the
+                                // last rows are not hidden behind it.
+                                contentPadding = PaddingValues(bottom = 24.dp, end = 22.dp)
+                            )
+                            // Only useful while the list is in title order -
+                            // under any other sort the letters would not be
+                            // in order down the list, and jumping to one
+                            // would land somewhere arbitrary.
+                            if (sort == SongSort.TITLE) {
+                                AlphabetIndex(
+                                    letters = letters,
+                                    modifier = Modifier.align(Alignment.CenterEnd)
+                                ) { letter ->
+                                    val index = ordered.indexOfFirst {
+                                        AlphabetIndexing.initialOf(it.title) == letter
+                                    }
+                                    if (index >= 0) {
+                                        scope.launch { listState.scrollToItem(index) }
+                                    }
+                                }
                             }
-                        )
+                        }
                     }
                 }
 
@@ -394,55 +546,21 @@ internal fun LibraryPane(
                     }
                 }
 
-                LibraryTab.FOLDERS -> LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                    items(library.folders, key = { it.path }) { folder ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    onOpenList(
-                                        DetailList(
-                                            title = folder.name,
-                                            subtitle = folder.path,
-                                            songs = folder.songs,
-                                            gradientKey = "folder:${folder.path}"
-                                        )
-                                    )
-                                }
-                                .padding(horizontal = GUTTER, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val (c1, c2) = gradientFor(folder.path)
-                            Box(
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Brush.linearGradient(listOf(c1, c2))),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Filled.Folder,
-                                    contentDescription = null,
-                                    tint = Color.White
-                                )
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    folder.name,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    "${folder.songs.size} שירים",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextSecondary
-                                )
-                            }
-                        }
-                    }
-                }
+                LibraryTab.FOLDERS -> if (!folderTree) {
+                    FolderList(
+                        folders = library.folders,
+                        onOpenList = onOpenList
+                    )
+                } else FolderTree(
+                    songs = library.songs,
+                    stats = stats,
+                    current = current,
+                    onPlay = onPlay,
+                    onShuffle = onShuffle,
+                    onLike = onLike,
+                    onDislike = onDislike,
+                    onMore = onMore
+                )
 
                 // Talking rather than music: shiurim, stories, recorded
                 // lectures. They resume where they were left and they are the
@@ -700,72 +818,160 @@ private fun NamePlaylistDialog(onDismiss: () -> Unit, onConfirm: (String) -> Uni
 private fun SelectionBar(
     count: Int,
     onClear: () -> Unit,
+    onPlay: () -> Unit,
     onRate: (Int) -> Unit,
     onLike: () -> Unit,
     onQueue: () -> Unit,
-    onAddTo: () -> Unit
+    onAddTo: () -> Unit,
+    onGenre: (String) -> Unit,
+    onDelete: () -> Unit
 ) {
-    Column(
+    var rateOpen by remember { mutableStateOf(false) }
+    var genreOpen by remember { mutableStateOf(false) }
+    var deleteOpen by remember { mutableStateOf(false) }
+
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = GUTTER)
             .clip(RoundedCornerShape(12.dp))
             .background(Surface1)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "$count נבחרו",
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.weight(1f)
-            )
-            StarRow(rating = 0, onRate = onRate, size = 20)
-            Spacer(Modifier.width(10.dp))
-            IconButton(onClick = onLike, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.Filled.ThumbUp,
-                    contentDescription = "לייק לכולם",
-                    tint = Accent,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-            IconButton(onClick = onQueue, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.AutoMirrored.Filled.PlaylistAddCheck,
-                    contentDescription = "הוסף לתור",
-                    tint = Accent,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-            IconButton(onClick = onAddTo, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.AutoMirrored.Filled.PlaylistAdd,
-                    contentDescription = "הוסף לרשימה",
-                    tint = Accent,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-            IconButton(onClick = onClear, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.Filled.Close,
-                    contentDescription = "בטל בחירה",
-                    tint = TextSecondary,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+        IconButton(onClick = onClear) {
+            Icon(Icons.Filled.Close, contentDescription = "בטל", tint = TextSecondary)
         }
+        Text(
+            "$count נבחרו",
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(end = 6.dp)
+        )
+        Spacer(Modifier.weight(1f))
+        // Labelled, because eight icons in a row is a puzzle. The phone
+        // labels them for the same reason and a mouse does not make an
+        // unlabelled icon any more legible than a finger does.
+        BarAction(Icons.Filled.PlayArrow, "נגן", onPlay)
+        BarAction(Icons.AutoMirrored.Filled.QueueMusic, "לתור", onQueue)
+        BarAction(Icons.Filled.ThumbUp, "לייק", onLike)
+        BarAction(Icons.Filled.Star, "דרג") { rateOpen = true }
+        BarAction(Icons.AutoMirrored.Filled.PlaylistAdd, "לרשימה", onAddTo)
+        BarAction(Icons.Filled.LocalOffer, "ז'אנר") { genreOpen = true }
+        BarAction(Icons.Filled.Delete, "מחק") { deleteOpen = true }
+    }
+
+    if (rateOpen) {
+        var rating by remember { mutableStateOf(5) }
+        AlertDialog(
+            onDismissRequest = { rateOpen = false },
+            containerColor = Surface1,
+            title = { Text("דירוג $count שירים") },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    StarRow(
+                        rating = rating,
+                        onRate = { rating = if (it == 0) 1 else it },
+                        size = 32
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onRate(rating)
+                    rateOpen = false
+                    onClear()
+                }) { Text("שמור", color = Accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = { rateOpen = false }) {
+                    Text("ביטול", color = TextSecondary)
+                }
+            }
+        )
+    }
+
+    if (genreOpen) {
+        GenreDialog(
+            initial = "",
+            onDismiss = { genreOpen = false },
+            onApply = { onGenre(it); genreOpen = false }
+        )
+    }
+
+    if (deleteOpen) {
+        ConfirmDialog(
+            title = "למחוק $count קבצים?",
+            body = "הקבצים יימחקו מהדיסק עצמו, לא רק מהאפליקציה. " +
+                "אי אפשר לבטל את זה.",
+            confirm = "מחק",
+            danger = true,
+            onDismiss = { deleteOpen = false },
+            onConfirm = { onDelete(); deleteOpen = false }
+        )
+    }
+}
+
+/**
+ * One button on the selection bar: an icon with its name under it.
+ */
+@Composable
+private fun BarAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(icon, contentDescription = label, tint = Accent, modifier = Modifier.size(20.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
     }
 }
 
 @Composable
-private fun ArtistRow(artist: ArtistInfo, onClick: () -> Unit) {
+private fun ArtistRow(
+    artist: ArtistInfo,
+    selected: Boolean = false,
+    selectionMode: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
+    onClick: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .then(
+                if (onLongClick == null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    // Long press to start selecting, exactly as on the phone.
+                    // Once something is ticked an ordinary click ticks too,
+                    // because reaching for a checkbox forty times is the
+                    // thing selection mode exists to avoid.
+                    Modifier.pointerInput(artist.key) {
+                        detectTapGestures(
+                            onTap = { onClick() },
+                            onLongPress = { onLongClick() }
+                        )
+                    }
+                }
+            )
+            .background(if (selected) Surface2 else Color.Transparent)
             .padding(horizontal = GUTTER, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (selectionMode) {
+            Icon(
+                imageVector = if (selected) {
+                    Icons.Filled.CheckCircle
+                } else {
+                    Icons.Outlined.Circle
+                },
+                contentDescription = null,
+                tint = if (selected) Accent else TextSecondary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+        }
         val (c1, c2) = gradientFor(artist.key)
         Box(
             modifier = Modifier
@@ -806,35 +1012,283 @@ private fun ArtistRow(artist: ArtistInfo, onClick: () -> Unit) {
  * far that has got.
  */
 @Composable
-internal fun ArtistsPane(artists: List<ArtistInfo>, onOpen: (ArtistInfo) -> Unit) {
+internal fun ArtistsPane(
+    artists: List<ArtistInfo>,
+    onOpen: (ArtistInfo) -> Unit,
+    onBulkUpdate: (List<String>, Int?, List<String>?, Boolean) -> Unit,
+    onBulkImport: (String) -> Unit
+) {
     if (artists.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("סרוק תיקייה כדי להתחיל", style = MaterialTheme.typography.bodyLarge)
         }
         return
     }
-    val ordered = artists.sortedWith(
-        compareBy<ArtistInfo> { it.rating > 0 }.thenByDescending { it.songs.size }
-    )
+    var filter by remember { mutableStateOf("") }
+    var selection by remember { mutableStateOf(emptySet<String>()) }
+    var groupOpen by remember { mutableStateOf(false) }
+    var importOpen by remember { mutableStateOf(false) }
+
+    val ordered = remember(artists, filter) {
+        val q = filter.trim().lowercase(Locale.ROOT)
+        artists
+            .filter { q.isEmpty() || it.displayName.lowercase(Locale.ROOT).contains(q) }
+            .sortedWith(compareBy<ArtistInfo> { it.rating > 0 }.thenByDescending { it.songs.size })
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
-        Text(
-            text = "דירוג אמנים וסגנונות",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(horizontal = GUTTER, vertical = 10.dp)
+        Row(
+            modifier = Modifier.padding(horizontal = GUTTER, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("דירוג אמנים וסגנונות", style = MaterialTheme.typography.headlineMedium)
+                Text(
+                    text = "${artists.count { it.rating > 0 }} מתוך ${artists.size} דורגו · " +
+                        "לחיצה ארוכה = בחירה",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+            // The way in for a list written somewhere else. Rating a few
+            // hundred artists one at a time is the job this avoids.
+            IconButton(onClick = { importOpen = true }) {
+                Icon(
+                    Icons.AutoMirrored.Filled.PlaylistAddCheck,
+                    contentDescription = "הזנה מרוכזת",
+                    tint = Accent
+                )
+            }
+        }
+        OutlinedTextField(
+            value = filter,
+            onValueChange = { filter = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = GUTTER, vertical = 2.dp),
+            placeholder = { Text("סינון לפי שם", color = TextSecondary) },
+            singleLine = true
         )
-        Text(
-            text = "${artists.count { it.rating > 0 }} מתוך ${artists.size} דורגו",
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary,
-            modifier = Modifier.padding(horizontal = GUTTER)
-        )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
+
+        if (selection.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = GUTTER)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Surface1)
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { selection = emptySet() }) {
+                    Icon(Icons.Filled.Close, contentDescription = "בטל", tint = TextSecondary)
+                }
+                Text(
+                    "${selection.size} אמנים נבחרו",
+                    style = MaterialTheme.typography.labelLarge
+                )
+                Spacer(Modifier.weight(1f))
+                Button(
+                    onClick = { groupOpen = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                ) { Text("דרג ותייג") }
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+
         LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+            // Select-all is over the filtered list, not the library: filter
+            // to a word and take all of those is the fast way to tag a
+            // family of artists, and taking everything is the same gesture
+            // with the filter empty.
+            if (ordered.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier.padding(horizontal = GUTTER, vertical = 4.dp)
+                    ) {
+                        val all = selection.size == ordered.size
+                        Chip(
+                            label = if (all) "בטל הכל" else "בחר הכל (${ordered.size})",
+                            selected = all,
+                            onClick = {
+                                selection = if (all) {
+                                    emptySet()
+                                } else {
+                                    ordered.mapTo(HashSet()) { it.key }
+                                }
+                            }
+                        )
+                    }
+                }
+            }
             items(ordered, key = { it.key }) { artist ->
-                ArtistRow(artist) { onOpen(artist) }
+                ArtistRow(
+                    artist = artist,
+                    selected = artist.key in selection,
+                    selectionMode = selection.isNotEmpty(),
+                    onLongClick = {
+                        selection = if (artist.key in selection) {
+                            selection - artist.key
+                        } else {
+                            selection + artist.key
+                        }
+                    },
+                    onClick = {
+                        if (selection.isNotEmpty()) {
+                            selection = if (artist.key in selection) {
+                                selection - artist.key
+                            } else {
+                                selection + artist.key
+                            }
+                        } else {
+                            onOpen(artist)
+                        }
+                    }
+                )
+            }
+            if (ordered.isEmpty()) {
+                item {
+                    EmptyState(title = "אין תוצאות", body = "שום אמן לא תואם את הסינון.")
+                }
             }
         }
     }
+
+    if (groupOpen) {
+        GroupEditDialog(
+            count = selection.size,
+            onDismiss = { groupOpen = false },
+            onApply = { rating, styles, replace ->
+                onBulkUpdate(selection.toList(), rating, styles, replace)
+                groupOpen = false
+                selection = emptySet()
+            }
+        )
+    }
+
+    if (importOpen) {
+        BulkImportDialog(
+            onDismiss = { importOpen = false },
+            onSubmit = {
+                onBulkImport(it)
+                importOpen = false
+            }
+        )
+    }
+}
+
+/**
+ * Rating and tagging a group of artists in one go.
+ *
+ * Both halves are optional and both default to leaving things alone: no stars
+ * means the ratings are not touched, no style chips means the tags are not
+ * touched. Someone who opens this to tag forty artists should not silently
+ * re-rate them all at zero on the way out.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GroupEditDialog(
+    count: Int,
+    onDismiss: () -> Unit,
+    onApply: (Int?, List<String>?, Boolean) -> Unit
+) {
+    var rating by remember { mutableStateOf(0) }
+    var styles by remember { mutableStateOf(listOf<String>()) }
+    var replace by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("$count אמנים") },
+        text = {
+            Column(modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
+                Text("דירוג", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(4.dp))
+                StarRow(rating = rating, onRate = { rating = it }, size = 28)
+                Text(
+                    text = if (rating == 0) {
+                        "בלי כוכבים — הדירוג הקיים לא ישתנה"
+                    } else {
+                        "כל האמנים שנבחרו יקבלו $rating כוכבים"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(14.dp))
+                Text("סגנונות", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(6.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (style in Styles.SUGGESTED) {
+                        val on = styles.any { it.equals(style, ignoreCase = true) }
+                        Chip(label = style, selected = on, onClick = {
+                            styles = if (on) {
+                                styles.filterNot { it.equals(style, ignoreCase = true) }
+                            } else {
+                                styles + style
+                            }
+                        })
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Chip(
+                    label = if (replace) "מחליף את התגיות הקיימות" else "מוסיף לתגיות הקיימות",
+                    selected = replace,
+                    onClick = { replace = !replace }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onApply(
+                    if (rating > 0) rating else null,
+                    if (styles.isEmpty()) null else styles,
+                    replace
+                )
+            }) { Text("החל", color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
+}
+
+/** Artists typed one per line, for a list that was written somewhere else. */
+@Composable
+private fun BulkImportDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("הזנה מרוכזת של אמנים") },
+        text = {
+            Column {
+                Text(
+                    "שורה לכל אמן, בפורמט:\nשם | דירוג 1-5 | סגנונות מופרדים בפסיק\n\n" +
+                        "למשל:\nאברהם פריד | 5 | חסידי, מרגש\nיונתן רזאל | 4 | רגוע, שירי נשמה",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 140.dp, max = 260.dp)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSubmit(text) }) { Text("שמור", color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
 }
 
 /**
@@ -956,21 +1410,93 @@ internal fun DetailListScreen(
 internal fun SongOptionsDialog(
     song: SongEntity,
     stat: SongStatsEntity?,
+    feature: AudioFeatureEntity?,
     playlists: List<PlaylistInfo>,
+    scoreTerms: List<ScoreTerm>,
+    totalScore: Double,
+    inPlaylist: Long?,
     onDismiss: () -> Unit,
     onRate: (Int) -> Unit,
     onRadio: () -> Unit,
+    onMix: () -> Unit,
     onOpenArtist: () -> Unit,
     onOpenAlbum: () -> Unit,
     onAddTo: (Long) -> Unit,
     onCreateWith: (String) -> Unit,
+    onRemoveFromPlaylist: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
     onLyrics: () -> Unit,
-    onBookmarks: () -> Unit
+    onBookmarks: () -> Unit,
+    onStyles: (String) -> Unit,
+    onGenre: (String) -> Unit,
+    onSpoken: (Boolean) -> Unit,
+    onResetPlays: () -> Unit,
+    onDelete: () -> Unit
 ) {
     var picking by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf(false) }
+    var whyOpen by remember { mutableStateOf(false) }
+    var capoOpen by remember { mutableStateOf(false) }
+    var tagsOpen by remember { mutableStateOf(false) }
+    var genreOpen by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+
+    if (whyOpen) {
+        WhyDialog(
+            title = song.title,
+            terms = scoreTerms,
+            total = totalScore,
+            onDismiss = { whyOpen = false }
+        )
+        return
+    }
+    if (capoOpen) {
+        CapoDialog(feature = feature, onDismiss = { capoOpen = false })
+        return
+    }
+    if (tagsOpen) {
+        SongTagDialog(
+            current = Styles.parse(stat?.styles.orEmpty()),
+            guessed = stat?.stylesAuto == 1,
+            onDismiss = { tagsOpen = false },
+            onApply = { onStyles(Styles.join(it)); onDismiss() }
+        )
+        return
+    }
+    if (genreOpen) {
+        GenreDialog(
+            initial = stat?.genre.orEmpty().ifBlank { song.genre.orEmpty() },
+            onDismiss = { genreOpen = false },
+            onApply = { onGenre(it); onDismiss() }
+        )
+        return
+    }
+    if (confirmReset) {
+        ConfirmDialog(
+            title = "לאפס את ההשמעות?",
+            body = "מספר ההשמעות של \"${song.title}\" יתאפס, והשיר ייעלם מ\"הושמעו " +
+                "לאחרונה\". הלייק, הדירוג והתגיות נשארים.",
+            confirm = "אפס",
+            danger = false,
+            onConfirm = { onResetPlays(); onDismiss() },
+            onDismiss = { confirmReset = false }
+        )
+        return
+    }
+    if (confirmDelete) {
+        ConfirmDialog(
+            title = "למחוק את הקובץ?",
+            body = "\"${song.title}\" יימחק מהמחשב עצמו, לא רק מהאפליקציה. " +
+                "אי אפשר לבטל את זה.",
+            confirm = "מחק",
+            danger = true,
+            onConfirm = { onDelete(); onDismiss() },
+            onDismiss = { confirmDelete = false }
+        )
+        return
+    }
 
     if (naming) {
         NamePlaylistDialog(
@@ -1045,16 +1571,23 @@ internal fun SongOptionsDialog(
                     onAddToQueue()
                     onDismiss()
                 }
+                OptionRow(Icons.Filled.AutoAwesome, "צור מיקס מהשיר הזה") {
+                    onMix()
+                    onDismiss()
+                }
                 OptionRow(Icons.Filled.Radio, "רדיו מהשיר הזה") {
                     onRadio()
                     onDismiss()
                 }
-                // The two the phone keeps in this menu rather than on the
+                // The ones the phone keeps in this menu rather than on the
                 // player's header, so the header stays at three icons.
                 OptionRow(Icons.Filled.FormatQuote, "מילות השיר") {
                     onLyrics()
                     onDismiss()
                 }
+                OptionRow(Icons.Filled.MusicNote, "אקורדים וקאפו") { capoOpen = true }
+                OptionRow(Icons.Filled.Insights, "למה זה הומלץ לי") { whyOpen = true }
+                OptionRow(Icons.Filled.LocalOffer, "תגיות סגנון לשיר") { tagsOpen = true }
                 OptionRow(Icons.Filled.Bookmark, "סימניות") {
                     onBookmarks()
                     onDismiss()
@@ -1066,6 +1599,34 @@ internal fun SongOptionsDialog(
                 OptionRow(Icons.Filled.Album, "עבור לאלבום") {
                     onOpenAlbum()
                     onDismiss()
+                }
+                if (inPlaylist != null) {
+                    OptionRow(Icons.Filled.PlaylistRemove, "הסר מהרשימה") {
+                        onRemoveFromPlaylist()
+                        onDismiss()
+                    }
+                }
+                OptionRow(Icons.Filled.LocalOffer, "שנה ז'אנר") { genreOpen = true }
+                // The detector's verdict, and a way to disagree with it.
+                // Shown as the opposite of what it currently thinks, so the
+                // row says what pressing it will do rather than what is
+                // already true.
+                val markedSpoken = stat?.spoken == 1
+                OptionRow(
+                    if (markedSpoken) Icons.Filled.MusicNote else Icons.Filled.RecordVoiceOver,
+                    if (markedSpoken) "זה בעצם מוזיקה" else "סמן כהרצאה או שיעור"
+                ) {
+                    onSpoken(!markedSpoken)
+                    onDismiss()
+                }
+                // Only worth offering when there is something to clear.
+                if ((stat?.playCount ?: 0) > 0) {
+                    OptionRow(Icons.Filled.RestartAlt, "אפס את מספר ההשמעות") {
+                        confirmReset = true
+                    }
+                }
+                OptionRow(Icons.Filled.Delete, "מחק את הקובץ מהמחשב", tint = Color_Error) {
+                    confirmDelete = true
                 }
             }
         },
@@ -1081,6 +1642,7 @@ private fun OptionRow(
     label: String,
     hint: String? = null,
     enabled: Boolean = true,
+    tint: Color = Accent,
     onClick: () -> Unit
 ) {
     Row(
@@ -1093,7 +1655,7 @@ private fun OptionRow(
         Icon(
             icon,
             contentDescription = null,
-            tint = if (enabled) Accent else TextSecondary
+            tint = if (enabled) tint else TextSecondary
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -1277,6 +1839,500 @@ internal fun AlbumsScreen(
                         color = TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Capo positions for the song's key, and the chords that key contains.
+ *
+ * The detected key is a starting point, not a verdict - it can be wrong, and
+ * a guitarist will hear that within one bar. So it is labelled as detected,
+ * and changing it is a single click rather than something buried in a
+ * setting. All of the arithmetic is [Capo] in :engine, the same the phone
+ * asks.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CapoDialog(feature: AudioFeatureEntity?, onDismiss: () -> Unit) {
+    val detectedKey = feature?.musicalKey ?: -1
+    val detectedMode = MusicalMode.byOrdinalOrNull(feature?.scaleMode ?: -1)
+    // tonicIsMajor, not brightFamily: this decides which chord gets fingered.
+    val detectedBright = detectedMode?.tonicIsMajor ?: (feature?.mode == 1)
+    var key by remember(detectedKey) { mutableStateOf(detectedKey) }
+    var bright by remember(detectedBright) { mutableStateOf(detectedBright) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("אקורדים וקאפו") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())
+            ) {
+                if (key !in 0..11) {
+                    Text(
+                        "השיר עדיין לא נותח, אז אין סולם להתבסס עליו. " +
+                            "אפשר לבחור סולם ידנית:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                } else {
+                    Text(
+                        "הסולם שזוהה: ${Capo.keyName(key, bright)}" +
+                            (detectedMode?.takeIf { it.ordinal > 1 }?.let { " · ${it.label}" }
+                                ?: ""),
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        "זיהוי אוטומטי מתוך הצליל — אם זה נשמע לא נכון, שנה למטה.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                // Note names are Latin, and a bare "G#" dropped into a Hebrew
+                // paragraph comes out as "#G" - the sharp jumps to the wrong
+                // side. Laying the row out left to right fixes the spelling
+                // and puts the chromatic scale in rising order too.
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        for (pc in 0..11) {
+                            Chip(label = Capo.NAMES[pc], selected = pc == key) { key = pc }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Chip(label = "מז'ורי", selected = bright) { bright = true }
+                    Chip(label = "מינורי", selected = !bright) { bright = false }
+                }
+                if (key in 0..11) {
+                    Spacer(Modifier.height(16.dp))
+                    Text("קאפו", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "בסריג המסומן, נגן את הצורות של הסולם שמימין",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    for (option in Capo.options(key, bright)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (option.fret == 0) "בלי קאפו" else "סריג ${option.fret}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (option.open) Accent else TextSecondary
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                text = Capo.keyName(option.playKey, bright) +
+                                    if (option.open) "  ✓" else "",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    textDirection = TextDirection.Ltr
+                                ),
+                                color = if (option.open) Accent else TextSecondary
+                            )
+                        }
+                    }
+                    Text(
+                        "✓ = אקורדים פתוחים, בלי בָּארֶה",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary
+                    )
+                    val chords = detectedMode?.let { Capo.scaleChords(key, it) }
+                        ?: Capo.scaleChords(
+                            key,
+                            if (bright) MusicalMode.MAJOR else MusicalMode.MINOR
+                        )
+                    if (chords.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text("האקורדים של הסולם", style = MaterialTheme.typography.titleSmall)
+                        // Said plainly, because it is the difference between a
+                        // shortlist and a transcription: nothing here listened
+                        // to the recording.
+                        Text(
+                            "אלה האקורדים שקיימים בסולם — לא האקורדים שהשיר מנגן. " +
+                                "האפליקציה לא מזהה אקורדים מתוך ההקלטה.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            chords.joinToString("   "),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                textDirection = TextDirection.Ltr
+                            ),
+                            color = Accent
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }
+    )
+}
+
+/** Style words on one song, which override the artist's for it alone. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SongTagDialog(
+    current: List<String>,
+    guessed: Boolean,
+    onDismiss: () -> Unit,
+    onApply: (List<String>) -> Unit
+) {
+    var selected by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("תגיות לשיר הזה") },
+        text = {
+            Column(
+                modifier = Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    "תגית על שיר בודד מחליפה את תגיות האמן עבורו בלבד.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                if (guessed) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "התגיות האלה נוחשו על ידי האפליקציה ולא נבחרו על ידך. " +
+                            "שינוי כאן הופך אותן לשלך, והלמידה כבר לא תדרוס אותן.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Accent
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (style in Styles.SUGGESTED) {
+                        val on = selected.any { it.equals(style, ignoreCase = true) }
+                        Chip(label = style, selected = on) {
+                            selected = if (on) {
+                                selected.filterNot { it.equals(style, ignoreCase = true) }
+                            } else {
+                                selected + style
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onApply(selected) }) { Text("שמור", color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
+}
+
+/**
+ * Sets a genre on a song.
+ *
+ * The suggestions are the app's own style words, because a genre on a
+ * downloaded file is usually blank or the name of the site it came from, and
+ * a list of familiar words is faster than typing and keeps the spelling
+ * consistent - which is what lets the engine group by it at all. Free text
+ * stays allowed for everything the list does not cover.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun GenreDialog(initial: String, onDismiss: () -> Unit, onApply: (String) -> Unit) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("ז'אנר") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    label = { Text("למשל: חסידי") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(10.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (style in Styles.SUGGESTED) {
+                        Chip(label = style, selected = text == style) { text = style }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onApply(text.trim()) }) { Text("שמור", color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
+}
+
+/** Asks before something that cannot be taken back. */
+@Composable
+internal fun ConfirmDialog(
+    title: String,
+    body: String,
+    confirm: String,
+    danger: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text(title) },
+        text = { Text(body, color = TextSecondary) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(confirm, color = if (danger) Color_Error else Accent)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
+}
+
+/**
+ * The folders, as folders: one level at a time, with a way back to any level
+ * above.
+ *
+ * This is the one view that matches how the files are actually filed, which
+ * for a library built by hand over years is often the only arrangement its
+ * owner trusts. A flat list of every folder that happens to hold an audio
+ * file loses exactly what makes that arrangement useful - the nesting - so
+ * the tree walks.
+ *
+ * Playing a folder means everything under it, not just the songs sitting
+ * directly in it: someone who clicks "play all" on a folder of folders is
+ * asking for the lot.
+ */
+@Composable
+private fun FolderTree(
+    songs: List<SongEntity>,
+    stats: Map<Long, SongStatsEntity>,
+    current: Long?,
+    onPlay: (List<SongEntity>, Int) -> Unit,
+    onShuffle: (List<SongEntity>) -> Unit,
+    onLike: (SongEntity) -> Unit,
+    onDislike: (SongEntity) -> Unit,
+    onMore: (SongEntity) -> Unit
+) {
+    val root = remember(songs) { Folders.build(songs) }
+    var path by remember(root.path) { mutableStateOf(root.path) }
+    // A rescan can remove the folder being looked at, and a path that no
+    // longer exists would otherwise show an empty screen with no way out.
+    val here = remember(root, path) { Folders.find(root, path) ?: root }
+    val trail = remember(root, here) { Folders.trail(root, here.path) }
+
+    if (root.total == 0) {
+        EmptyState(
+            title = "לא נמצאו תיקיות",
+            body = "התיקיות מופיעות אחרי שהאפליקציה סורקת את המחשב."
+        )
+        return
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Where we are, and a way back to any level above without clicking
+        // back once per folder.
+        if (trail.size > 1) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = GUTTER, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                trail.forEachIndexed { index, node ->
+                    if (index > 0) {
+                        Text(
+                            " › ",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextTertiary
+                        )
+                    }
+                    Text(
+                        text = if (index == 0) "הכל" else node.name,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (node.path == here.path) Accent else TextSecondary,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clickable(enabled = node.path != here.path) { path = node.path }
+                            .padding(vertical = 4.dp)
+                    )
+                }
+            }
+        }
+
+        LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
+            if (here.total > 0 && here.path != root.path) {
+                item {
+                    Row(
+                        modifier = Modifier.padding(horizontal = GUTTER, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Chip(label = "נגן הכל", selected = false, onClick = {
+                            val all = Folders.allSongs(here)
+                            if (all.isNotEmpty()) onPlay(all, 0)
+                        })
+                        Chip(label = "ערבב", selected = false, onClick = {
+                            onShuffle(Folders.allSongs(here))
+                        })
+                    }
+                }
+            }
+
+            items(here.children, key = { it.path }) { child ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { path = child.path }
+                        .padding(horizontal = GUTTER, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val (c1, c2) = gradientFor(child.path)
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Brush.linearGradient(listOf(c1, c2))),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Filled.Folder, contentDescription = null, tint = Color.White)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            child.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = buildString {
+                                append(child.total)
+                                append(" שירים")
+                                if (child.children.isNotEmpty()) {
+                                    append(" · ")
+                                    append(child.children.size)
+                                    append(" תיקיות")
+                                }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            maxLines = 1
+                        )
+                    }
+                    Icon(
+                        Icons.Filled.ChevronLeft,
+                        contentDescription = null,
+                        tint = TextTertiary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            itemsIndexed(here.songs, key = { _, song -> song.id }) { index, song ->
+                SongRow(
+                    song = song,
+                    isCurrent = song.id == current,
+                    liked = stats[song.id]?.liked ?: 0,
+                    rating = stats[song.id]?.rating ?: 0,
+                    onClick = { onPlay(here.songs, index) },
+                    onLike = { onLike(song) },
+                    onDislike = { onDislike(song) },
+                    onMore = { onMore(song) }
+                )
+            }
+
+            if (here.children.isEmpty() && here.songs.isEmpty()) {
+                item {
+                    EmptyState(title = "התיקייה ריקה", body = "אין כאן שירים שנסרקו.")
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The older flat list of folders, for anyone who preferred it.
+ *
+ * Every folder that holds a file, at one level, sorted. On a library filed
+ * two or three deep this is genuinely quicker than walking the tree, and the
+ * setting exists because which of the two is quicker depends entirely on how
+ * the person filed their music.
+ */
+@Composable
+private fun FolderList(
+    folders: List<FolderInfo>,
+    onOpenList: (DetailList) -> Unit
+) {
+    if (folders.isEmpty()) {
+        EmptyState(
+            title = "לא נמצאו תיקיות",
+            body = "התיקיות מופיעות אחרי שהאפליקציה סורקת את המחשב."
+        )
+        return
+    }
+    LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+        items(folders, key = { it.path }) { folder ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        onOpenList(
+                            DetailList(
+                                title = folder.name,
+                                subtitle = folder.path,
+                                songs = folder.songs,
+                                gradientKey = "folder:${folder.path}"
+                            )
+                        )
+                    }
+                    .padding(horizontal = GUTTER, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val (c1, c2) = gradientFor(folder.path)
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Brush.linearGradient(listOf(c1, c2))),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Filled.Folder, contentDescription = null, tint = Color.White)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(
+                        folder.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        "${folder.songs.size} שירים",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
                     )
                 }
             }

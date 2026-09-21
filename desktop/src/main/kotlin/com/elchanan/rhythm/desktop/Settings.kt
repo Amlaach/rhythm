@@ -17,11 +17,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -35,10 +36,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.elchanan.rhythm.desktop.audio.Equalizer
+import com.elchanan.rhythm.engine.ActionPlacement
 import com.elchanan.rhythm.engine.EngineTuning
+import com.elchanan.rhythm.engine.PlayerAction
 import com.elchanan.rhythm.engine.ShelfKind
+import com.elchanan.rhythm.engine.TasteReport
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
@@ -84,7 +88,9 @@ internal fun SettingsScreen(
     onExportPlaylists: () -> Unit,
     busy: Boolean,
     engineReport: String,
+    taste: TasteReport?,
     onEvaluate: () -> Unit,
+    onExcludedChanged: () -> Unit,
     onShelvesChanged: () -> Unit
 ) {
     // Read once into state so a flipped switch moves under the finger. Every
@@ -93,8 +99,12 @@ internal fun SettingsScreen(
     var autoAnalyze by remember { mutableStateOf(prefs.autoAnalyze) }
     var hideDuplicates by remember { mutableStateOf(prefs.hideDuplicates) }
     var searchPersonalized by remember { mutableStateOf(prefs.searchPersonalized) }
-    var searchLyrics by remember { mutableStateOf(prefs.searchLyrics) }
     var shelvesOpen by remember { mutableStateOf(false) }
+    var foldersOpen by remember { mutableStateOf(false) }
+    var separationsOpen by remember { mutableStateOf(false) }
+    var excluded by remember { mutableStateOf(prefs.excludedFolders) }
+    var separations by remember { mutableStateOf(prefs.styleSeparations) }
+    var folderTree by remember { mutableStateOf(prefs.folderTree) }
     var stripForeign by remember { mutableStateOf(prefs.tagStripForeign) }
     var writeTags by remember { mutableStateOf(prefs.writeTagsToFiles) }
     var resumeSpoken by remember { mutableStateOf(prefs.resumeSpoken) }
@@ -160,15 +170,6 @@ internal fun SettingsScreen(
 
             item {
                 SettingSection("הגדרות החיפוש", "איך תוצאות מסודרות")
-                SwitchRow(
-                    title = "חיפוש גם במילות השיר",
-                    subtitle = "נקרא מתוך הקבצים עצמם, אז זה רץ אחרי תוצאות השם " +
-                        "ולעולם לא מעכב אותן",
-                    checked = searchLyrics
-                ) {
-                    searchLyrics = it
-                    prefs.searchLyrics = it
-                }
                 SwitchRow(
                     title = "התאמה אישית בתוצאות",
                     subtitle = "מה שאתה מנגן הרבה עולה למעלה בתוצאות",
@@ -331,6 +332,38 @@ internal fun SettingsScreen(
                     resumeSpoken = it
                     prefs.resumeSpoken = it
                 }
+                SwitchRow(
+                    title = "תיקיות בתוך תיקיות",
+                    subtitle = "מראה את התיקיות כמו שהן יושבות על הדיסק, " +
+                        "ולא כרשימה שטוחה אחת",
+                    checked = folderTree
+                ) {
+                    folderTree = it
+                    prefs.folderTree = it
+                }
+                // Not a switch, because what gets left out is a list of
+                // whatever this particular disk happens to have on it.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = GUTTER, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("תיקיות שלא ייסרקו", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            text = excluded.joinToString(", ").ifBlank { "כרגע נסרק הכל" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Button(
+                        onClick = { foldersOpen = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("ערוך") }
+                }
             }
 
             item {
@@ -352,6 +385,35 @@ internal fun SettingsScreen(
                     if (lyricsFolder.isNotEmpty()) {
                         OutlinedButton(onClick = { prefs.lyricsFolder = "" }) { Text("נקה") }
                     }
+                }
+            }
+
+            item {
+                SettingSection(
+                    "סגנונות שלא יתערבבו",
+                    "מה שלא נשמע טוב אחד אחרי השני, שורה לכל כלל"
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = GUTTER, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = separations.lines()
+                            .filter { it.isNotBlank() }
+                            .joinToString(" · ")
+                            .ifBlank { "אין כרגע הפרדות" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Button(
+                        onClick = { separationsOpen = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("ערוך") }
                 }
             }
 
@@ -405,6 +467,47 @@ internal fun SettingsScreen(
                 // Last, and outlined rather than filled. It throws away every
                 // rating, like and play count in the database, which is the
                 // one thing here that months of listening cannot be got back.
+                val r = taste
+                if (r != null) {
+                    Fact("קשרים סימטריים שנלמדו", "${r.learnedPairs}")
+                    Fact("מעברים מכוונים שנלמדו", "${r.learnedTransitions}")
+                    Fact(
+                        "קצב חציוני בספרייה",
+                        if (r.medianBpm > 0) "${r.medianBpm} BPM" else "—"
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "הסגנונות המובילים שלך",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(horizontal = GUTTER)
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    if (r.topStyles.isEmpty()) {
+                        Text(
+                            "אחרי שתדרג כמה אמנים ותסמן סגנונות, כאן יופיע פרופיל הטעם",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            modifier = Modifier.padding(horizontal = GUTTER)
+                        )
+                    } else {
+                        for ((style, weight) in r.topStyles) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = GUTTER, vertical = 3.dp)
+                            ) {
+                                Text(style, style = MaterialTheme.typography.bodyMedium)
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    String.format(Locale.ROOT, "%.2f", weight),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
                 OutlinedButton(
                     onClick = onResetStats,
                     modifier = Modifier.padding(horizontal = GUTTER)
@@ -412,6 +515,44 @@ internal fun SettingsScreen(
             }
 
         }
+    }
+
+    if (foldersOpen) {
+        LineListDialog(
+            title = "תיקיות שלא ייסרקו",
+            hint = "חלק משם הנתיב, שורה לכל תיקייה. כל קובץ שהנתיב שלו " +
+                "מכיל את הטקסט הזה לא ייכנס לספרייה.\n\nלמשל:\nWhatsApp\nRecordings\nRingtones",
+            initial = excluded.joinToString("\n"),
+            confirm = "שמור וסרוק",
+            onDismiss = { foldersOpen = false },
+            onSave = { text ->
+                val list = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                excluded = list
+                prefs.excludedFolders = list
+                foldersOpen = false
+                // A folder that was excluded is still in the database until
+                // something goes and looks again, so the rescan is part of
+                // saving rather than something to remember to do afterwards.
+                onExcludedChanged()
+            }
+        )
+    }
+
+    if (separationsOpen) {
+        LineListDialog(
+            title = "סגנונות שלא יתערבבו",
+            hint = "שורה לכל כלל, והסגנונות בתוכה מופרדים בפסיק. " +
+                "שני סגנונות באותה שורה לא יופיעו יחד באותו מיקס.\n\nלמשל:\n" +
+                "חסידי, מזרחי\nקלאסי, רוק",
+            initial = separations,
+            confirm = "שמור",
+            onDismiss = { separationsOpen = false },
+            onSave = { text ->
+                separations = text
+                prefs.styleSeparations = text
+                separationsOpen = false
+            }
+        )
     }
 
     if (shelvesOpen) {
@@ -503,24 +644,46 @@ private val LIBRARY_TAB_CHOICES = listOf(
 /**
  * The player and the sound, which on the phone is one screen and here is too.
  *
- * The equaliser is in it rather than behind its own entry, because "make the
- * bass louder" and "open the player when I press play" are the same kind of
- * decision and nobody goes looking for them in two places.
+ * The equaliser opens from here rather than living inside it. Thirty one
+ * faders, a response curve and a row of presets are a surface of their own,
+ * and the phone gives them a screen of their own for the same reason.
  */
 @Composable
 internal fun PlayerSettingsScreen(
     prefs: Prefs,
-    equalizer: Equalizer,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenEqualizer: () -> Unit
 ) {
     var openPlayerOnPlay by remember { mutableStateOf(prefs.openPlayerOnPlay) }
     var autoRadio by remember { mutableStateOf(prefs.autoRadio) }
+    var resumePrompt by remember { mutableStateOf(prefs.resumePrompt) }
+    var normalizeVolume by remember { mutableStateOf(prefs.normalizeVolume) }
+    var tapArtwork by remember { mutableStateOf(prefs.tapArtworkToggles) }
+    var arrangementOpen by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = "הגדרות הנגן והשמע", onBack = onBack)
         LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
             item {
                 SettingSection("הנגן", null)
+                ActionRow(
+                    title = "סידור הכפתורים והתפריט",
+                    subtitle = "לאיזו פעולה יהיה כפתור משלה במסך הנגן, לאיזו פריט " +
+                        "בתפריט שלוש הנקודות, ואיזו תוסתר",
+                    action = "פתח",
+                    enabled = true,
+                    primary = false,
+                    onClick = { arrangementOpen = true }
+                )
+                SwitchRow(
+                    title = "לחיצה על התמונה עוצרת וממשיכה",
+                    subtitle = "התמונה הגדולה במסך הנגן היא הדבר הכי קל לפגוע בו " +
+                        "בלי להסתכל",
+                    checked = tapArtwork
+                ) {
+                    tapArtwork = it
+                    prefs.tapArtworkToggles = it
+                }
                 SwitchRow(
                     title = "פתיחת הנגן בהשמעה",
                     subtitle = "המסך המלא נפתח ברגע שמשהו מתחיל",
@@ -537,82 +700,103 @@ internal fun PlayerSettingsScreen(
                     autoRadio = it
                     prefs.autoRadio = it
                 }
+                SwitchRow(
+                    title = "הצעה להמשיך מהמיקום האחרון",
+                    subtitle = "כששיר נעזב באמצע ופותחים אותו שוב, מוצגת לכמה שניות " +
+                        "הצעה לחזור לנקודה — עם הזמן המדויק. נשמר רק לשירים " +
+                        "שנעזבו אחרי חצי דקה ולפני הסוף",
+                    checked = resumePrompt
+                ) {
+                    resumePrompt = it
+                    prefs.resumePrompt = it
+                }
+                SwitchRow(
+                    title = "איזון עוצמה בין שירים",
+                    subtitle = "מנמיך את השירים החזקים במיוחד כדי שלא תצטרך לגעת " +
+                        "בעוצמה בכל מעבר. דורש שהשירים ינותחו קודם",
+                    checked = normalizeVolume
+                ) {
+                    normalizeVolume = it
+                    prefs.normalizeVolume = it
+                }
+                // No "pause when the volume reaches zero". On the phone that
+                // watches the system media stream, which the volume rocker
+                // moves; here the operating system owns the mixer and does
+                // not tell the app when someone drags it to the bottom. A
+                // switch that cannot see what it claims to watch is worse
+                // than the absence of one.
             }
             item {
-                SettingSection("אקולייזר", "שש רצועות, נשמר בין הפעלות")
-                EqualizerPanel(prefs = prefs, equalizer = equalizer)
+                SettingSection("אקולייזר", "31 תדרים, נשמר בין הפעלות")
+                ActionRow(
+                    title = "אקולייזר",
+                    subtitle = "31 תדרים עם עקומת התגובה שהשמע באמת מקבל, " +
+                        "מוכנים מראש, ועוצמה כללית",
+                    action = "פתח",
+                    enabled = true,
+                    primary = false,
+                    onClick = onOpenEqualizer
+                )
             }
         }
+    }
+    if (arrangementOpen) {
+        PlayerActionsDialog(prefs = prefs, onDismiss = { arrangementOpen = false })
     }
 }
 
+/**
+ * Where every action sits: its own button on the player, an item in the
+ * three dot menu, or nowhere at all.
+ *
+ * Every choice is written straight through. There is nothing to confirm - a
+ * placement that moved without the player following it would be a lie about
+ * what the app is doing.
+ */
 @Composable
-private fun EqualizerPanel(prefs: Prefs, equalizer: Equalizer) {
-    // The sliders read from the filter and write to it directly. There is no
-    // copy of these six numbers anywhere else, which is what stops a slider
-    // and the sound it is meant to change from disagreeing. They are written
-    // to the database as well, but only on the way past.
-    var version by remember { mutableStateOf(0) }
-    var on by remember { mutableStateOf(equalizer.enabled) }
-
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(
-                onClick = {
-                    on = !on
-                    equalizer.enabled = on
-                    prefs.eqEnabled = on
-                },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (on) Accent else Surface2
-                )
-            ) { Text(if (on) "מופעל" else "כבוי") }
-            OutlinedButton(
-                onClick = {
-                    equalizer.reset()
-                    prefs.eqBands = List(Prefs.BAND_COUNT) { 0 }
-                    version++
-                },
-                modifier = Modifier.padding(start = 8.dp)
-            ) { Text("אפס") }
-        }
-        Spacer(Modifier.height(8.dp))
-        for (band in Equalizer.FREQUENCIES.indices) {
-            val hz = Equalizer.FREQUENCIES[band].toInt()
-            val label = if (hz >= 1000) "${hz / 1000}kHz" else "${hz}Hz"
-            var live by remember(version, band) { mutableStateOf(equalizer.gain(band)) }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.width(56.dp)
-                )
-                Slider(
-                    value = live,
-                    valueRange = -Equalizer.MAX_DB..Equalizer.MAX_DB,
-                    onValueChange = {
-                        live = it
-                        equalizer.setGain(band, it)
-                    },
-                    // Saved when the slider is let go, not while it is moving:
-                    // a drag across the width of the window is a few hundred
-                    // values, and every one of them would be a write.
-                    onValueChangeFinished = {
-                        prefs.eqBands = Equalizer.FREQUENCIES.indices.map {
-                            equalizer.gain(it).toInt()
+private fun PlayerActionsDialog(prefs: Prefs, onDismiss: () -> Unit) {
+    var actions by remember { mutableStateOf(prefs.playerActions) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("סידור הכפתורים והתפריט") },
+        text = {
+            LazyColumn(modifier = Modifier.heightIn(max = 460.dp)) {
+                item {
+                    Text(
+                        "לכל פעולה אפשר לבחור: כפתור משלה במסך הנגן, פריט בתפריט " +
+                            "השלוש נקודות, או מוסתרת לגמרי.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
+                items(DESKTOP_PLAYER_ACTIONS) { action ->
+                    val current = PlayerAction.placementOf(actions, action)
+                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                        Text(action.label, style = MaterialTheme.typography.bodyLarge)
+                        if (action.about.isNotEmpty()) {
+                            Text(
+                                action.about,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
                         }
-                    },
-                    enabled = on,
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-                )
-                Text(
-                    "${live.toInt()} dB",
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.width(52.dp)
-                )
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            for (choice in ActionPlacement.entries) {
+                                Chip(label = choice.label, selected = current == choice) {
+                                    actions = actions + (action.key to choice.name)
+                                    prefs.playerActions = actions
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        }
-    }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }
+    )
 }
 
 /**
@@ -808,4 +992,69 @@ private fun Knob(
             onValueChangeFinished = { onDone(live) }
         )
     }
+}
+
+/**
+ * The actions this build can actually carry out.
+ *
+ * Two of the phone's are missing rather than hidden, and the difference
+ * matters: a hidden action is one the user can switch back on, and these two
+ * would do nothing if they did.
+ *
+ * Speed needs the decoder to resample while keeping the pitch. ExoPlayer
+ * does that on the phone; javax.sound hands over raw PCM and a line to pour
+ * it into, so the same thing here means a time stretch written by hand -
+ * real work, and not work this screen should pretend is already done.
+ *
+ * Share is Android's own idea. Windows has no equivalent to hand a file to
+ * whichever application the user picks from a sheet, and a button that opens
+ * a file manager instead is a different feature wearing the same name.
+ */
+internal val DESKTOP_PLAYER_ACTIONS: List<PlayerAction> =
+    PlayerAction.entries.filterNot {
+        it == PlayerAction.SPEED || it == PlayerAction.SHARE
+    }
+
+/**
+ * A dialog holding a list written one item per line.
+ *
+ * Used for the two settings that are lists of free text rather than choices:
+ * the folders to leave out of a scan, and the pairs of styles that should
+ * never share a mix. A multi-line box rather than an add-one-at-a-time list,
+ * because these are edited rarely and in bulk - usually pasted in once and
+ * then left alone for months - and a text box can be read, corrected and
+ * reordered in one go where a list of rows cannot.
+ */
+@Composable
+private fun LineListDialog(
+    title: String,
+    hint: String,
+    initial: String,
+    confirm: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text(title) },
+        text = {
+            Column {
+                Text(hint, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 220.dp)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(text) }) { Text(confirm, color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
 }

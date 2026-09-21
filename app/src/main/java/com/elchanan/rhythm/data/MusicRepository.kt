@@ -1,19 +1,16 @@
 package com.elchanan.rhythm.data
 
-import com.elchanan.rhythm.engine.Recap
-import com.elchanan.rhythm.engine.RecapData
-import com.elchanan.rhythm.engine.Names
 import android.content.Context
-import com.elchanan.rhythm.data.db.AffinityEntity
-import androidx.room.withTransaction
-import com.elchanan.rhythm.data.db.BookmarkEntity
-import com.elchanan.rhythm.data.db.PlaybackPositionEntity
-import com.elchanan.rhythm.data.db.AudioFeatureEntity
-import com.elchanan.rhythm.data.db.ArtistEntity
 import android.net.Uri
+import androidx.room.withTransaction
+import com.elchanan.rhythm.data.db.AffinityEntity
+import com.elchanan.rhythm.data.db.ArtistEntity
+import com.elchanan.rhythm.data.db.AudioFeatureEntity
+import com.elchanan.rhythm.data.db.BookmarkEntity
 import com.elchanan.rhythm.data.db.HistoryEntity
 import com.elchanan.rhythm.data.db.LyricsEntity
 import com.elchanan.rhythm.data.db.MusicDao
+import com.elchanan.rhythm.data.db.PlaybackPositionEntity
 import com.elchanan.rhythm.data.db.PlaylistEntity
 import com.elchanan.rhythm.data.db.PlaylistItemEntity
 import com.elchanan.rhythm.data.db.RhythmDatabase
@@ -22,13 +19,17 @@ import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.data.db.TransitionEntity
 import com.elchanan.rhythm.engine.AcousticSpace
-import com.elchanan.rhythm.engine.TransitionEdge
+import com.elchanan.rhythm.engine.Loudness
+import com.elchanan.rhythm.engine.Names
+import com.elchanan.rhythm.engine.Recap
+import com.elchanan.rhythm.engine.RecapData
 import com.elchanan.rhythm.engine.Recommender
+import com.elchanan.rhythm.engine.TransitionEdge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -488,12 +489,7 @@ class MusicRepository(
      * collection out without making the whole thing quieter.
      */
     suspend fun loudnessGains(): Map<Long, Float> = withContext(Dispatchers.IO) {
-        val measured = dao.allFeatures().filter { it.energy > 0f }
-        if (measured.size < 8) return@withContext emptyMap()
-        val sorted = measured.map { it.energy }.sorted()
-        val index = ((sorted.size - 1) * 0.65).toInt().coerceIn(0, sorted.size - 1)
-        val reference = sorted[index]
-        measured.associate { f -> f.songId to (reference / f.energy).coerceIn(0.45f, 1f) }
+        Loudness.gains(dao.allFeatures())
     }
 
     /**

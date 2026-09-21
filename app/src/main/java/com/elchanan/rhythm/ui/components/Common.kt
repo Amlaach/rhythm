@@ -1,7 +1,6 @@
 package com.elchanan.rhythm.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -54,7 +53,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -63,6 +61,7 @@ import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.Bg
+import com.elchanan.rhythm.ui.theme.RhythmMark
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface2
 import com.elchanan.rhythm.ui.theme.Surface3
@@ -497,39 +496,6 @@ fun Chip(
 
 /** Softened rectangle rather than a pill - reads as a surface, not a tag. */
 private val ChipShape = RoundedCornerShape(10.dp)
-
-/**
- * The app's mark: three leaning bars in the accent gradient.
- *
- * Drawn rather than shipped as an image so it stays sharp at any size and picks
- * up the same two colours the rest of the app uses. The proportions match the
- * launcher icon, so the thing in the corner of the screen and the thing on the
- * home screen read as one identity.
- */
-@Composable
-fun RhythmMark(modifier: Modifier = Modifier, size: Dp = 30.dp) {
-    val brush = Brush.linearGradient(listOf(Accent, Accent2))
-    Canvas(modifier = modifier.size(size)) {
-        val unit = this.size.minDimension / 24f
-        val stroke = 4.0f * unit
-        // start and end of each bar, in a 24x24 frame
-        val bars = listOf(
-            Triple(5.6f, 19.6f, 10.2f) to 6.8f,
-            Triple(10.0f, 17.2f, 13.4f) to 9.0f,
-            Triple(13.4f, 19.9f, 18.4f) to 6.4f
-        )
-        for ((from, endY) in bars) {
-            val (x0, y0, x1) = from
-            drawLine(
-                brush = brush,
-                start = Offset(x0 * unit, y0 * unit),
-                end = Offset(x1 * unit, endY * unit),
-                strokeWidth = stroke,
-                cap = StrokeCap.Round
-            )
-        }
-    }
-}
 
 @Composable
 fun LikeButtons(

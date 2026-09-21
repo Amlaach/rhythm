@@ -4,12 +4,16 @@ import com.elchanan.rhythm.data.db.ArtistEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.BookmarkEntity
 import com.elchanan.rhythm.data.db.HistoryEntity
-import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.data.db.PlaylistEntity
 import com.elchanan.rhythm.data.db.PlaylistItemEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
+import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.engine.EngineTuning
+import com.elchanan.rhythm.engine.Names
+import com.elchanan.rhythm.engine.Recommender
+import com.elchanan.rhythm.engine.Styles
+import com.elchanan.rhythm.engine.TransitionEdge
 import java.io.File
 import java.sql.Connection
 import java.sql.DriverManager
@@ -161,6 +165,17 @@ class Store private constructor(private val conn: Connection) {
             )
             """.trimIndent(),
             "CREATE INDEX IF NOT EXISTS bookmarks_songId ON bookmarks(songId)",
+            // Words someone typed or pasted in, which is the one source that
+            // cannot be found again by looking at the file. Tags and sidecar
+            // files are re-read on demand and never stored; this table holds
+            // only what would otherwise be lost.
+            """
+            CREATE TABLE IF NOT EXISTS lyrics (
+                songId INTEGER PRIMARY KEY, text TEXT NOT NULL,
+                synced TEXT NOT NULL, source TEXT NOT NULL,
+                updatedAt INTEGER NOT NULL
+            )
+            """.trimIndent(),
             // Where a long recording was left. Separate from the bookmarks
             // because there is exactly one of these per file and it is
             // overwritten constantly, where a bookmark is made on purpose and
@@ -182,11 +197,50 @@ class Store private constructor(private val conn: Connection) {
                 artistName TEXT NOT NULL DEFAULT '', albumName TEXT NOT NULL DEFAULT ''
             )
             """.trimIndent(),
-            "CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)"
+            "CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)",
+            // What was heard near what, and what followed what. Both are
+            // learned from listening alone, and both are read by the
+            // recommender on every call - which is why they are kept here
+            // rather than the engine being handed two empty maps. Without
+            // them a radio loses its heaviest term and the sequencer has
+            // nothing to order a mix by but how things sound.
+            //
+            // Symmetric: every pair is written in both directions, so "what
+            // goes with this" has one answer whichever end it is asked from.
+            """
+            CREATE TABLE IF NOT EXISTS affinity (
+                a INTEGER NOT NULL, b INTEGER NOT NULL,
+                weight REAL NOT NULL, updatedAt INTEGER NOT NULL,
+                PRIMARY KEY (a, b)
+            )
+            """.trimIndent(),
+            // Directed, and deliberately a second table: A then B is a
+            // different fact from B then A, and the penalty column is what
+            // separates a transition that was listened to from one that was
+            // skipped away from.
+            """
+            CREATE TABLE IF NOT EXISTS transitions (
+                a INTEGER NOT NULL, b INTEGER NOT NULL,
+                weight REAL NOT NULL, penalty REAL NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                PRIMARY KEY (a, b)
+            )
+            """.trimIndent()
         )
 
         private const val KEY_FOLDERS = "folders"
         private const val KEY_SEED = "feedSeed"
+
+        /**
+         * Edges kept per table.
+         *
+         * These two grow with how much someone listens rather than with how
+         * much music they own, so unlike everything else here they have no
+         * ceiling of their own. Twenty thousand is far more than the engine
+         * ever reads and about a megabyte on disk.
+         */
+        private const val EDGE_LIMIT = 20_000
+        private const val TRIM_EVERY = 200
     }
 
     // ---------------------------------------------------------------------
@@ -359,31 +413,194 @@ class Store private constructor(private val conn: Connection) {
         }
     }
 
-    /** Records that a song was played, and whether it was heard out. */
+    /**
+     * Records that a song was listened to.
+     *
+     * A play and a skip are separate events and never both, which is the
+     * rule the phone measures by and the one the recommender is built on:
+     * `attempts = playCount + skipCount`, and a song counted as both is a
+     * song counted twice. Whether something reached this at all is
+     * [com.elchanan.rhythm.desktop.countsAsPlay]'s decision, not this one.
+     *
+     * The time-of-day and day-of-week buckets are filled here too. The
+     * engine reads them - `timeFit` and `dayFit` are two of the terms in
+     * every score - and a bucket nobody fills is a term that is silently
+     * always zero.
+     */
     @Synchronized
     fun notePlay(songId: Long, listenedMs: Long, completed: Boolean) {
+        val now = System.currentTimeMillis()
         conn.prepareStatement(
             "INSERT INTO history (songId, playedAt, completed, listenedMs) VALUES (?,?,?,?)"
         ).use { ps ->
             ps.setLong(1, songId)
-            ps.setLong(2, System.currentTimeMillis())
+            ps.setLong(2, now)
             ps.setInt(3, if (completed) 1 else 0)
             ps.setLong(4, listenedMs)
             ps.executeUpdate()
         }
         ensureStats(songId)
+        // The bucket this play lands in, by the same reckoning the engine
+        // reads it back with - Recommender owns both, so they cannot drift.
+        val bucket = Recommender.bucketOf(now)
+        val weekend = Recommender.isWeekend(now)
         conn.prepareStatement(
             "UPDATE song_stats SET playCount = playCount + 1, " +
-                "completeCount = completeCount + ?, skipCount = skipCount + ?, " +
-                "listenedMs = listenedMs + ?, lastPlayedAt = ? WHERE songId = ?"
+                "completeCount = completeCount + ?, " +
+                "listenedMs = listenedMs + ?, lastPlayedAt = ?, " +
+                "b0 = b0 + ?, b1 = b1 + ?, b2 = b2 + ?, b3 = b3 + ?, " +
+                "dWeekend = dWeekend + ?, dWeekday = dWeekday + ? WHERE songId = ?"
         ).use { ps ->
             ps.setInt(1, if (completed) 1 else 0)
-            ps.setInt(2, if (completed) 0 else 1)
-            ps.setLong(3, listenedMs.coerceAtLeast(0L))
-            ps.setLong(4, System.currentTimeMillis())
-            ps.setLong(5, songId)
+            ps.setLong(2, listenedMs.coerceAtLeast(0L))
+            ps.setLong(3, now)
+            ps.setInt(4, if (bucket == 0) 1 else 0)
+            ps.setInt(5, if (bucket == 1) 1 else 0)
+            ps.setInt(6, if (bucket == 2) 1 else 0)
+            ps.setInt(7, if (bucket == 3) 1 else 0)
+            ps.setInt(8, if (weekend) 1 else 0)
+            ps.setInt(9, if (weekend) 0 else 1)
+            ps.setLong(10, songId)
             ps.executeUpdate()
         }
+    }
+
+    /**
+     * Records that a song was moved on from before it had been heard.
+     *
+     * No history row: the history is what the recap counts, and a track
+     * someone skipped past is not a minute they listened to. The time it did
+     * get is still added, because that is the number "how much of this
+     * actually gets heard" is built from.
+     */
+    @Synchronized
+    fun noteSkip(songId: Long, listenedMs: Long) {
+        ensureStats(songId)
+        conn.prepareStatement(
+            "UPDATE song_stats SET skipCount = skipCount + 1, " +
+                "listenedMs = listenedMs + ?, lastPlayedAt = ? WHERE songId = ?"
+        ).use { ps ->
+            ps.setLong(1, listenedMs.coerceAtLeast(0L))
+            ps.setLong(2, System.currentTimeMillis())
+            ps.setLong(3, songId)
+            ps.executeUpdate()
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // What goes with what
+    // ---------------------------------------------------------------------
+
+    /**
+     * Strengthens the link between two songs heard close together.
+     *
+     * Written in both directions by the caller, because the question this
+     * answers is symmetric. The weight accumulates rather than being set:
+     * a pair heard together ten times should outrank one heard together
+     * once, and the engine divides the popularity back out at the far end.
+     */
+    @Synchronized
+    fun bumpAffinity(a: Long, b: Long, weight: Double) {
+        if (a == b || a <= 0L || b <= 0L) return
+        conn.prepareStatement(
+            "INSERT INTO affinity (a, b, weight, updatedAt) VALUES (?,?,?,?) " +
+                "ON CONFLICT(a, b) DO UPDATE SET weight = affinity.weight + excluded.weight, " +
+                "updatedAt = excluded.updatedAt"
+        ).use { ps ->
+            ps.setLong(1, a)
+            ps.setLong(2, b)
+            ps.setDouble(3, weight)
+            ps.setLong(4, System.currentTimeMillis())
+            ps.executeUpdate()
+        }
+    }
+
+    /**
+     * Records that [to] followed [from], and how that went.
+     *
+     * Two counters on one row rather than two rows. A transition that was
+     * listened to and a transition that was skipped away from are the same
+     * observation with opposite signs, and the engine reads them together:
+     * a pair seen once scores a third of what a pair seen often does.
+     */
+    @Synchronized
+    fun noteTransition(from: Long, to: Long, skipped: Boolean) {
+        if (from == to || from <= 0L || to <= 0L) return
+        conn.prepareStatement(
+            "INSERT INTO transitions (a, b, weight, penalty, updatedAt) VALUES (?,?,?,?,?) " +
+                "ON CONFLICT(a, b) DO UPDATE SET " +
+                "weight = transitions.weight + excluded.weight, " +
+                "penalty = transitions.penalty + excluded.penalty, " +
+                "updatedAt = excluded.updatedAt"
+        ).use { ps ->
+            ps.setLong(1, from)
+            ps.setLong(2, to)
+            ps.setDouble(3, if (skipped) 0.0 else 1.0)
+            ps.setDouble(4, if (skipped) 1.0 else 0.0)
+            ps.setLong(5, System.currentTimeMillis())
+            ps.executeUpdate()
+        }
+    }
+
+    /** The co-occurrence edges, in the shape the recommender takes them. */
+    @Synchronized
+    fun affinityMap(): Map<Long, Map<Long, Double>> {
+        val out = HashMap<Long, MutableMap<Long, Double>>()
+        conn.createStatement().use { st ->
+            val rs = st.executeQuery("SELECT a, b, weight FROM affinity")
+            while (rs.next()) {
+                out.getOrPut(rs.getLong("a")) { HashMap() }[rs.getLong("b")] =
+                    rs.getDouble("weight")
+            }
+        }
+        return out
+    }
+
+    @Synchronized
+    fun transitionMap(): Map<Long, Map<Long, TransitionEdge>> {
+        val out = HashMap<Long, MutableMap<Long, TransitionEdge>>()
+        conn.createStatement().use { st ->
+            val rs = st.executeQuery("SELECT a, b, weight, penalty FROM transitions")
+            while (rs.next()) {
+                out.getOrPut(rs.getLong("a")) { HashMap() }[rs.getLong("b")] =
+                    TransitionEdge(rs.getDouble("weight"), rs.getDouble("penalty"))
+            }
+        }
+        return out
+    }
+
+    /**
+     * Drops the weakest edges once either table has grown past what the
+     * engine can use.
+     *
+     * Called every so often rather than on every play: the count is not free
+     * and the tables only ever grow slowly. An edge seen once years ago
+     * carries no signal anything would miss; the strong ones are the point.
+     */
+    @Synchronized
+    fun trimEdges() {
+        conn.createStatement().use { st ->
+            st.execute(
+                "DELETE FROM affinity WHERE rowid NOT IN " +
+                    "(SELECT rowid FROM affinity ORDER BY weight DESC LIMIT $EDGE_LIMIT)"
+            )
+            st.execute(
+                "DELETE FROM transitions WHERE rowid NOT IN " +
+                    "(SELECT rowid FROM transitions ORDER BY weight DESC LIMIT $EDGE_LIMIT)"
+            )
+        }
+    }
+
+    /** How many plays since the tables were last trimmed. */
+    private var playsSinceTrim = 0
+
+    /** True once enough has been written that a trim is worth the query. */
+    @Synchronized
+    fun dueForTrim(): Boolean {
+        playsSinceTrim++
+        if (playsSinceTrim < TRIM_EVERY) return false
+        playsSinceTrim = 0
+        return true
     }
 
     private fun ensureStats(songId: Long) {
@@ -530,6 +747,171 @@ class Store private constructor(private val conn: Connection) {
             ps.setString(2, displayName)
             ps.setString(3, styles)
             ps.setLong(4, System.currentTimeMillis())
+            ps.executeUpdate()
+        }
+    }
+
+    /**
+     * The same rating and style words across a group of artists.
+     *
+     * A null leaves that field as it was: the group dialog can set a rating
+     * without touching anyone's tags, or tag without re-rating, and picking
+     * neither is a no-op rather than a wipe. [replaceStyles] is the
+     * difference between "these are also this" and "these are only this".
+     *
+     * One transaction, because forty artists half updated is a worse state
+     * than forty not updated at all.
+     *
+     * Unlike [setArtistRating] the rating here does not toggle off when it
+     * matches: applying four stars to a group means all of them end on four,
+     * which is the whole point of doing it as a group.
+     */
+    @Synchronized
+    fun bulkUpdateArtists(
+        keys: List<String>,
+        names: Map<String, String>,
+        rating: Int?,
+        styles: List<String>?,
+        replaceStyles: Boolean
+    ) {
+        if (keys.isEmpty() || (rating == null && styles == null)) return
+        val previous = conn.autoCommit
+        conn.autoCommit = false
+        try {
+            for (key in keys) {
+                val name = names[key] ?: key
+                if (rating != null) {
+                    conn.prepareStatement(
+                        "INSERT INTO artists (artistKey, displayName, rating, updatedAt) " +
+                            "VALUES (?,?,?,?) ON CONFLICT(artistKey) DO UPDATE SET " +
+                            "rating = excluded.rating, updatedAt = excluded.updatedAt"
+                    ).use { ps ->
+                        ps.setString(1, key)
+                        ps.setString(2, name)
+                        ps.setInt(3, rating)
+                        ps.setLong(4, System.currentTimeMillis())
+                        ps.executeUpdate()
+                    }
+                }
+                if (styles != null) {
+                    val merged = if (replaceStyles) {
+                        Styles.join(styles)
+                    } else {
+                        Styles.join(Styles.parse(artistStyles(key)) + styles)
+                    }
+                    setArtistStyles(key, name, merged)
+                }
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = previous
+        }
+    }
+
+    /** The style words already on an artist, or empty when there is no row. */
+    @Synchronized
+    fun artistStyles(artistKey: String): String {
+        conn.prepareStatement("SELECT styles FROM artists WHERE artistKey = ?").use { ps ->
+            ps.setString(1, artistKey)
+            val rs = ps.executeQuery()
+            return if (rs.next()) rs.getString("styles").orEmpty() else ""
+        }
+    }
+
+    /**
+     * Artists typed in one per line as "name | rating | styles".
+     *
+     * For the case the group dialog cannot serve: a list written elsewhere,
+     * or dictated, and pasted in whole. A blank field leaves what was there,
+     * so the same list can be pasted twice without the second paste undoing
+     * anything, and a line starting with # is a comment.
+     *
+     * Returns how many lines were taken, which is the only honest way to
+     * report on free text: it says nothing about whether the names matched
+     * anything in the library, because an artist can be rated before their
+     * music is scanned.
+     */
+    @Synchronized
+    fun importArtistLines(text: String): Int {
+        var count = 0
+        for (raw in text.lines()) {
+            val line = raw.trim()
+            if (line.isEmpty() || line.startsWith("#")) continue
+            val parts = line.split('|').map { it.trim() }
+            val name = parts.getOrNull(0).orEmpty()
+            if (name.isEmpty()) continue
+            val rating = parts.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 5) ?: 0
+            val styles = parts.getOrNull(2).orEmpty()
+            val key = Names.normalizeKey(name)
+            if (rating > 0) {
+                conn.prepareStatement(
+                    "INSERT INTO artists (artistKey, displayName, rating, updatedAt) " +
+                        "VALUES (?,?,?,?) ON CONFLICT(artistKey) DO UPDATE SET " +
+                        "rating = excluded.rating, updatedAt = excluded.updatedAt"
+                ).use { ps ->
+                    ps.setString(1, key)
+                    ps.setString(2, name)
+                    ps.setInt(3, rating)
+                    ps.setLong(4, System.currentTimeMillis())
+                    ps.executeUpdate()
+                }
+            }
+            if (styles.isNotBlank()) setArtistStyles(key, name, styles)
+            count++
+        }
+        return count
+    }
+
+    /**
+     * The words someone wrote for a song, or null when nobody has.
+     *
+     * Only the manual ones live here. What is in the file's tags, or in a
+     * .lrc beside it, is read from the file every time [SongLyrics] is asked
+     * - copying it into the database would mean a correction made in a tag
+     * editor silently having no effect.
+     */
+    @Synchronized
+    fun lyrics(songId: Long): Pair<String, String>? {
+        conn.prepareStatement("SELECT text, synced FROM lyrics WHERE songId = ?").use { ps ->
+            ps.setLong(1, songId)
+            val rs = ps.executeQuery()
+            if (!rs.next()) return null
+            val text = rs.getString("text").orEmpty()
+            val synced = rs.getString("synced").orEmpty()
+            return if (text.isBlank() && synced.isBlank()) null else text to synced
+        }
+    }
+
+    /**
+     * Saves words for a song, or clears them when both halves are empty.
+     *
+     * Clearing rather than storing a blank row, so that emptying the editor
+     * puts the song back to whatever its file says rather than pinning it to
+     * nothing - which is what someone who cleared the box is asking for.
+     */
+    @Synchronized
+    fun setLyrics(songId: Long, text: String, synced: String) {
+        if (text.isBlank() && synced.isBlank()) {
+            conn.prepareStatement("DELETE FROM lyrics WHERE songId = ?").use { ps ->
+                ps.setLong(1, songId)
+                ps.executeUpdate()
+            }
+            return
+        }
+        conn.prepareStatement(
+            "INSERT INTO lyrics (songId, text, synced, source, updatedAt) VALUES (?,?,?,?,?) " +
+                "ON CONFLICT(songId) DO UPDATE SET text = excluded.text, " +
+                "synced = excluded.synced, source = excluded.source, " +
+                "updatedAt = excluded.updatedAt"
+        ).use { ps ->
+            ps.setLong(1, songId)
+            ps.setString(2, text)
+            ps.setString(3, synced)
+            ps.setString(4, "manual")
+            ps.setLong(5, System.currentTimeMillis())
             ps.executeUpdate()
         }
     }
@@ -801,6 +1183,11 @@ class Store private constructor(private val conn: Connection) {
                 st.execute("DELETE FROM song_stats")
                 st.execute("DELETE FROM history")
                 st.execute("DELETE FROM positions")
+                // What goes with what was learned entirely from those plays,
+                // so it goes with them. Leaving it would keep recommending
+                // out of a history the user has just asked to be forgotten.
+                st.execute("DELETE FROM affinity")
+                st.execute("DELETE FROM transitions")
             }
             conn.commit()
         } catch (e: Exception) {
@@ -891,6 +1278,133 @@ class Store private constructor(private val conn: Connection) {
             ps.setString(2, styles)
             ps.setInt(3, if (auto) 1 else 0)
             ps.executeUpdate()
+        }
+    }
+
+    /**
+     * A genre the user set, replacing whatever the file said.
+     *
+     * The genre in a downloaded file is whoever tagged it's opinion, and on a
+     * library built from downloads it is usually blank, wrong, or the name of
+     * the site it came from. Empty means "use the file's".
+     */
+    @Synchronized
+    fun setGenre(songIds: List<Long>, genre: String) {
+        if (songIds.isEmpty()) return
+        conn.autoCommit = false
+        try {
+            conn.prepareStatement(
+                "INSERT INTO song_stats (songId, genre) VALUES (?,?) " +
+                    "ON CONFLICT(songId) DO UPDATE SET genre = excluded.genre"
+            ).use { ps ->
+                for (id in songIds) {
+                    ps.setLong(1, id)
+                    ps.setString(2, genre.trim())
+                    ps.addBatch()
+                }
+                ps.executeBatch()
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = true
+        }
+    }
+
+    /** The user overruling the speech detector, either way. */
+    @Synchronized
+    fun setSpoken(songId: Long, spoken: Boolean) {
+        conn.prepareStatement(
+            "INSERT INTO song_stats (songId, spoken) VALUES (?,?) " +
+                "ON CONFLICT(songId) DO UPDATE SET spoken = excluded.spoken"
+        ).use { ps ->
+            ps.setLong(1, songId)
+            ps.setInt(2, if (spoken) 1 else 0)
+            ps.executeUpdate()
+        }
+    }
+
+    /**
+     * Forgets that one song was ever played, keeping what the user said.
+     *
+     * Counts get inflated by things that were not really listening - a song
+     * left on repeat overnight, a machine lent to someone - and once they are
+     * wrong there is no arguing with the shelves built on top of them. This
+     * is the way to argue with them. The like, the rating and the tags stay:
+     * those were said on purpose.
+     */
+    @Synchronized
+    fun resetPlayCount(songId: Long) {
+        conn.autoCommit = false
+        try {
+            conn.prepareStatement(
+                """
+                UPDATE song_stats
+                SET playCount = 0, skipCount = 0, completeCount = 0, listenedMs = 0,
+                    lastPlayedAt = 0, b0 = 0, b1 = 0, b2 = 0, b3 = 0,
+                    dWeekend = 0, dWeekday = 0
+                WHERE songId = ?
+                """.trimIndent()
+            ).use { ps ->
+                ps.setLong(1, songId)
+                ps.executeUpdate()
+            }
+            // The history rows too, or "recently played" would still show it.
+            conn.prepareStatement("DELETE FROM history WHERE songId = ?").use { ps ->
+                ps.setLong(1, songId)
+                ps.executeUpdate()
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = true
+        }
+    }
+
+    /**
+     * Drops everything the app knew about a song whose file is gone.
+     *
+     * A rescan removes the song row on its own but not the stats, the
+     * position, the bookmarks or the learned edges - those are keyed on an id
+     * derived from the path, and a file written to that same path later would
+     * inherit a stranger's history.
+     */
+    @Synchronized
+    fun forget(songId: Long) {
+        conn.autoCommit = false
+        try {
+            for (sql in listOf(
+                "DELETE FROM song_stats WHERE songId = ?",
+                "DELETE FROM history WHERE songId = ?",
+                "DELETE FROM positions WHERE songId = ?",
+                "DELETE FROM bookmarks WHERE songId = ?",
+                "DELETE FROM playlist_items WHERE songId = ?",
+                "DELETE FROM tag_overrides WHERE songId = ?",
+                "DELETE FROM audio_features WHERE songId = ?",
+                "DELETE FROM lyrics WHERE songId = ?",
+                "DELETE FROM affinity WHERE a = ? OR b = ?",
+                "DELETE FROM transitions WHERE a = ? OR b = ?"
+            )) {
+                conn.prepareStatement(sql).use { ps ->
+                    ps.setLong(1, songId)
+                    if (sql.contains("OR b = ?")) ps.setLong(2, songId)
+                    ps.executeUpdate()
+                }
+            }
+            conn.prepareStatement("DELETE FROM songs WHERE id = ?").use { ps ->
+                ps.setLong(1, songId)
+                ps.executeUpdate()
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = true
         }
     }
 

@@ -30,11 +30,17 @@ data class PlayerState(
  * which does the pushing and nothing else.
  *
  * Decoding comes from Service Provider Interface implementations on the
- * classpath: mp3spi, vorbisspi, jflac and jaad. They register themselves with
- * AudioSystem, so there is no per format branch anywhere below - every file
- * goes through the same two calls, and adding a format is adding a dependency.
- * All four are pure Java, which is the point: the installer stays one file
- * with nothing for the user to go and install first.
+ * classpath: FFSampledSP, mp3spi, vorbisspi and jFLAC. They register
+ * themselves with AudioSystem, so there is no per format branch anywhere
+ * below - every file goes through the same two calls, and adding a format is
+ * adding a dependency.
+ *
+ * FFSampledSP is the one that covers m4a, and with it aac, wma and the rest
+ * of what FFmpeg reads; it carries its own FFmpeg build as a native library.
+ * The pure Java three stay underneath it, so mp3 - which most of a library is
+ * in - still plays if that native fails to load on some machine: a provider
+ * that cannot load declines the file and the next one is asked. Either way
+ * the installer stays one file with nothing for the user to fetch first.
  *
  * One thread per track. Commands are volatile fields it checks between
  * buffers rather than a queue, because the only commands are pause, seek and
@@ -64,6 +70,7 @@ class AudioPlayer {
     @Volatile private var paused = false
     @Volatile private var seekRequestMs = -1L
     @Volatile private var volume = 1.0f
+    @Volatile private var trackGain = 1.0f
 
     /**
      * @param durationMs what the tags said, because a decoded stream usually
@@ -107,6 +114,19 @@ class AudioPlayer {
     /** Linear 0..1, as a volume slider means it. */
     fun setVolume(value: Float) {
         volume = value.coerceIn(0f, 1f)
+    }
+
+    /**
+     * A correction for this particular track's mastering, multiplied into the
+     * volume rather than replacing it.
+     *
+     * Separate from [setVolume] because the two answer different questions -
+     * how loud the listener wants it, and how loud this file happens to be -
+     * and folding them together would mean the slider jumping at every change
+     * of song. One at a time: set before the next track starts.
+     */
+    fun setTrackGain(value: Float) {
+        trackGain = value.coerceIn(0.05f, 1f)
     }
 
     fun stop() {
@@ -264,10 +284,11 @@ class AudioPlayer {
         val control = line.getControl(FloatControl.Type.MASTER_GAIN) as FloatControl
         // The control is in decibels and a slider is not, so silence is the
         // control's own floor rather than log10(0).
-        val db = if (volume <= 0.0001f) {
+        val level = volume * trackGain
+        val db = if (level <= 0.0001f) {
             control.minimum
         } else {
-            (20.0 * log10(volume.toDouble())).toFloat().coerceIn(control.minimum, control.maximum)
+            (20.0 * log10(level.toDouble())).toFloat().coerceIn(control.minimum, control.maximum)
         }
         if (control.value != db) control.value = db
     }

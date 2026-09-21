@@ -57,11 +57,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
-import com.elchanan.rhythm.playback.EqBands
+import com.elchanan.rhythm.engine.EqBands
+import com.elchanan.rhythm.engine.EqPresets
+import com.elchanan.rhythm.engine.EqResponse
+import com.elchanan.rhythm.engine.EqSettings
 import com.elchanan.rhythm.playback.EqBridge
-import com.elchanan.rhythm.playback.EqPresets
-import com.elchanan.rhythm.playback.EqResponse
-import com.elchanan.rhythm.playback.EqSettings
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.EmptyState

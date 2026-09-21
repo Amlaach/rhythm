@@ -103,9 +103,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.Player
 import com.elchanan.rhythm.data.db.SongEntity
-import com.elchanan.rhythm.ui.ActionPlacement
+import com.elchanan.rhythm.engine.ActionPlacement
+import com.elchanan.rhythm.engine.PlayerAction
 import com.elchanan.rhythm.ui.MainViewModel
-import com.elchanan.rhythm.ui.PlayerAction
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Radio
 import com.elchanan.rhythm.ui.components.Artwork

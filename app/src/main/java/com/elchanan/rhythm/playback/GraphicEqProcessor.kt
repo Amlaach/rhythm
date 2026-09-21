@@ -3,6 +3,8 @@ package com.elchanan.rhythm.playback
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
+import com.elchanan.rhythm.engine.EqFilters
+import com.elchanan.rhythm.engine.EqSettings
 import java.nio.ByteBuffer
 import kotlin.math.roundToInt
 

@@ -1,6 +1,8 @@
 package com.elchanan.rhythm.desktop
 
 import com.elchanan.rhythm.desktop.data.Store
+import com.elchanan.rhythm.engine.EqBands
+import com.elchanan.rhythm.engine.PlayerAction
 import com.elchanan.rhythm.engine.ShelfKind
 
 /**
@@ -89,14 +91,22 @@ class Prefs(private val store: Store) {
         get() = flag("autoRadio", true)
         set(value) = set("autoRadio", value)
 
-    /** Skip what the analyser heard as a recording of a room rather than a record. */
+    /**
+     * Keep voice recordings out of the library.
+     *
+     * Call recordings, voice notes and WhatsApp audio are not music, and a
+     * fair number of recorders tag them as though they were - so they are
+     * recognised by the folder and the file name instead, which is cruder
+     * and is what actually works. On, as on the phone, because a library
+     * full of recorded phone calls is nobody's idea of a music player.
+     */
     var skipRecordings: Boolean
-        get() = flag("skipRecordings", false)
+        get() = flag("skipRecordings", true)
         set(value) = set("skipRecordings", value)
 
     /** Drop latin text from a title the repair rewrites. */
     var tagStripForeign: Boolean
-        get() = flag("tagStripForeign", false)
+        get() = flag("tagStripForeign", true)
         set(value) = set("tagStripForeign", value)
 
     /**
@@ -119,16 +129,107 @@ class Prefs(private val store: Store) {
         get() = store.get("lyricsFolder").orEmpty()
         set(value) = store.put("lyricsFolder", value)
 
-    /** The equaliser's six band gains, in dB, and whether it is on. */
+    /**
+     * Where each player control sits, as `key=placement` pairs.
+     *
+     * One string rather than a setting each, so adding a control later needs
+     * no migration: an unknown key is ignored and a missing one falls back
+     * to its own default. The keys are [PlayerAction]'s, shared with the
+     * phone, so an arrangement means the same thing on both.
+     */
+    var playerActions: Map<String, String>
+        get() = store.get("playerActions").orEmpty()
+            .split(',')
+            .mapNotNull { pair ->
+                val parts = pair.split('=')
+                if (parts.size == 2 && parts[0].isNotBlank()) {
+                    parts[0].trim() to parts[1].trim()
+                } else {
+                    null
+                }
+            }
+            .toMap()
+        set(value) = store.put(
+            "playerActions",
+            value.entries.joinToString(",") { "${it.key}=${it.value}" }
+        )
+
+    /**
+     * Even out the volume between tracks.
+     *
+     * Off by default, because it needs the library analysed before it can do
+     * anything and silently doing nothing is a worse first impression than
+     * a switch waiting to be turned on.
+     */
+    var normalizeVolume: Boolean
+        get() = flag("normalizeVolume", false)
+        set(value) = set("normalizeVolume", value)
+
+    /**
+     * Offer to pick a song up where it was left.
+     *
+     * Only ever an offer: the song starts from the beginning and a strip at
+     * the top says where it was left, for a few seconds. Jumping straight
+     * back into the middle of a track nobody asked to resume is the more
+     * annoying half of this feature.
+     */
+    var resumePrompt: Boolean
+        get() = flag("resumePrompt", true)
+        set(value) = set("resumePrompt", value)
+
+    /** Clicking the artwork stops and starts it. */
+    var tapArtworkToggles: Boolean
+        get() = flag("tapArtworkToggles", true)
+        set(value) = set("tapArtworkToggles", value)
+
+    /**
+     * Whether the "rate some artists" nudge has been turned down.
+     *
+     * A nudge with no way out stops being a nudge, so the dismissal is kept
+     * rather than held in the screen: turning a suggestion down once has to
+     * mean it stays down across restarts.
+     */
+    var ratingTipSeen: Boolean
+        get() = flag("ratingTipSeen", false)
+        set(value) = set("ratingTipSeen", value)
+
+    /** Whether the tag repair pointer has been turned down. */
+    var tagTipSeen: Boolean
+        get() = flag("tagTipSeen", false)
+        set(value) = set("tagTipSeen", value)
+
+    /** Whether the thirty one band equaliser is doing anything. */
     var eqEnabled: Boolean
         get() = flag("eqEnabled", false)
         set(value) = set("eqEnabled", value)
 
+    /**
+     * One gain per ISO third octave centre, in millibels.
+     *
+     * Millibels and not decibels, and thirty one of them and not six,
+     * because these are the numbers [com.elchanan.rhythm.engine.EqSettings]
+     * takes - the same store the phone writes. A list stored short or
+     * missing reads as flat rather than having to be handled at every use.
+     */
     var eqBands: List<Int>
-        get() = store.get("eqBands").orEmpty()
-            .split(',').mapNotNull { it.trim().toIntOrNull() }
-            .takeIf { it.size == BAND_COUNT } ?: List(BAND_COUNT) { 0 }
+        get() {
+            val stored = store.get("eqBands").orEmpty()
+                .split(',').mapNotNull { it.trim().toIntOrNull() }
+            return List(EqBands.COUNT) { stored.getOrNull(it) ?: 0 }
+        }
         set(value) = store.put("eqBands", value.joinToString(","))
+
+    /**
+     * Gain applied before the filters, in millibels.
+     *
+     * Its own control because boosting and turning down are different
+     * intentions: someone adding 8 dB of bass wants more bass, not a louder
+     * track, and without this the only way to get one without the other is
+     * to pull the other thirty sliders down by hand.
+     */
+    var eqPreamp: Int
+        get() = number("eqPreamp", 0)
+        set(value) = store.put("eqPreamp", value.toString())
 
     /** How loud, kept between launches so a quiet setting is not a surprise. */
     var volume: Int
@@ -147,19 +248,21 @@ class Prefs(private val store: Store) {
             ?: ShelfKind.ALL_KEYS
         set(value) = store.put("homeShelves", value.joinToString(","))
 
-    /**
-     * Search inside the words as well as the titles.
-     *
-     * Off by default, and deliberately: on this build the words are read out
-     * of the files themselves rather than from an index, so a search that
-     * includes them opens every file in the library. It runs behind the title
-     * matches and never delays them.
-     */
-    var searchLyrics: Boolean
-        get() = flag("searchLyrics", false)
-        set(value) = set("searchLyrics", value)
+    // Searching inside the words is the phone's, and is not here. It needs
+    // the lyrics in a table to search: this build reads them out of the file
+    // when a song is opened, and doing that across a whole library on every
+    // keystroke is thousands of file opens per letter typed. The switch used
+    // to exist here and did nothing at all, which is worse than not offering
+    // it - a setting that cannot work should not be on screen.
 
-    /** Show folders as a tree to walk into, rather than one flat list. */
+    /**
+     * Show folders nested, the way they sit on the disk, rather than as one
+     * flat list of every folder that contains a file.
+     *
+     * On by default: it is how the files actually are, and the flat list is
+     * only easier when there are few enough folders for the difference not to
+     * matter - in which case the tree is no harder either.
+     */
     var folderTree: Boolean
         get() = flag("folderTree", true)
         set(value) = set("folderTree", value)
@@ -184,7 +287,4 @@ class Prefs(private val store: Store) {
         get() = number("lastScanCount", 0)
         set(value) = store.put("lastScanCount", value.toString())
 
-    companion object {
-        const val BAND_COUNT = 6
-    }
 }
