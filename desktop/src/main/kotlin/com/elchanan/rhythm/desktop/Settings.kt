@@ -93,7 +93,6 @@ internal fun SettingsScreen(
     var autoAnalyze by remember { mutableStateOf(prefs.autoAnalyze) }
     var hideDuplicates by remember { mutableStateOf(prefs.hideDuplicates) }
     var searchPersonalized by remember { mutableStateOf(prefs.searchPersonalized) }
-    var searchLyrics by remember { mutableStateOf(prefs.searchLyrics) }
     var shelvesOpen by remember { mutableStateOf(false) }
     var stripForeign by remember { mutableStateOf(prefs.tagStripForeign) }
     var writeTags by remember { mutableStateOf(prefs.writeTagsToFiles) }
@@ -160,15 +159,6 @@ internal fun SettingsScreen(
 
             item {
                 SettingSection("הגדרות החיפוש", "איך תוצאות מסודרות")
-                SwitchRow(
-                    title = "חיפוש גם במילות השיר",
-                    subtitle = "נקרא מתוך הקבצים עצמם, אז זה רץ אחרי תוצאות השם " +
-                        "ולעולם לא מעכב אותן",
-                    checked = searchLyrics
-                ) {
-                    searchLyrics = it
-                    prefs.searchLyrics = it
-                }
                 SwitchRow(
                     title = "התאמה אישית בתוצאות",
                     subtitle = "מה שאתה מנגן הרבה עולה למעלה בתוצאות",

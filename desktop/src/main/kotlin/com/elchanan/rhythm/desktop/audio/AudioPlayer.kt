@@ -30,11 +30,17 @@ data class PlayerState(
  * which does the pushing and nothing else.
  *
  * Decoding comes from Service Provider Interface implementations on the
- * classpath: mp3spi, vorbisspi, jflac and jaad. They register themselves with
- * AudioSystem, so there is no per format branch anywhere below - every file
- * goes through the same two calls, and adding a format is adding a dependency.
- * All four are pure Java, which is the point: the installer stays one file
- * with nothing for the user to go and install first.
+ * classpath: FFSampledSP, mp3spi, vorbisspi and jFLAC. They register
+ * themselves with AudioSystem, so there is no per format branch anywhere
+ * below - every file goes through the same two calls, and adding a format is
+ * adding a dependency.
+ *
+ * FFSampledSP is the one that covers m4a, and with it aac, wma and the rest
+ * of what FFmpeg reads; it carries its own FFmpeg build as a native library.
+ * The pure Java three stay underneath it, so mp3 - which most of a library is
+ * in - still plays if that native fails to load on some machine: a provider
+ * that cannot load declines the file and the next one is asked. Either way
+ * the installer stays one file with nothing for the user to fetch first.
  *
  * One thread per track. Commands are volatile fields it checks between
  * buffers rather than a queue, because the only commands are pause, seek and

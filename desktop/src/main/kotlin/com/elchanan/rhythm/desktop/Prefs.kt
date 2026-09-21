@@ -89,14 +89,22 @@ class Prefs(private val store: Store) {
         get() = flag("autoRadio", true)
         set(value) = set("autoRadio", value)
 
-    /** Skip what the analyser heard as a recording of a room rather than a record. */
+    /**
+     * Keep voice recordings out of the library.
+     *
+     * Call recordings, voice notes and WhatsApp audio are not music, and a
+     * fair number of recorders tag them as though they were - so they are
+     * recognised by the folder and the file name instead, which is cruder
+     * and is what actually works. On, as on the phone, because a library
+     * full of recorded phone calls is nobody's idea of a music player.
+     */
     var skipRecordings: Boolean
-        get() = flag("skipRecordings", false)
+        get() = flag("skipRecordings", true)
         set(value) = set("skipRecordings", value)
 
     /** Drop latin text from a title the repair rewrites. */
     var tagStripForeign: Boolean
-        get() = flag("tagStripForeign", false)
+        get() = flag("tagStripForeign", true)
         set(value) = set("tagStripForeign", value)
 
     /**
@@ -147,22 +155,16 @@ class Prefs(private val store: Store) {
             ?: ShelfKind.ALL_KEYS
         set(value) = store.put("homeShelves", value.joinToString(","))
 
-    /**
-     * Search inside the words as well as the titles.
-     *
-     * Off by default, and deliberately: on this build the words are read out
-     * of the files themselves rather than from an index, so a search that
-     * includes them opens every file in the library. It runs behind the title
-     * matches and never delays them.
-     */
-    var searchLyrics: Boolean
-        get() = flag("searchLyrics", false)
-        set(value) = set("searchLyrics", value)
+    // Searching inside the words is the phone's, and is not here. It needs
+    // the lyrics in a table to search: this build reads them out of the file
+    // when a song is opened, and doing that across a whole library on every
+    // keystroke is thousands of file opens per letter typed. The switch used
+    // to exist here and did nothing at all, which is worse than not offering
+    // it - a setting that cannot work should not be on screen.
 
-    /** Show folders as a tree to walk into, rather than one flat list. */
-    var folderTree: Boolean
-        get() = flag("folderTree", true)
-        set(value) = set("folderTree", value)
+    // No folderTree either. The phone offers a nested tree or a flat list;
+    // this build's folder view is flat by design, so the setting had nothing
+    // to switch between and was never read.
 
     /**
      * Styles that should never be mixed into one another's shelves.

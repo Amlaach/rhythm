@@ -249,6 +249,15 @@ private fun RhythmApp() {
     // The queue as it was before it was shuffled, so turning shuffle off puts
     // it back rather than leaving a scrambled order nobody can undo.
     var unshuffled by remember { mutableStateOf<List<SongEntity>>(emptyList()) }
+    // What was actually listened to in this sitting, most recent first, and
+    // the last of them. Both exist only to say what was heard near what and
+    // what followed what - the two things the recommender cannot work out
+    // from the library, because they are facts about an evening rather than
+    // about the music. Held here rather than stored: a sitting is over when
+    // the app closes.
+    var sessionTail by remember { mutableStateOf<List<Long>>(emptyList()) }
+    var lastCounted by remember { mutableStateOf(0L) }
+    var lastCountedAt by remember { mutableStateOf(0L) }
 
     suspend fun reload() {
         val loaded = withContext(Dispatchers.IO) {
@@ -258,12 +267,16 @@ private fun RhythmApp() {
             val sd = store.feedSeed
             val ft = store.features()
             val tn = store.tuning
+            // What the listening has taught, which is the half of the
+            // engine's input that does not come from the files.
+            val aff = store.affinityMap()
+            val trans = store.transitionMap()
             val eng = if (s.isEmpty()) {
                 null
             } else {
                 Feed.engine(
                     filterLibrary(applyOverrides(s, store.overrides()), st, prefs),
-                    st, ar, ft, sd, tn
+                    st, ar, ft, sd, tn, aff, trans
                 )
             }
             // The corrections are applied to the rows on the way out, so
@@ -325,21 +338,67 @@ private fun RhythmApp() {
         val leaving = queue.getOrNull(queueIndex)
         if (leaving != null) {
             val heard = player.state.value.positionMs
-            val leftAt = player.state.value.positionMs
+            val counted = countsAsPlay(heard, leaving.durationMs, previousCompleted)
+            // Heard nearly to the end, whether the file ran out or the
+            // listener moved on with seconds to go. This is what separates a
+            // track someone sat through from one they merely did not skip.
+            val finished = previousCompleted ||
+                (leaving.durationMs > 0 && heard >= leaving.durationMs * 0.9)
+            // A skip is a deliberate move away from something unheard. A
+            // track that simply ended is neither a skip nor, if it was
+            // short of the bar, a play - it is nothing, and nothing is the
+            // right thing to record about it.
+            val skipped = !counted && !previousCompleted && heard >= MIN_MEASURABLE_MS
+            val now = System.currentTimeMillis()
+            // A gap this long means this is a new sitting. The check comes
+            // before the edges are written rather than after, or the first
+            // song of the evening would be linked to the last song of the
+            // previous one - a pairing nobody listened to.
+            if (lastCountedAt > 0L && now - lastCountedAt > SESSION_GAP_MS) {
+                sessionTail = emptyList()
+                lastCounted = 0L
+            }
+            val previous = lastCounted
+            val fresh = previous > 0L && now - lastCountedAt < TRANSITION_WINDOW_MS
+            val tail = sessionTail.toList()
             scope.launch {
                 stats = withContext(Dispatchers.IO) {
-                    store.notePlay(leaving.id, heard, previousCompleted)
+                    if (counted) {
+                        store.notePlay(leaving.id, heard, finished)
+                        // Everything heard near this one, most recent
+                        // first, so the closer two songs were the heavier
+                        // the edge between them. Written both ways: the
+                        // question is symmetric.
+                        tail.forEachIndexed { distance, other ->
+                            val weight = 1.0 / (1.0 + distance)
+                            store.bumpAffinity(leaving.id, other, weight)
+                            store.bumpAffinity(other, leaving.id, weight)
+                        }
+                        if (fresh) store.noteTransition(previous, leaving.id, skipped = false)
+                        if (store.dueForTrim()) store.trimEdges()
+                    } else if (skipped) {
+                        store.noteSkip(leaving.id, heard)
+                        // A skip is evidence about the transition too, and
+                        // the more useful half of it: it says these two do
+                        // not follow each other.
+                        if (fresh) store.noteTransition(previous, leaving.id, skipped = true)
+                    }
                     // Only for the long ones. A song paused in the middle
                     // should start again from the top next time - resuming a
                     // four minute track two minutes in is not a convenience,
                     // it is half a song nobody asked to skip. The store drops
                     // the positions too near either end on top of this.
                     if (leaving.durationMs >= LONG_FORM_MS) {
-                        store.setPosition(leaving.id, leftAt, leaving.durationMs)
+                        store.setPosition(leaving.id, heard, leaving.durationMs)
                     }
                     store.stats()
                 }
                 resumePoints = withContext(Dispatchers.IO) { store.positions() }
+            }
+            if (counted) {
+                sessionTail = (listOf(leaving.id) + sessionTail).take(SESSION_TAIL)
+                lastCounted = leaving.id
+                lastCountedAt = now
             }
         }
         if (index !in list.indices) return
@@ -867,9 +926,19 @@ private fun RhythmApp() {
                 }
                 // The queue is finished. Keep going on what the engine
                 // suggests, rather than stopping dead in silence.
+                //
+                // `continuation` rather than `radio`, which is the same
+                // engine asked the question that actually fits: a radio is
+                // built outward from one song and knows nothing about what
+                // has already been queued, so it happily offers back the
+                // track that just finished and the four before it. A
+                // continuation is told what has been heard and what is
+                // already in the queue, and leans hardest on which song has
+                // historically followed which.
                 val from = queue.getOrNull(queueIndex)
                 val station = if (prefs.autoRadio && from != null) {
-                    engine?.radio(from).orEmpty().filterNot { it.id == from.id }
+                    val recent = queue.take(queueIndex + 1).asReversed().map { it.id }
+                    engine?.continuation(recent, queue.mapTo(HashSet()) { it.id }).orEmpty()
                 } else {
                     emptyList()
                 }
@@ -1460,6 +1529,60 @@ private sealed interface Route {
  * in one means finding it again by dragging the bar until it sounds right.
  */
 private const val LONG_FORM_MS = 12 * 60 * 1000L
+
+/**
+ * Below this, nothing happened worth writing down.
+ *
+ * Three seconds is someone landing on the wrong track and moving off it. It
+ * is not a skip - a skip is a judgement about a song, and nobody judges a
+ * song in three seconds - and counting it as one would let a few mis-clicks
+ * bury a track the listener actually likes.
+ */
+private const val MIN_MEASURABLE_MS = 3_000L
+
+/** Half the track, or a minute and a half, is a play. */
+private const val PLAY_FRACTION = 0.5
+
+private const val PLAY_MS = 90_000L
+
+/**
+ * What to do when the length is not known.
+ *
+ * A decoded stream often cannot say how long it is, and a fraction of an
+ * unknown length is not a number. A flat minute is the fallback, and it is
+ * the same one the phone uses for the same reason.
+ */
+private const val PLAY_MS_UNKNOWN_LENGTH = 60_000L
+
+/** How long a pair of songs may be apart and still count as a sequence. */
+private const val TRANSITION_WINDOW_MS = 15 * 60 * 1000L
+
+/** A gap this long ends a sitting, and the pairings it was accumulating. */
+private const val SESSION_GAP_MS = 40 * 60 * 1000L
+
+/** How far back a new play is linked. Beyond this the link means little. */
+private const val SESSION_TAIL = 5
+
+/**
+ * Whether a track was listened to, as opposed to passed over.
+ *
+ * The same rule the phone measures by, and it has to be the same rule: the
+ * recommender divides skips by attempts, and two builds that disagree about
+ * what an attempt is will rank the same library differently. Half the track
+ * or ninety seconds, whichever comes first, so a four minute song needs two
+ * minutes and an hour of speech needs ninety seconds rather than half an
+ * hour.
+ *
+ * A track that played to its end is a play whatever its length, which is the
+ * case the thresholds cannot see: a forty second interlude never reaches
+ * either bar and was still heard in full.
+ */
+internal fun countsAsPlay(heardMs: Long, durationMs: Long, endedOnItsOwn: Boolean): Boolean {
+    if (heardMs < MIN_MEASURABLE_MS) return false
+    if (endedOnItsOwn) return true
+    if (durationMs <= 0L) return heardMs >= PLAY_MS_UNKNOWN_LENGTH
+    return heardMs >= durationMs * PLAY_FRACTION || heardMs >= PLAY_MS
+}
 
 /** Everything one reload reads, so the composition is updated once and not six times. */
 private data class Loaded(

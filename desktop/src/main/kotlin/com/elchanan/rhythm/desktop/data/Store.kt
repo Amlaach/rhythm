@@ -10,6 +10,8 @@ import com.elchanan.rhythm.data.db.PlaylistItemEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.engine.EngineTuning
+import com.elchanan.rhythm.engine.Recommender
+import com.elchanan.rhythm.engine.TransitionEdge
 import java.io.File
 import java.sql.Connection
 import java.sql.DriverManager
@@ -182,11 +184,50 @@ class Store private constructor(private val conn: Connection) {
                 artistName TEXT NOT NULL DEFAULT '', albumName TEXT NOT NULL DEFAULT ''
             )
             """.trimIndent(),
-            "CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)"
+            "CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)",
+            // What was heard near what, and what followed what. Both are
+            // learned from listening alone, and both are read by the
+            // recommender on every call - which is why they are kept here
+            // rather than the engine being handed two empty maps. Without
+            // them a radio loses its heaviest term and the sequencer has
+            // nothing to order a mix by but how things sound.
+            //
+            // Symmetric: every pair is written in both directions, so "what
+            // goes with this" has one answer whichever end it is asked from.
+            """
+            CREATE TABLE IF NOT EXISTS affinity (
+                a INTEGER NOT NULL, b INTEGER NOT NULL,
+                weight REAL NOT NULL, updatedAt INTEGER NOT NULL,
+                PRIMARY KEY (a, b)
+            )
+            """.trimIndent(),
+            // Directed, and deliberately a second table: A then B is a
+            // different fact from B then A, and the penalty column is what
+            // separates a transition that was listened to from one that was
+            // skipped away from.
+            """
+            CREATE TABLE IF NOT EXISTS transitions (
+                a INTEGER NOT NULL, b INTEGER NOT NULL,
+                weight REAL NOT NULL, penalty REAL NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                PRIMARY KEY (a, b)
+            )
+            """.trimIndent()
         )
 
         private const val KEY_FOLDERS = "folders"
         private const val KEY_SEED = "feedSeed"
+
+        /**
+         * Edges kept per table.
+         *
+         * These two grow with how much someone listens rather than with how
+         * much music they own, so unlike everything else here they have no
+         * ceiling of their own. Twenty thousand is far more than the engine
+         * ever reads and about a megabyte on disk.
+         */
+        private const val EDGE_LIMIT = 20_000
+        private const val TRIM_EVERY = 200
     }
 
     // ---------------------------------------------------------------------
@@ -359,31 +400,194 @@ class Store private constructor(private val conn: Connection) {
         }
     }
 
-    /** Records that a song was played, and whether it was heard out. */
+    /**
+     * Records that a song was listened to.
+     *
+     * A play and a skip are separate events and never both, which is the
+     * rule the phone measures by and the one the recommender is built on:
+     * `attempts = playCount + skipCount`, and a song counted as both is a
+     * song counted twice. Whether something reached this at all is
+     * [com.elchanan.rhythm.desktop.countsAsPlay]'s decision, not this one.
+     *
+     * The time-of-day and day-of-week buckets are filled here too. The
+     * engine reads them - `timeFit` and `dayFit` are two of the terms in
+     * every score - and a bucket nobody fills is a term that is silently
+     * always zero.
+     */
     @Synchronized
     fun notePlay(songId: Long, listenedMs: Long, completed: Boolean) {
+        val now = System.currentTimeMillis()
         conn.prepareStatement(
             "INSERT INTO history (songId, playedAt, completed, listenedMs) VALUES (?,?,?,?)"
         ).use { ps ->
             ps.setLong(1, songId)
-            ps.setLong(2, System.currentTimeMillis())
+            ps.setLong(2, now)
             ps.setInt(3, if (completed) 1 else 0)
             ps.setLong(4, listenedMs)
             ps.executeUpdate()
         }
         ensureStats(songId)
+        // The bucket this play lands in, by the same reckoning the engine
+        // reads it back with - Recommender owns both, so they cannot drift.
+        val bucket = Recommender.bucketOf(now)
+        val weekend = Recommender.isWeekend(now)
         conn.prepareStatement(
             "UPDATE song_stats SET playCount = playCount + 1, " +
-                "completeCount = completeCount + ?, skipCount = skipCount + ?, " +
-                "listenedMs = listenedMs + ?, lastPlayedAt = ? WHERE songId = ?"
+                "completeCount = completeCount + ?, " +
+                "listenedMs = listenedMs + ?, lastPlayedAt = ?, " +
+                "b0 = b0 + ?, b1 = b1 + ?, b2 = b2 + ?, b3 = b3 + ?, " +
+                "dWeekend = dWeekend + ?, dWeekday = dWeekday + ? WHERE songId = ?"
         ).use { ps ->
             ps.setInt(1, if (completed) 1 else 0)
-            ps.setInt(2, if (completed) 0 else 1)
-            ps.setLong(3, listenedMs.coerceAtLeast(0L))
-            ps.setLong(4, System.currentTimeMillis())
-            ps.setLong(5, songId)
+            ps.setLong(2, listenedMs.coerceAtLeast(0L))
+            ps.setLong(3, now)
+            ps.setInt(4, if (bucket == 0) 1 else 0)
+            ps.setInt(5, if (bucket == 1) 1 else 0)
+            ps.setInt(6, if (bucket == 2) 1 else 0)
+            ps.setInt(7, if (bucket == 3) 1 else 0)
+            ps.setInt(8, if (weekend) 1 else 0)
+            ps.setInt(9, if (weekend) 0 else 1)
+            ps.setLong(10, songId)
             ps.executeUpdate()
         }
+    }
+
+    /**
+     * Records that a song was moved on from before it had been heard.
+     *
+     * No history row: the history is what the recap counts, and a track
+     * someone skipped past is not a minute they listened to. The time it did
+     * get is still added, because that is the number "how much of this
+     * actually gets heard" is built from.
+     */
+    @Synchronized
+    fun noteSkip(songId: Long, listenedMs: Long) {
+        ensureStats(songId)
+        conn.prepareStatement(
+            "UPDATE song_stats SET skipCount = skipCount + 1, " +
+                "listenedMs = listenedMs + ?, lastPlayedAt = ? WHERE songId = ?"
+        ).use { ps ->
+            ps.setLong(1, listenedMs.coerceAtLeast(0L))
+            ps.setLong(2, System.currentTimeMillis())
+            ps.setLong(3, songId)
+            ps.executeUpdate()
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // What goes with what
+    // ---------------------------------------------------------------------
+
+    /**
+     * Strengthens the link between two songs heard close together.
+     *
+     * Written in both directions by the caller, because the question this
+     * answers is symmetric. The weight accumulates rather than being set:
+     * a pair heard together ten times should outrank one heard together
+     * once, and the engine divides the popularity back out at the far end.
+     */
+    @Synchronized
+    fun bumpAffinity(a: Long, b: Long, weight: Double) {
+        if (a == b || a <= 0L || b <= 0L) return
+        conn.prepareStatement(
+            "INSERT INTO affinity (a, b, weight, updatedAt) VALUES (?,?,?,?) " +
+                "ON CONFLICT(a, b) DO UPDATE SET weight = affinity.weight + excluded.weight, " +
+                "updatedAt = excluded.updatedAt"
+        ).use { ps ->
+            ps.setLong(1, a)
+            ps.setLong(2, b)
+            ps.setDouble(3, weight)
+            ps.setLong(4, System.currentTimeMillis())
+            ps.executeUpdate()
+        }
+    }
+
+    /**
+     * Records that [to] followed [from], and how that went.
+     *
+     * Two counters on one row rather than two rows. A transition that was
+     * listened to and a transition that was skipped away from are the same
+     * observation with opposite signs, and the engine reads them together:
+     * a pair seen once scores a third of what a pair seen often does.
+     */
+    @Synchronized
+    fun noteTransition(from: Long, to: Long, skipped: Boolean) {
+        if (from == to || from <= 0L || to <= 0L) return
+        conn.prepareStatement(
+            "INSERT INTO transitions (a, b, weight, penalty, updatedAt) VALUES (?,?,?,?,?) " +
+                "ON CONFLICT(a, b) DO UPDATE SET " +
+                "weight = transitions.weight + excluded.weight, " +
+                "penalty = transitions.penalty + excluded.penalty, " +
+                "updatedAt = excluded.updatedAt"
+        ).use { ps ->
+            ps.setLong(1, from)
+            ps.setLong(2, to)
+            ps.setDouble(3, if (skipped) 0.0 else 1.0)
+            ps.setDouble(4, if (skipped) 1.0 else 0.0)
+            ps.setLong(5, System.currentTimeMillis())
+            ps.executeUpdate()
+        }
+    }
+
+    /** The co-occurrence edges, in the shape the recommender takes them. */
+    @Synchronized
+    fun affinityMap(): Map<Long, Map<Long, Double>> {
+        val out = HashMap<Long, MutableMap<Long, Double>>()
+        conn.createStatement().use { st ->
+            val rs = st.executeQuery("SELECT a, b, weight FROM affinity")
+            while (rs.next()) {
+                out.getOrPut(rs.getLong("a")) { HashMap() }[rs.getLong("b")] =
+                    rs.getDouble("weight")
+            }
+        }
+        return out
+    }
+
+    @Synchronized
+    fun transitionMap(): Map<Long, Map<Long, TransitionEdge>> {
+        val out = HashMap<Long, MutableMap<Long, TransitionEdge>>()
+        conn.createStatement().use { st ->
+            val rs = st.executeQuery("SELECT a, b, weight, penalty FROM transitions")
+            while (rs.next()) {
+                out.getOrPut(rs.getLong("a")) { HashMap() }[rs.getLong("b")] =
+                    TransitionEdge(rs.getDouble("weight"), rs.getDouble("penalty"))
+            }
+        }
+        return out
+    }
+
+    /**
+     * Drops the weakest edges once either table has grown past what the
+     * engine can use.
+     *
+     * Called every so often rather than on every play: the count is not free
+     * and the tables only ever grow slowly. An edge seen once years ago
+     * carries no signal anything would miss; the strong ones are the point.
+     */
+    @Synchronized
+    fun trimEdges() {
+        conn.createStatement().use { st ->
+            st.execute(
+                "DELETE FROM affinity WHERE rowid NOT IN " +
+                    "(SELECT rowid FROM affinity ORDER BY weight DESC LIMIT $EDGE_LIMIT)"
+            )
+            st.execute(
+                "DELETE FROM transitions WHERE rowid NOT IN " +
+                    "(SELECT rowid FROM transitions ORDER BY weight DESC LIMIT $EDGE_LIMIT)"
+            )
+        }
+    }
+
+    /** How many plays since the tables were last trimmed. */
+    private var playsSinceTrim = 0
+
+    /** True once enough has been written that a trim is worth the query. */
+    @Synchronized
+    fun dueForTrim(): Boolean {
+        playsSinceTrim++
+        if (playsSinceTrim < TRIM_EVERY) return false
+        playsSinceTrim = 0
+        return true
     }
 
     private fun ensureStats(songId: Long) {
@@ -801,6 +1005,11 @@ class Store private constructor(private val conn: Connection) {
                 st.execute("DELETE FROM song_stats")
                 st.execute("DELETE FROM history")
                 st.execute("DELETE FROM positions")
+                // What goes with what was learned entirely from those plays,
+                // so it goes with them. Leaving it would keep recommending
+                // out of a history the user has just asked to be forgotten.
+                st.execute("DELETE FROM affinity")
+                st.execute("DELETE FROM transitions")
             }
             conn.commit()
         } catch (e: Exception) {
