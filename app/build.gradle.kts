@@ -117,6 +117,7 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     // The music engine. Pure Kotlin, no Android - see engine/build.gradle.kts.
     implementation(project(":engine"))
 

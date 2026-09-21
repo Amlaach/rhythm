@@ -237,6 +237,7 @@ fun LibraryScreen(
                 }
 
                 LibraryTab.ARTISTS -> LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
+                    item { ArtistMergeSuggestions(vm, library.artists) }
                     item {
                         Row(
                             modifier = Modifier

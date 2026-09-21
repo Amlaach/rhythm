@@ -447,6 +447,25 @@ class MusicRepository(
         rescan()
     }
 
+    /** Preserve track IDs, stats and existing title/album corrections. */
+    suspend fun mergeArtist(sourceKey: String, targetName: String): Int = withContext(Dispatchers.IO) {
+        require(targetName.isNotBlank())
+        RhythmDatabase.get(context).withTransaction {
+            val overrides = dao.allOverrides().associateBy { it.songId }
+            val changes = dao.allSongs().mapNotNull { song ->
+                val renamed = ArtistMerge.renameCredit(song.artistName, sourceKey, targetName)
+                if (renamed == song.artistName) null else {
+                    val row = (overrides[song.id] ?: TagOverrideEntity(songId = song.id))
+                        .copy(artistName = renamed)
+                    row to applyOverride(song, row)
+                }
+            }
+            dao.putOverrides(changes.map { it.first })
+            dao.insertSongs(changes.map { it.second })
+            changes.size
+        }
+    }
+
     suspend fun clearOverrides() = withContext(Dispatchers.IO) {
         dao.clearOverrides()
         rescan()

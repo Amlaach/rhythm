@@ -892,6 +892,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // playlists
     // -----------------------------------------------------------------------
 
+    private val _mergingArtist = MutableStateFlow(false)
+    val mergingArtist: StateFlow<Boolean> = _mergingArtist.asStateFlow()
+
+    fun mergeArtists(source: ArtistInfo, target: ArtistInfo) {
+        if (_mergingArtist.value || source.key == target.key) return
+        _mergingArtist.value = true
+        viewModelScope.launch {
+            try {
+                val count = repo.mergeArtist(source.key, target.displayName)
+                _message.value = "אוחדו $count שירים תחת ${target.displayName}"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _message.value = "האיחוד נכשל. אפשר לנסות שוב."
+            } finally {
+                _mergingArtist.value = false
+            }
+        }
+    }
+
     fun saveQueueAsPlaylist(name: String) {
         val title = name.trim()
         if (title.isEmpty()) return
