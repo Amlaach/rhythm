@@ -36,14 +36,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.elchanan.rhythm.ui.screens.AboutScreen
 import com.elchanan.rhythm.ui.screens.AlbumsScreen
 import com.elchanan.rhythm.ui.screens.AlgorithmSettingsScreen
 import com.elchanan.rhythm.ui.screens.ArtistDetailScreen
@@ -53,6 +52,7 @@ import com.elchanan.rhythm.ui.screens.EqualizerScreen
 import com.elchanan.rhythm.ui.screens.HomeScreen
 import com.elchanan.rhythm.ui.screens.HomeSettingsScreen
 import com.elchanan.rhythm.ui.screens.LibraryScreen
+import com.elchanan.rhythm.ui.screens.LibrarySettingsScreen
 import com.elchanan.rhythm.ui.screens.MiniPlayer
 import com.elchanan.rhythm.ui.screens.PlayerScreen
 import com.elchanan.rhythm.ui.screens.PlayerSettingsScreen
@@ -60,12 +60,16 @@ import com.elchanan.rhythm.ui.screens.RecapScreen
 import com.elchanan.rhythm.ui.screens.SearchScreen
 import com.elchanan.rhythm.ui.screens.SettingsScreen
 import com.elchanan.rhythm.ui.screens.TagFixScreen
+import com.elchanan.rhythm.ui.screens.TagSettingsScreen
+import com.elchanan.rhythm.ui.screens.TransferScreen
 import com.elchanan.rhythm.ui.screens.WelcomeScreen
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.BgElevated
 import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 object Routes {
     const val HOME = "home"
@@ -76,6 +80,10 @@ object Routes {
     const val ALGORITHM_SETTINGS = "algorithmsettings"
     const val HOME_SETTINGS = "homesettings"
     const val PLAYER_SETTINGS = "playersettings"
+    const val LIBRARY_SETTINGS = "librarysettings"
+    const val TAG_SETTINGS = "tagsettings"
+    const val TRANSFER = "transfer"
+    const val ABOUT = "about"
     const val DETAIL = "detail"
     const val ARTIST = "artist"
     const val ALBUMS = "albums"
@@ -287,11 +295,30 @@ fun RhythmRoot(
                     SettingsScreen(
                         vm = vm,
                         onBack = { navController.popBackStack() },
-                        onOpenTagFix = { navController.navigate(Routes.TAGS) },
                         onOpenHomeSettings = { navController.navigate(Routes.HOME_SETTINGS) },
                         onOpenPlayerSettings = { navController.navigate(Routes.PLAYER_SETTINGS) },
-                        onOpenAlgorithmSettings = { navController.navigate(Routes.ALGORITHM_SETTINGS) }
+                        onOpenAlgorithmSettings = { navController.navigate(Routes.ALGORITHM_SETTINGS) },
+                        onOpenLibrarySettings = { navController.navigate(Routes.LIBRARY_SETTINGS) },
+                        onOpenTagSettings = { navController.navigate(Routes.TAG_SETTINGS) },
+                        onOpenTransfer = { navController.navigate(Routes.TRANSFER) },
+                        onOpenAbout = { navController.navigate(Routes.ABOUT) }
                     )
+                }
+                composable(Routes.LIBRARY_SETTINGS) {
+                    LibrarySettingsScreen(vm = vm, onBack = { navController.popBackStack() })
+                }
+                composable(Routes.TAG_SETTINGS) {
+                    TagSettingsScreen(
+                        vm = vm,
+                        onBack = { navController.popBackStack() },
+                        onOpenTagFix = { navController.navigate(Routes.TAGS) }
+                    )
+                }
+                composable(Routes.TRANSFER) {
+                    TransferScreen(vm = vm, onBack = { navController.popBackStack() })
+                }
+                composable(Routes.ABOUT) {
+                    AboutScreen(vm = vm, onBack = { navController.popBackStack() })
                 }
                 composable(Routes.ALGORITHM_SETTINGS) {
                     AlgorithmSettingsScreen(vm = vm, onBack = { navController.popBackStack() })

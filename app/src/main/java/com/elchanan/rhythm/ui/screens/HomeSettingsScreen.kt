@@ -1,6 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
@@ -36,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.ui.MainViewModel
+import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
@@ -55,8 +58,16 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val gutter = rememberMetrics().gutter
     var shelvesOpen by remember { mutableStateOf(false) }
     var pinMoods by remember { mutableStateOf(vm.prefs.pinMoodRow) }
+    var firstTab by remember { mutableStateOf(vm.prefs.libraryFirstTab) }
+    var folderTree by remember { mutableStateOf(vm.prefs.folderTree) }
+    var hideDupes by remember { mutableStateOf(vm.prefs.hideDuplicates) }
 
-    Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppBackground)
+            .verticalScroll(rememberScrollState())
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -72,7 +83,7 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 )
             }
             Spacer(Modifier.width(4.dp))
-            Text("הגדרות דף הבית", style = MaterialTheme.typography.titleLarge)
+            Text("דף הבית ותצוגה", style = MaterialTheme.typography.titleLarge)
         }
 
         Row(
@@ -124,6 +135,85 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 onClick = { shelvesOpen = true },
                 colors = ButtonDefaults.buttonColors(containerColor = Accent)
             ) { Text("ערוך") }
+        }
+
+        // The rest of what this screen decides: not what the home screen
+        // shows, but how the library is presented once you are in it. They
+        // are on the same screen because they answer the same question -
+        // what you see - where before they were three rows adrift in the
+        // middle of a list about scanning and tags.
+        Column(modifier = Modifier.padding(horizontal = gutter, vertical = 6.dp)) {
+            Text("מה נפתח ראשון בספרייה", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Chip(
+                    label = "פלייליסטים",
+                    selected = firstTab == "PLAYLISTS",
+                    onClick = { firstTab = "PLAYLISTS"; vm.prefs.libraryFirstTab = firstTab }
+                )
+                Chip(
+                    label = "תיקיות",
+                    selected = firstTab == "FOLDERS",
+                    onClick = { firstTab = "FOLDERS"; vm.prefs.libraryFirstTab = firstTab }
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = gutter, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("תיקיות בתוך תיקיות", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "מציג את התיקיות כמו שהן מסודרות במכשיר — אחת בתוך השנייה — " +
+                        "במקום רשימה אחת ארוכה של כל התיקיות",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+            Switch(
+                checked = folderTree,
+                onCheckedChange = {
+                    folderTree = it
+                    vm.prefs.folderTree = it
+                },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Accent,
+                    checkedTrackColor = Accent.copy(alpha = 0.4f)
+                )
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = gutter, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("הסתרת כפילויות", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "כשאותה הקלטה קיימת פעמיים במכשיר, מוצג רק עותק אחד. " +
+                        "גרסאות שונות של אותו שיר — לייב, קאבר — נחשבות " +
+                        "שירים נפרדים ולא נעלמות",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+            Switch(
+                checked = hideDupes,
+                onCheckedChange = {
+                    hideDupes = it
+                    vm.setHideDuplicates(it)
+                },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Accent,
+                    checkedTrackColor = Accent.copy(alpha = 0.4f)
+                )
+            )
         }
     }
 

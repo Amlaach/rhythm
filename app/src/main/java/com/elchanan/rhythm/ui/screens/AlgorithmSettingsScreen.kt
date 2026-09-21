@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
@@ -20,6 +21,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.ui.MainViewModel
+import com.elchanan.rhythm.ui.components.SectionHeader
 import com.elchanan.rhythm.ui.components.TuningSlider
 import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent
@@ -38,6 +42,7 @@ import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
+import com.elchanan.rhythm.ui.theme.TextTertiary
 
 /**
  * How the algorithm weighs what it knows, on a screen of its own.
@@ -60,6 +65,14 @@ fun AlgorithmSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     var styleWeight by remember { mutableFloatStateOf(vm.prefs.styleWeight) }
     var acousticWeight by remember { mutableFloatStateOf(vm.prefs.acousticWeight) }
     var repeatGuard by remember { mutableFloatStateOf(vm.prefs.repeatGuard) }
+
+    val busy by vm.busy.collectAsStateWithLifecycle()
+    val evaluation by vm.sequenceReport.collectAsStateWithLifecycle()
+    var searchPersonal by remember { mutableStateOf(vm.prefs.searchPersonalized) }
+    var searchLyrics by remember { mutableStateOf(vm.prefs.searchLyrics) }
+    var searchOpen by remember { mutableStateOf(false) }
+    var separations by remember { mutableStateOf(vm.prefs.styleSeparations) }
+    var separationsOpen by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         Row(
@@ -176,6 +189,190 @@ fun AlgorithmSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                     ) { Text("נקה") }
                 }
             }
+
+            item {
+                SectionToggleRow(
+                    title = "הגדרות החיפוש",
+                    subtitle = "איך תוצאות מסודרות",
+                    open = searchOpen,
+                    onToggle = { searchOpen = !searchOpen }
+                )
+            }
+            if (searchOpen) {
+                item {
+                    Text(
+                        "החיפוש מתעלם מאותיות סופיות, מגרשיים ומניקוד — \"מוהרן\" " +
+                            "מוצא את \"מוהר״ן\" — ומוחל על שגיאת כתיב אחת במילים ארוכות.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(horizontal = gutter, vertical = 4.dp)
+                    )
+                }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("חיפוש גם במילות השיר", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "מוצא שיר לפי שורה שזכור לך ממנו, גם כשאת השם שכחת. " +
+                                    "עובד על שירים שיש להם מילים — מקובץ LRC או מתגיות הקובץ",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = searchLyrics,
+                            onCheckedChange = {
+                                searchLyrics = it
+                                vm.prefs.searchLyrics = it
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Accent,
+                                checkedTrackColor = Accent.copy(alpha = 0.4f)
+                            )
+                        )
+                    }
+                }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("התאמה אישית בתוצאות", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "כששתי תוצאות מתאימות באותה מידה לטקסט, זו שקרובה " +
+                                    "לטעם שלך תופיע ראשונה. לא משנה סדר של התאמה מדויקת",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Switch(
+                            checked = searchPersonal,
+                            onCheckedChange = {
+                                searchPersonal = it
+                                vm.prefs.searchPersonalized = it
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Accent,
+                                checkedTrackColor = Accent.copy(alpha = 0.4f)
+                            )
+                        )
+                    }
+                }
+            }
+
+            // ---------------------------------------------------------------
+            // הנגן והשמע
+            // ---------------------------------------------------------------
+
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("סגנונות שלא יתערבבו", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            text = separations.split('\n')
+                                .filter { it.isNotBlank() }
+                                .joinToString(" · ") { it.trim() }
+                                .ifBlank { "הכל יכול להתערבב" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            maxLines = 2
+                        )
+                    }
+                    Button(
+                        onClick = { separationsOpen = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("ערוך") }
+                }
+            }
+
+            item {
+                SectionHeader(
+                    title = "בדיקת המנוע",
+                    subtitle = "כמה טוב הוא מנחש מה באמת הושמע אחר כך"
+                )
+            }
+
+            item {
+                Column(modifier = Modifier.padding(horizontal = gutter)) {
+                    Text(
+                        "עובר על ההיסטוריה ושואל, לכל מעבר בין שני שירים, באיזה מקום " +
+                            "מכל הספרייה המנוע היה מדרג את השיר שבאמת בא אחריו. " +
+                            "שינוי באלגוריתם שמשפר — מעלה את המספרים האלה.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    val e = evaluation
+                    if (e != null) {
+                        Spacer(Modifier.height(10.dp))
+                        Stat("מעברים שנבדקו", "${e.pairs}")
+                        Stat(
+                            "בעשירייה הראשונה",
+                            "${(e.recallAt10 * 100).toInt()}% " +
+                                "(אקראי: ${(e.randomRecallAt10 * 100).toInt()}%)"
+                        )
+                        Stat(
+                            "בחמישים הראשונים",
+                            "${(e.recallAt50 * 100).toInt()}% " +
+                                "(אקראי: ${(e.randomRecallAt50 * 100).toInt()}%)"
+                        )
+                        Stat("דירוג חציוני", "${e.medianRank} מתוך ${e.librarySize}")
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "המספרים אופטימיים: הסטטיסטיקה שהמנוע מדרג לפיה כוללת כבר " +
+                                "את ההשמעות שהוא מנסה לנחש. הם מוטים באותו אופן בכל " +
+                                "ריצה, ולכן ההשוואה בין שתי ריצות תקפה גם אם אף אחת " +
+                                "מהן אינה הערכה נקייה.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextTertiary
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Button(
+                        onClick = { vm.evaluateEngine() },
+                        enabled = !busy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("בדוק עכשיו") }
+                }
+            }
+
+
+            item {
+                // Last, and not a filled button. It throws away every rating,
+                // like and play count the engine ever learned from, which is
+                // the one thing here that months of listening cannot be got
+                // back. It sits under the engine because the engine is what
+                // it empties.
+                Row(modifier = Modifier.padding(horizontal = gutter, vertical = 14.dp)) {
+                    Button(
+                        onClick = { vm.resetLearning() },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Surface1,
+                            contentColor = TextPrimary
+                        )
+                    ) { Text("אפס למידה") }
+                }
+            }
         }
+    }
+
+    if (separationsOpen) {
+        SeparationDialog(
+            initial = separations,
+            onDismiss = { separationsOpen = false },
+            onApply = {
+                separations = it
+                vm.updateTuning(styleSeparations = it)
+                separationsOpen = false
+            }
+        )
     }
 }
