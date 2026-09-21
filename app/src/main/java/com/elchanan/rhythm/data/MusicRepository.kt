@@ -136,7 +136,9 @@ class MusicRepository(
                 val keep = !skipRecordings ||
                     !Names.looksLikeRecording(
                         song.folder,
-                        song.path.substringAfterLast('/')
+                        song.path.substringAfterLast('/'),
+                        song.durationMs,
+                        Names.hasRealArtist(song.artistName)
                     )
                 if (!keep) recordings++
                 keep

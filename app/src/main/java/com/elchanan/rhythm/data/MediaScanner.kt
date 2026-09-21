@@ -188,8 +188,8 @@ object MediaScanner {
                 }
                 val rawArtist = c.getString(artistCol)?.trim().orEmpty()
                 val artistDisplay = when {
-                    rawArtist.isEmpty() -> "אמן לא ידוע"
-                    rawArtist == "<unknown>" -> "אמן לא ידוע"
+                    rawArtist.isEmpty() -> Names.UNKNOWN_ARTIST
+                    rawArtist == "<unknown>" -> Names.UNKNOWN_ARTIST
                     else -> rawArtist
                 }
                 val primary = Names.primaryArtist(artistDisplay)

@@ -1989,7 +1989,12 @@ private fun filterLibrary(
     var out = songs
     if (prefs.skipRecordings) {
         out = out.filterNot {
-            Names.looksLikeRecording(it.folder, it.path.substringAfterLast(File.separatorChar))
+            Names.looksLikeRecording(
+                it.folder,
+                it.path.substringAfterLast(File.separatorChar),
+                it.durationMs,
+                Names.hasRealArtist(it.artistName)
+            )
         }
     }
     if (prefs.hideDuplicates) {

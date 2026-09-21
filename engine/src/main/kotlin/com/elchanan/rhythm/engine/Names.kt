@@ -22,43 +22,128 @@ object Names {
     /** Hebrew niqqud / cantillation ranges plus common punctuation we ignore in keys. */
     private val stripRegex = Regex("[\\u0591-\\u05C7\\p{Punct}\\s]+")
 
+    /** What the Android scanner writes when a file carries no artist. */
+    const val UNKNOWN_ARTIST = "אמן לא ידוע"
+
+    /** The names that mean "nobody filled this in". */
+    private val emptyArtistNames = setOf(
+        UNKNOWN_ARTIST, "<unknown>", "unknown", "unknown artist", "various artists"
+    )
+
     /**
-     * Folders that hold recordings rather than music.
+     * Whether a file actually carries an artist.
+     *
+     * The two scanners disagree about what an absent artist looks like - one
+     * writes a placeholder and the other leaves it blank - and the callers of
+     * [looksLikeRecording] must not each decide for themselves, because
+     * getting it backwards means either keeping every voice note or throwing
+     * away every song.
+     */
+    fun hasRealArtist(artistName: String): Boolean {
+        val trimmed = artistName.trim()
+        return trimmed.isNotEmpty() && trimmed.lowercase(Locale.ROOT) !in
+            emptyArtistNames.map { it.lowercase(Locale.ROOT) }
+    }
+
+    /**
+     * Folders that only ever hold recordings.
      *
      * MediaStore's own `is_music` flag does not settle this: plenty of call
      * recorders and voice memo apps set it, and the files then arrive looking
      * exactly like tracks. Matching on the folder is cruder but it is what
      * actually works, because these apps all write to predictable places.
      *
-     * Matched against the folder path, case insensitively, so "Call
-     * Recordings" and "callrecorder" both catch.
+     * Matched as a substring of the folder path, case insensitively, so
+     * "Call Recordings" and "callrecorder" both catch. Everything here is
+     * long enough that it cannot appear inside an ordinary word.
      */
-    private val recordingFolders = listOf(
+    private val recorderFolders = listOf(
         "callrecord", "call_record", "call recording", "callrecording",
-        "recordings", "recorder", "voicerecorder", "voice recorder",
-        "voicememo", "voice memo", "voicenotes", "voice notes", "soundrecorder",
-        "whatsapp audio", "whatsapp voice", "whatsapp/media/whatsapp voice notes",
-        "telegram audio", "ptt", "cube acr", "acr",
-        "הקלטות", "שיחות", "הקלטות שיחה"
+        "voicerecorder", "voice recorder", "voicememo", "voice memo",
+        "voicenotes", "voice notes", "soundrecorder", "cube acr",
+        "whatsapp voice", "whatsapp/media/whatsapp voice notes",
+        "הקלטות שיחה"
     )
+
+    /**
+     * Folders where music and recordings both land.
+     *
+     * A great deal of music arrives through a messaging app, and it lands in
+     * the same folder as the voice notes. Treating the folder alone as proof
+     * threw all of it away, silently - which is most of what "the app does
+     * not find my songs" turned out to be. These only count alongside other
+     * evidence: see [looksLikeRecording].
+     */
+    private val sharedFolders = listOf(
+        "whatsapp audio", "telegram audio", "recordings", "recorder",
+        "הקלטות", "שיחות"
+    )
+
+    /**
+     * Short folder names, matched as a whole path segment.
+     *
+     * "acr" and "ptt" are three letters, and as a substring of a whole path
+     * they match inside ordinary words - every song in a folder called
+     * "Sacred" was being thrown away as a call recording. A segment is a
+     * folder someone named, which is what was meant.
+     */
+    private val recorderSegments = setOf("acr", "ptt")
+
+    /**
+     * Below this, an untagged file in a messaging folder is taken for a voice
+     * note. Above it, it is taken for music.
+     *
+     * Two minutes, and deliberately generous towards keeping things. A voice
+     * note that ends up in the library is visible and can be dealt with; a
+     * song that never arrives is invisible, and the only symptom is a library
+     * that feels incomplete for reasons nobody can see.
+     */
+    private const val VOICE_NOTE_MS = 120_000L
 
     /**
      * True when a file looks like a recording rather than a track.
      *
-     * The file name is checked as well as the folder, because recorders that
-     * write into a shared folder still name their files distinctively.
+     * Read as a chain of evidence rather than a single test, because the two
+     * cheapest signals - the folder and the file name - are also the two that
+     * throw away real music.
+     *
+     * An artist tag settles it on its own: recorders do not write one, and a
+     * person who tagged a file meant it as a track. Past that, a folder that
+     * only ever holds recordings is enough by itself, and so is a file named
+     * the way recorders name them. A folder that holds both only counts when
+     * the file is also untagged and shorter than a voice note is long.
+     *
+     * @param durationMs 0 when unknown, which is treated as "not short" -
+     *   MediaStore fills the length in after it notices the file, and a song
+     *   must not be thrown away for being newly indexed.
      */
-    fun looksLikeRecording(path: String, fileName: String): Boolean {
+    fun looksLikeRecording(
+        path: String,
+        fileName: String,
+        durationMs: Long = 0L,
+        hasArtistTag: Boolean = false
+    ): Boolean {
+        if (hasArtistTag) return false
+
         val folder = path.lowercase(Locale.ROOT).replace('\\', '/')
-        if (recordingFolders.any { folder.contains(it) }) return true
+        if (recorderFolders.any { folder.contains(it) }) return true
+        if (folder.split('/').any { it in recorderSegments }) return true
+
         val name = fileName.lowercase(Locale.ROOT)
         // "call_20250114_093012.m4a", "PTT-20240103-WA0002.opus", "REC_0012"
-        return name.startsWith("call") ||
+        val namedLikeRecording = name.startsWith("call") ||
             name.startsWith("ptt-") ||
             name.startsWith("rec_") ||
             name.startsWith("voice ") ||
-            name.startsWith("audio-") ||
             Regex("^(aud|rec)[-_]?\\d{6,}").containsMatchIn(name)
+        if (namedLikeRecording) return true
+
+        // Untagged, short, and sitting where voice notes are kept. Any one of
+        // those on its own is ordinary; all three together is a voice note.
+        if (sharedFolders.any { folder.contains(it) }) {
+            return durationMs in 1 until VOICE_NOTE_MS
+        }
+        return false
     }
 
     private val collabSeparators = listOf(
