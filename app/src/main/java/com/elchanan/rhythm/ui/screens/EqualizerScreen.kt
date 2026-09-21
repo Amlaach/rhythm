@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
@@ -52,11 +53,11 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.elchanan.rhythm.engine.EqBands
 import com.elchanan.rhythm.engine.EqPresets
 import com.elchanan.rhythm.engine.EqResponse
@@ -158,139 +159,156 @@ private fun GraphicEqualizer(vm: MainViewModel, gutter: Dp) {
     // volatile field, so the two are written together on every change.
     var settings by remember { mutableStateOf(controller.settings) }
 
-    LazyColumn(
-        // Deep enough to scroll the last slider clear of the mini player and
-        // the navigation bar, both of which float over this screen.
-        contentPadding = PaddingValues(bottom = 150.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("אקולייזר 31 תדרים", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "מחושב בתוך הנגן, אותה תוצאה בכל מכשיר",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
-                }
-                Switch(
-                    checked = settings.enabled,
-                    onCheckedChange = {
-                        settings = settings.copy(enabled = it)
-                        controller.setEnabled(it)
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Accent,
-                        checkedTrackColor = Accent.copy(alpha = 0.4f)
-                    )
+    // Not a list.
+    //
+    // The curve and the faders are both drag targets, and a drag target
+    // inside a vertically scrolling list is a fight the list always loses:
+    // the child sees the gesture first and consumes it, so touching either
+    // of them moved a band instead of scrolling the page - and since
+    // between them they cover most of the screen, the page could barely be
+    // scrolled at all.
+    //
+    // So the two controls sit in a fixed region that never scrolls, and only
+    // the settings underneath them - presets, preamp, reset, none of which
+    // wants a vertical drag - are in a list. Nothing competes for a gesture
+    // any more, and the curve takes whatever height is left over, which is
+    // also what makes this fit a short window instead of overflowing it.
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("אקולייזר 31 תדרים", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "מחושב בתוך הנגן, אותה תוצאה בכל מכשיר",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
                 )
             }
-        }
-
-        item {
-            ResponseCurve(
-                settings = settings,
-                gutter = gutter,
-                onDraw = { band, millibels ->
-                    settings = settings.withBand(band, millibels)
-                    controller.setBand(band, millibels)
+            Switch(
+                checked = settings.enabled,
+                onCheckedChange = {
+                    settings = settings.copy(enabled = it)
+                    controller.setEnabled(it)
                 },
-                onDrawEnd = { controller.commit() }
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Accent,
+                    checkedTrackColor = Accent.copy(alpha = 0.4f)
+                )
             )
         }
 
-        item {
-            FaderStrip(
-                settings = settings,
-                gutter = gutter,
-                onBand = { band, millibels ->
-                    settings = settings.withBand(band, millibels)
-                    controller.setBand(band, millibels)
-                },
-                onBandEnd = { controller.commit() }
-            )
-        }
+        ResponseCurve(
+            settings = settings,
+            gutter = gutter,
+            // Shrinks on a short window rather than pushing the rest off the
+            // bottom. fill = false so it never grows past what the curve is
+            // worth on a tall one.
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .heightIn(min = 96.dp, max = 170.dp),
+            onDraw = { band, millibels ->
+                settings = settings.withBand(band, millibels)
+                controller.setBand(band, millibels)
+            },
+            onDrawEnd = { controller.commit() }
+        )
 
-        item {
-            SectionLabel("מוכנים מראש", gutter)
-            val current = remember(settings.bands) { EqPresets.matching(settings.bands) }
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = gutter),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(EqPresets.ALL.size) { index ->
-                    val preset = EqPresets.ALL[index]
+        FaderStrip(
+            settings = settings,
+            gutter = gutter,
+            onBand = { band, millibels ->
+                settings = settings.withBand(band, millibels)
+                controller.setBand(band, millibels)
+            },
+            onBandEnd = { controller.commit() }
+        )
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            // Deep enough to clear the mini player and the navigation bar,
+            // both of which float over this screen.
+            contentPadding = PaddingValues(bottom = 150.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            item {
+                SectionLabel("מוכנים מראש", gutter)
+                val current = remember(settings.bands) { EqPresets.matching(settings.bands) }
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = gutter),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(EqPresets.ALL.size) { index ->
+                        val preset = EqPresets.ALL[index]
+                        Chip(
+                            label = preset.name,
+                            selected = current == preset.name,
+                            onClick = {
+                                val bands = EqPresets.bands(preset)
+                                settings = EqSettings.of(true, bands, settings.preampMb)
+                                controller.setEnabled(true)
+                                controller.setBands(bands)
+                            }
+                        )
+                    }
+                }
+            }
+
+            item {
+                SectionLabel("עוצמה כללית", gutter)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = gutter)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Surface1)
+                        .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = formatDb(settings.preampMb),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (settings.preampMb == 0) TextSecondary else Accent,
+                        modifier = Modifier.width(52.dp)
+                    )
+                    Slider(
+                        value = settings.preampMb.toFloat(),
+                        onValueChange = {
+                            val mb = it.roundToInt()
+                            settings = settings.copy(preampMb = mb)
+                            controller.setPreamp(mb)
+                        },
+                        onValueChangeFinished = { controller.commit() },
+                        valueRange = EqBands.PREAMP_MIN_MB.toFloat()..EqBands.PREAMP_MAX_MB.toFloat(),
+                        enabled = settings.enabled,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Accent,
+                            activeTrackColor = Accent,
+                            inactiveTrackColor = Surface2
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Text(
+                    "מורידים כאן כשהגברה חזקה גורמת לעיוות",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextTertiary,
+                    modifier = Modifier.padding(start = gutter, end = gutter, top = 6.dp)
+                )
+            }
+
+            item {
+                Row(modifier = Modifier.padding(horizontal = gutter, vertical = 14.dp)) {
                     Chip(
-                        label = preset.name,
-                        selected = current == preset.name,
+                        label = "אפס הכל",
+                        selected = false,
                         onClick = {
-                            val bands = EqPresets.bands(preset)
-                            settings = EqSettings.of(true, bands, settings.preampMb)
-                            controller.setEnabled(true)
-                            controller.setBands(bands)
+                            settings = settings.copy(bands = List(EqBands.COUNT) { 0 }, preampMb = 0)
+                            controller.reset()
                         }
                     )
                 }
-            }
-        }
-
-        item {
-            SectionLabel("עוצמה כללית", gutter)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = gutter)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Surface1)
-                    .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = formatDb(settings.preampMb),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (settings.preampMb == 0) TextSecondary else Accent,
-                    modifier = Modifier.width(52.dp)
-                )
-                Slider(
-                    value = settings.preampMb.toFloat(),
-                    onValueChange = {
-                        val mb = it.roundToInt()
-                        settings = settings.copy(preampMb = mb)
-                        controller.setPreamp(mb)
-                    },
-                    onValueChangeFinished = { controller.commit() },
-                    valueRange = EqBands.PREAMP_MIN_MB.toFloat()..EqBands.PREAMP_MAX_MB.toFloat(),
-                    enabled = settings.enabled,
-                    colors = SliderDefaults.colors(
-                        thumbColor = Accent,
-                        activeTrackColor = Accent,
-                        inactiveTrackColor = Surface2
-                    ),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Text(
-                "מורידים כאן כשהגברה חזקה גורמת לעיוות",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextTertiary,
-                modifier = Modifier.padding(start = gutter, end = gutter, top = 6.dp)
-            )
-        }
-
-        item {
-            Row(modifier = Modifier.padding(horizontal = gutter, vertical = 14.dp)) {
-                Chip(
-                    label = "אפס הכל",
-                    selected = false,
-                    onClick = {
-                        settings = settings.copy(bands = List(EqBands.COUNT) { 0 }, preampMb = 0)
-                        controller.reset()
-                    }
-                )
             }
         }
     }
@@ -310,6 +328,7 @@ private fun GraphicEqualizer(vm: MainViewModel, gutter: Dp) {
 private fun ResponseCurve(
     settings: EqSettings,
     gutter: Dp,
+    modifier: Modifier = Modifier,
     onDraw: (Int, Int) -> Unit,
     onDrawEnd: () -> Unit
 ) {
@@ -330,11 +349,11 @@ private fun ResponseCurve(
     // by the layout while the canvas stayed put, so the axis would disagree
     // with the curve drawn against it.
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = gutter)) {
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = gutter)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(170.dp)
+                .weight(1f)
                 .clip(RoundedCornerShape(14.dp))
                 .background(Surface1)
         ) {

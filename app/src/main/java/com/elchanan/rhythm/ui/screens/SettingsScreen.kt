@@ -887,6 +887,19 @@ fun SettingsScreen(
                         if (s.looksLikeRecording > 0) {
                             Stat("זוהו כהקלטות", "${s.looksLikeRecording}")
                         }
+                        // Said out loud, because a card that is out and a
+                        // library that has vanished look identical from the
+                        // home screen and only one of them is a problem.
+                        if (s.onAbsentStorage > 0) {
+                            Stat("נשמרו — האחסון מנותק", "${s.onAbsentStorage}")
+                            Text(
+                                "השירים האלה יושבים על כרטיס זיכרון שלא מחובר כרגע. " +
+                                    "הם נשארים בספרייה עם הדירוגים וההשמעות שלהם, " +
+                                    "ויחזרו כמו שהיו ברגע שהכרטיס יחזור.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
                         if (s.onDevice == 0) {
                             Text(
                                 "המכשיר לא החזיר אף קובץ. בדרך כלל זה אומר שהמערכת עוד " +

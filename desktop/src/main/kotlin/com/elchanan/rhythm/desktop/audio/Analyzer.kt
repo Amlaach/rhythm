@@ -5,6 +5,7 @@ import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.engine.Analysis
 import java.io.File
 import javax.sound.sampled.AudioFormat
+import javax.sound.sampled.AudioInputStream
 import javax.sound.sampled.AudioSystem
 
 /**
@@ -35,37 +36,37 @@ object Analyzer {
     fun analyze(song: SongEntity): AudioFeatureEntity? {
         val file = File(song.path)
         if (!file.isFile) return null
-
-        val windows = ArrayList<Analysis.WindowStats>(Analysis.PROBE_POINTS.size)
-        for (fraction in Analysis.PROBE_POINTS) {
-            val startUs = Analysis.probeStart(song.durationMs, fraction)
-            val decoded = runCatching {
-                decodeMono(file, startUs / 1000L, Analysis.PROBE_SECONDS)
-            }.getOrNull() ?: continue
-            val (raw, sampleRate) = decoded
-            if (raw.size < Analysis.WINDOW * 8) continue
-            val (samples, sr) = Analysis.decimate(raw, sampleRate, Analysis.TARGET_SAMPLE_RATE)
-            val stats = runCatching { Analysis.windowStats(samples, sr) }.getOrNull() ?: continue
-            windows.add(stats)
-        }
-
+        val windows = runCatching { probe(file, song.durationMs) }.getOrNull().orEmpty()
         if (windows.isEmpty()) return null
         return runCatching { Analysis.merge(song.id, windows) }.getOrNull()
     }
 
     /**
-     * A few seconds of mono audio from part way into a file.
+     * The eight probes, from one pass over the file.
      *
-     * Channels are averaged here rather than asked of the converter: a
-     * stereo to mono conversion is one javax.sound providers frequently
-     * decline, and being refused a probe because a file happens to be stereo
-     * would leave most of a library unanalysed.
+     * This used to open the file once per probe and skip to each one in
+     * turn, which is what the phone does - except that the phone can seek.
+     * Here the decoder cannot: skipping an AudioInputStream decodes the audio
+     * and throws it away, so reaching the probe at 87% meant decoding 87% of
+     * the song. Eight probes that way came to more than four times the length
+     * of the track, per track, and a library took hours.
      *
-     * Seeking is a skip over the decoded stream. Exact for constant bitrate
-     * and close otherwise, which is all a probe needs - it is asking what a
-     * song sounds like a third of the way through, not at a timestamp.
+     * One pass forward instead. The probes are in ascending order, so the
+     * stream is only ever skipped from where it already is to where the next
+     * one starts, and the whole file is read at most once - and not even that,
+     * since it stops after the last probe. Same eight measurements, roughly a
+     * fifth of the decoding.
+     *
+     * A file of unknown length puts every probe at zero; those collapse to
+     * one rather than measuring the same four seconds eight times.
      */
-    private fun decodeMono(file: File, fromMs: Long, seconds: Int): Pair<FloatArray, Int>? {
+    private fun probe(file: File, durationMs: Long): List<Analysis.WindowStats> {
+        val starts = Analysis.PROBE_POINTS
+            .map { Analysis.probeStart(durationMs, it) / 1000L }
+            .distinct()
+            .sorted()
+        if (starts.isEmpty()) return emptyList()
+
         val encoded = AudioSystem.getAudioInputStream(file)
         val base = encoded.format
         val rate = if (base.sampleRate > 0f) base.sampleRate else 44_100f
@@ -76,43 +77,97 @@ object Analyzer {
         val pcm = runCatching { AudioSystem.getAudioInputStream(target, encoded) }.getOrNull()
         if (pcm == null) {
             runCatching { encoded.close() }
-            return null
+            return emptyList()
         }
 
+        val out = ArrayList<Analysis.WindowStats>(starts.size)
         pcm.use { stream ->
             val frameSize = channels * 2
-            var toSkip = (fromMs / 1000.0 * rate).toLong() * frameSize
-            while (toSkip > 0) {
-                val skipped = stream.skip(toSkip)
-                if (skipped <= 0) break
-                toSkip -= skipped
-            }
-
-            val wantedFrames = (rate * seconds).toInt()
+            val wantedFrames = (rate * Analysis.PROBE_SECONDS).toInt()
             val buffer = ByteArray(wantedFrames * frameSize)
-            var filled = 0
-            while (filled < buffer.size) {
-                val read = stream.read(buffer, filled, buffer.size - filled)
-                if (read <= 0) break
-                filled += read
-            }
-            val frames = filled / frameSize
-            if (frames <= 0) return null
+            val scratch = ByteArray(SCRATCH_BYTES)
+            // Where the stream head is, in frames from the start.
+            var atFrame = 0L
 
-            val out = FloatArray(frames)
-            var at = 0
-            for (f in 0 until frames) {
-                var sum = 0
-                for (c in 0 until channels) {
-                    // Little endian, signed, as the target format asks for.
-                    val lo = buffer[at].toInt() and 0xFF
-                    val hi = buffer[at + 1].toInt()
-                    sum += (hi shl 8) or lo
-                    at += 2
+            for (startMs in starts) {
+                val wantFrame = (startMs / 1000.0 * rate).toLong()
+                if (!skipTo(stream, wantFrame - atFrame, frameSize, scratch)) break
+                atFrame = maxOf(atFrame, wantFrame)
+
+                var filled = 0
+                while (filled < buffer.size) {
+                    val read = stream.read(buffer, filled, buffer.size - filled)
+                    if (read <= 0) break
+                    filled += read
                 }
-                out[f] = sum / (channels * 32768f)
+                val frames = filled / frameSize
+                if (frames <= 0) break
+                atFrame += frames
+
+                val raw = toMono(buffer, frames, channels)
+                if (raw.size < Analysis.WINDOW * 8) continue
+                val (samples, sr) =
+                    Analysis.decimate(raw, rate.toInt(), Analysis.TARGET_SAMPLE_RATE)
+                val stats = runCatching { Analysis.windowStats(samples, sr) }.getOrNull()
+                if (stats != null) out.add(stats)
             }
-            return out to rate.toInt()
         }
+        return out
+    }
+
+    /**
+     * Moves the head forward by a number of frames.
+     *
+     * By reading and throwing away rather than by skip(). The decoding
+     * happens either way - these are converted streams and there is nothing
+     * to seek over - but skip() on several of the SPI providers walks the
+     * stream in very small steps, and on one of them a byte at a time, which
+     * costs more than the decoding it is skipping. A read into a scratch
+     * buffer asks for a lot at once and lets the provider decide.
+     *
+     * @return false when the stream ran out, which ends the pass: every
+     *   remaining probe is further in than this one.
+     */
+    private fun skipTo(
+        stream: AudioInputStream,
+        frames: Long,
+        frameSize: Int,
+        scratch: ByteArray
+    ): Boolean {
+        if (frames <= 0) return true
+        var left = frames * frameSize
+        while (left > 0) {
+            val want = minOf(left, scratch.size.toLong()).toInt()
+            val read = stream.read(scratch, 0, want)
+            if (read <= 0) return false
+            left -= read
+        }
+        return true
+    }
+
+    /** Big enough that a skip is a few dozen reads rather than thousands. */
+    private const val SCRATCH_BYTES = 256 * 1024
+
+    /**
+     * Channels averaged here rather than asked of the converter: a stereo to
+     * mono conversion is one javax.sound providers frequently decline, and
+     * being refused a probe because a file happens to be stereo would leave
+     * most of a library unanalysed.
+     */
+    private fun toMono(buffer: ByteArray, frames: Int, channels: Int): FloatArray {
+        val out = FloatArray(frames)
+        var at = 0
+        for (f in 0 until frames) {
+            var sum = 0
+            for (c in 0 until channels) {
+                // Little endian, signed, as the target format asks for.
+                val lo = buffer[at].toInt() and 0xFF
+                val hi = buffer[at + 1].toInt()
+                sum += (hi shl 8) or lo
+                at += 2
+            }
+            out[f] = sum / (channels * 32768f)
+        }
+        return out
     }
 }

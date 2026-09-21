@@ -87,7 +87,17 @@ fun Artwork(
     albumId: Long,
     seed: String,
     modifier: Modifier = Modifier,
-    corner: Int = 10
+    corner: Int = 10,
+    /**
+     * How the cover fills its box.
+     *
+     * Crop for the small tiles, where the sleeve is an identifier and a
+     * cropped one is still recognisable at forty pixels. Fit for the big
+     * cover on the player, where the sleeve is the thing being looked at
+     * and cropping it cuts the artwork someone chose this album for - a
+     * wide live shot loses its sides, a tall poster loses its title.
+     */
+    contentScale: ContentScale = ContentScale.Crop
 ) {
     val (c1, c2) = gradientFor(seed)
     Box(
@@ -107,11 +117,12 @@ fun Artwork(
         AsyncImage(
             model = SongArt(songId, albumId),
             contentDescription = null,
-            // Covers that came from video thumbnails are 16:9. Fitting one into
-            // a square leaves two thick bands of the gradient behind it and the
-            // artwork itself ends up small; cropping to the centre fills the
-            // tile, which is what a cover is meant to do.
-            contentScale = ContentScale.Crop,
+            // Covers that came from video thumbnails are 16:9. On a small
+            // tile, fitting one into a square leaves two thick bands of the
+            // gradient behind it and the artwork itself ends up small, so
+            // those crop; the caller decides, because on the player the
+            // whole picture matters more than a filled square.
+            contentScale = contentScale,
             modifier = Modifier.fillMaxSize()
         )
     }

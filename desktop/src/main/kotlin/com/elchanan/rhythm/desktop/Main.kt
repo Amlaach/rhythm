@@ -161,6 +161,7 @@ import com.elchanan.rhythm.ui.theme.TextTertiary
 import com.elchanan.rhythm.ui.theme.gradientFor
 import java.awt.Toolkit
 import java.io.File
+import java.lang.Runtime
 import java.util.Locale
 import javax.swing.JFileChooser
 import javax.swing.UIManager
@@ -168,8 +169,12 @@ import javax.swing.filechooser.FileNameExtensionFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -470,19 +475,44 @@ private fun RhythmApp() {
         val todo = songs.filter { it.id !in features }
         if (todo.isEmpty()) return
         analysing = true
+        // Said before any decoding starts. The first song used to take long
+        // enough that the counter sat at nothing for minutes, which reads as
+        // a button that did not work.
+        status = "מנתח… 0 מתוך ${todo.size}"
         analysisJob = scope.launch {
             var done = 0
             var unreadable = 0
             try {
-                for (song in todo) {
-                    val row = withContext(Dispatchers.IO) {
-                        val f = Analyzer.analyze(song)
-                        if (f != null) store.putFeature(f)
-                        f
+                // Several at a time. Decoding is arithmetic on one core and a
+                // desktop has several idle ones, where the phone has a
+                // hardware decoder and one job to give it. Bounded rather than
+                // unbounded: past the core count the passes only take turns,
+                // and every one of them is holding a decode buffer.
+                //
+                // One less than the cores, floor of two, so the machine is
+                // still usable while a library is being measured.
+                val lanes = (Runtime.getRuntime().availableProcessors() - 1)
+                    .coerceIn(2, 8)
+                val counter = Mutex()
+                for (batch in todo.chunked(lanes)) {
+                    if (!isActive) break
+                    coroutineScope {
+                        for (song in batch) {
+                            launch(Dispatchers.IO) {
+                                val f = runCatching { Analyzer.analyze(song) }.getOrNull()
+                                // The store serialises its own writes, but
+                                // the two counters and the status line are
+                                // this coroutine's and are touched from every
+                                // lane.
+                                if (f != null) store.putFeature(f)
+                                counter.withLock {
+                                    done++
+                                    if (f == null) unreadable++
+                                    status = "מנתח… $done מתוך ${todo.size}"
+                                }
+                            }
+                        }
                     }
-                    done++
-                    if (row == null) unreadable++
-                    status = "מנתח… $done מתוך ${todo.size}"
                 }
             } finally {
                 analysing = false
@@ -1959,7 +1989,12 @@ private fun filterLibrary(
     var out = songs
     if (prefs.skipRecordings) {
         out = out.filterNot {
-            Names.looksLikeRecording(it.folder, it.path.substringAfterLast(File.separatorChar))
+            Names.looksLikeRecording(
+                it.folder,
+                it.path.substringAfterLast(File.separatorChar),
+                it.durationMs,
+                Names.hasRealArtist(it.artistName)
+            )
         }
     }
     if (prefs.hideDuplicates) {

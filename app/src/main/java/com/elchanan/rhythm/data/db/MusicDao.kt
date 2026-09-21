@@ -323,4 +323,76 @@ interface MusicDao {
 
     @Query("DELETE FROM playlist_items WHERE playlistId = :playlistId AND songId = :songId")
     suspend fun removeFromPlaylist(playlistId: Long, songId: Long)
+
+    // ---------- keeping what was learned when the id underneath it moves ----------
+
+    /**
+     * Songs that are no longer on the device, by id.
+     *
+     * Only ever called with ids the scan proved absent on a volume that is
+     * actually mounted - see MusicRepository.rescan. Everything keyed to them
+     * goes with them, because an id nothing points at is an id that will be
+     * handed to a different file one day.
+     */
+    @Query("DELETE FROM songs WHERE id IN (:ids)")
+    suspend fun deleteSongsById(ids: List<Long>)
+
+    /**
+     * Moves everything learned about a song from one id to another.
+     *
+     * MediaStore ids are not stable. Pull a memory card out and put it back,
+     * or let the system reindex it, and the same file comes back under a new
+     * number - at which point every rating, play count, like, bookmark and
+     * measurement keyed to the old number belongs to nothing. Matching on the
+     * path instead and carrying the rows across is what makes months of
+     * listening survive the card being moved.
+     *
+     * OR REPLACE rather than plain UPDATE: if a row already exists under the
+     * new id - a fresh scan will have written a bare one - the carried row
+     * wins, which is the whole point.
+     */
+    @Query("UPDATE OR REPLACE song_stats SET songId = :to WHERE songId = :from")
+    suspend fun moveStats(from: Long, to: Long)
+
+    @Query("UPDATE OR REPLACE audio_features SET songId = :to WHERE songId = :from")
+    suspend fun moveFeature(from: Long, to: Long)
+
+    @Query("UPDATE OR REPLACE playback_positions SET songId = :to WHERE songId = :from")
+    suspend fun movePosition(from: Long, to: Long)
+
+    @Query("UPDATE OR REPLACE lyrics SET songId = :to WHERE songId = :from")
+    suspend fun moveLyrics(from: Long, to: Long)
+
+    @Query("UPDATE OR REPLACE tag_overrides SET songId = :to WHERE songId = :from")
+    suspend fun moveOverride(from: Long, to: Long)
+
+    @Query("UPDATE bookmarks SET songId = :to WHERE songId = :from")
+    suspend fun moveBookmarks(from: Long, to: Long)
+
+    @Query("UPDATE history SET songId = :to WHERE songId = :from")
+    suspend fun moveHistory(from: Long, to: Long)
+
+    @Query("UPDATE OR REPLACE playlist_items SET songId = :to WHERE songId = :from")
+    suspend fun movePlaylistItems(from: Long, to: Long)
+
+    /**
+     * The learned edges, which are keyed by a pair of ids rather than one.
+     *
+     * OR IGNORE and not OR REPLACE: an edge that would collide with one that
+     * already exists is dropped rather than overwriting it, because the
+     * surviving edge carries its own weight and the two cannot be added up
+     * from here. Losing one edge of thousands costs nothing; losing the
+     * weight on the one that stays would.
+     */
+    @Query("UPDATE OR IGNORE affinity SET a = :to WHERE a = :from")
+    suspend fun moveAffinityA(from: Long, to: Long)
+
+    @Query("UPDATE OR IGNORE affinity SET b = :to WHERE b = :from")
+    suspend fun moveAffinityB(from: Long, to: Long)
+
+    @Query("UPDATE OR IGNORE transitions SET a = :to WHERE a = :from")
+    suspend fun moveTransitionA(from: Long, to: Long)
+
+    @Query("UPDATE OR IGNORE transitions SET b = :to WHERE b = :from")
+    suspend fun moveTransitionB(from: Long, to: Long)
 }

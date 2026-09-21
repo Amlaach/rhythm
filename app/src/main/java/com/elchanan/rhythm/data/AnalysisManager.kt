@@ -42,6 +42,15 @@ class AnalysisManager(
 
     fun start() {
         if (job?.isActive == true) return
+        // Marked running here rather than inside the coroutine.
+        //
+        // The foreground service starts this and then watches the progress to
+        // know when it may stop. Setting the flag inside the coroutine leaves
+        // a window - two database reads wide - in which the pass has been
+        // started and does not yet say so, and a watcher that looked during
+        // it would conclude there was nothing to wait for and stop the
+        // service out from under the work it had just started.
+        _progress.value = _progress.value.copy(running = true)
         job = scope.launch(Dispatchers.Default) {
             try {
                 var total = repo.songCount()
@@ -51,8 +60,29 @@ class AnalysisManager(
                 while (isActive) {
                     val batch = repo.songsNeedingAnalysis(12)
                     if (batch.isEmpty()) break
+                    // Asked once per batch rather than once per song: the
+                    // answer is a file system check per distinct card, and it
+                    // cannot change halfway through twelve songs in a way that
+                    // matters.
+                    val mounted = Volumes.mountedRoots(batch.map { it.path })
+                    // Songs passed over because the card they live on is out.
+                    // Per batch, so the loop can tell "nothing left to do"
+                    // from "nothing reachable to do" - a skipped song gets no
+                    // row, so the same batch comes back next time round.
+                    var skipped = 0
                     for (song in batch) {
                         if (!isActive) break
+                        // A file on a card that is not in the device is not a
+                        // file that failed to decode, and must not be written
+                        // off as one. Left with no row at all, so the next
+                        // pass picks it up once the card is back - without
+                        // this a card pulled out mid-pass left every song on
+                        // it permanently marked unanalysable, and nothing
+                        // short of wiping the measurements brought them back.
+                        if (Volumes.rootOf(song.path) !in mounted) {
+                            skipped++
+                            continue
+                        }
                         _progress.value = _progress.value.copy(currentTitle = song.title)
                         val feature = runCatching { AudioAnalyzer.analyze(context, song) }.getOrNull()
                         if (feature != null) {
@@ -67,6 +97,11 @@ class AnalysisManager(
                         // give the rest of the app room to breathe
                         delay(15)
                     }
+                    // Every song in this batch was on storage that is not
+                    // attached, so the next batch would be the same twelve for
+                    // ever. Nothing reachable is left to measure until the
+                    // card is back, and spinning on it would be a busy loop.
+                    if (skipped == batch.size) break
                     total = repo.songCount()
                 }
             } finally {

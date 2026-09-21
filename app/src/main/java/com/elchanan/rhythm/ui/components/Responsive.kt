@@ -59,8 +59,18 @@ fun rememberMetrics(): Metrics {
         // In landscape the limit is the height, not the width: the cover has to
         // leave room for the header, the title, the scrubber and the transport row,
         // which together want a little over half the window.
+        //
+        // The ceiling is a preference and the floor was a bug. coerceIn with a
+        // floor of 160 pushed the cover back up past what the window could
+        // hold on a short screen - a small phone in landscape, or a freeform
+        // window - and a Column does not clip, so it drew over the rows below
+        // it and came out looking cut off. Whatever the shape of the window,
+        // the cover never asks for more than the window has: the floor is
+        // applied first, and then the real limit wins over it.
         val artwork = minOf(width - gutter * 2, (height * 0.42f).toInt())
-            .coerceIn(160, 400)
+            .coerceAtLeast(96)
+            .coerceAtMost(minOf(width - gutter * 2, (height * 0.46f).toInt()))
+            .coerceAtMost(400)
 
         Metrics(
             gutter = gutter.dp,
