@@ -98,6 +98,20 @@ class MusicRepository(
         val skipRecordings = prefs.skipRecordings
         val minMs = prefs.minDurationSec * 1000L
 
+        // Ask the system to look at the folders the library already knows
+        // about before asking it what it has. A file copied in over USB or
+        // dropped in by a file manager is often not indexed for hours, and
+        // until it is there is nothing for a scan to find - which is what
+        // "I added songs and it does not see them" actually is. Fired and
+        // not awaited: whatever it turns up arrives as a MediaStore change,
+        // and the observer runs the scan again.
+        runCatching {
+            MediaScanner.askSystemToIndex(
+                context,
+                dao.allSongs().mapTo(LinkedHashSet()) { it.folder }
+            )
+        }
+
         val onDevice = MediaScanner.scan(context)
         var tooShort = 0
         var inExcluded = 0

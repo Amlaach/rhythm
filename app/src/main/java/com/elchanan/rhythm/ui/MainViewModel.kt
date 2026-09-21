@@ -76,6 +76,15 @@ import kotlinx.coroutines.withContext
  */
 private const val MEDIA_SETTLE_MS = 3_000L
 
+/**
+ * How long to believe a scan handed to the service is still going.
+ *
+ * Longer than any real scan, because cutting a live one short would show
+ * the wrong thing; short enough that a service killed by the system does
+ * not leave the app unable to scan again until it is restarted.
+ */
+private const val SCAN_WATCHDOG_MS = 15L * 60L * 1000L
+
 data class AlbumInfo(
     val albumId: Long,
     val name: String,
@@ -350,6 +359,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Whether the scan now running was asked for by someone who wants telling. */
     private var announceScan = false
+    private var busyWatchdog: Job? = null
 
     init {
         player.connect()
@@ -370,6 +380,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         // first value because it is the starting count and not a scan.
         viewModelScope.launch {
             repo.scans.drop(1).collect {
+                busyWatchdog?.cancel()
+                busyWatchdog = null
                 refreshFeed()
                 analysis.refreshCounts()
                 _busy.value = false
@@ -435,6 +447,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (LibraryWorkService.start(getApplication(), scan = true, analyze = false)) {
             _busy.value = true
             announceScan = showMessage
+            // A service that is killed before it finishes would otherwise
+            // leave the app looking busy for ever, and busy is what stops
+            // the next scan from being attempted. The counter clears this
+            // the moment a scan really lands; this only catches the case
+            // where none ever does.
+            busyWatchdog?.cancel()
+            busyWatchdog = viewModelScope.launch {
+                delay(SCAN_WATCHDOG_MS)
+                _busy.value = false
+                announceScan = false
+            }
             return
         }
         viewModelScope.launch {
