@@ -665,6 +665,17 @@ class MusicRepository(
         dao.insertPlaylist(PlaylistEntity(name = name, createdAt = System.currentTimeMillis()))
     }
 
+    /** Save the queue atomically, including repeated tracks and their order. */
+    suspend fun createPlaylistFromQueue(name: String, songIds: List<Long>): Long =
+        withContext(Dispatchers.IO) {
+            require(name.isNotBlank() && songIds.isNotEmpty())
+            RhythmDatabase.get(context).withTransaction {
+                val id = createPlaylist(name.trim())
+                bulkAddToPlaylist(id, songIds)
+                id
+            }
+        }
+
     suspend fun addToPlaylist(playlistId: Long, songId: Long) = withContext(Dispatchers.IO) {
         val pos = dao.nextPosition(playlistId)
         dao.insertPlaylistItem(PlaylistItemEntity(playlistId = playlistId, songId = songId, position = pos))

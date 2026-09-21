@@ -892,6 +892,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // playlists
     // -----------------------------------------------------------------------
 
+    fun saveQueueAsPlaylist(name: String) {
+        val title = name.trim()
+        if (title.isEmpty()) return
+        // Snapshot before launching: playback and radio can change the queue.
+        val ids = player.state.value.queueIds.toList()
+        if (ids.isEmpty()) {
+            _message.value = "התור ריק"
+            return
+        }
+        viewModelScope.launch {
+            try {
+                repo.createPlaylistFromQueue(title, ids)
+                _message.value = "התור נשמר כפלייליסט: $title"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _message.value = "שמירת התור נכשלה. אפשר לנסות שוב."
+            }
+        }
+    }
+
     fun createPlaylist(name: String, initial: SongEntity? = null) {
         viewModelScope.launch {
             val id = repo.createPlaylist(name)
