@@ -19,6 +19,7 @@ import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.data.db.TransitionEntity
 import com.elchanan.rhythm.data.PlayCountImport
+import com.elchanan.rhythm.engine.ArtistStyles
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.BulkTagging
 import com.elchanan.rhythm.engine.Spoken
@@ -749,7 +750,9 @@ class MusicRepository(
         Recommender(
             songs = allSongs,
             stats = statsById,
-            artists = dao.allArtists().associateBy { it.artistKey },
+            artists = ArtistStyles.withCatalogue(
+                dao.allArtists().associateBy { it.artistKey }, allSongs
+            ),
             affinity = affinityMap(),
             transitions = transitionMap(),
             features = featuresById,

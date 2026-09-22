@@ -56,7 +56,9 @@ object Feed {
     ) = Recommender(
         songs = songs,
         stats = stats,
-        artists = artists.associateBy { it.artistKey },
+        artists = com.elchanan.rhythm.engine.ArtistStyles.withCatalogue(
+            artists.associateBy { it.artistKey }, songs
+        ),
         affinity = affinity,
         transitions = transitions,
         features = features,
