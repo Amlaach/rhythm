@@ -230,6 +230,17 @@ fun HomeScreen(
                             onClick = { vm.stopAnalysis() }
                         )
 
+                        // Everything left is on storage that is not attached.
+                        // Offering "analyse" there invites a press that does
+                        // nothing visible, which is exactly what was reported.
+                        analysis.remaining > 0 && analysis.unreachable >= analysis.remaining -> Banner(
+                            icon = Icons.Filled.GraphicEq,
+                            title = "${analysis.remaining} שירים לא נגישים כרגע",
+                            body = "הקבצים בכרטיס זיכרון או בכונן שלא מחובר. הם ינותחו כשיחוברו",
+                            action = "נסה שוב",
+                            onClick = { vm.startAnalysis() }
+                        )
+
                         analysis.remaining > 0 && analysis.total > 0 -> Banner(
                             icon = Icons.Filled.GraphicEq,
                             title = "${analysis.remaining} שירים עוד לא נותחו",

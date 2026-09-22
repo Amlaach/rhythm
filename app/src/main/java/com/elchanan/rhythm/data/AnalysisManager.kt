@@ -30,7 +30,13 @@ class AnalysisManager(
         val running: Boolean = false,
         val done: Int = 0,
         val total: Int = 0,
-        val currentTitle: String? = null
+        val currentTitle: String? = null,
+        /**
+         * Songs the last pass could not reach - on storage that is not
+         * attached. Said on the screen, so that a count that will not go down
+         * is explained rather than offered as work the button will do.
+         */
+        val unreachable: Int = 0
     ) {
         val remaining: Int get() = (total - done).coerceAtLeast(0)
         val fraction: Float get() = if (total <= 0) 0f else (done.toFloat() / total).coerceIn(0f, 1f)
@@ -51,26 +57,25 @@ class AnalysisManager(
         // started and does not yet say so, and a watcher that looked during
         // it would conclude there was nothing to wait for and stop the
         // service out from under the work it had just started.
-        _progress.value = _progress.value.copy(running = true)
+        _progress.value = _progress.value.copy(running = true, unreachable = 0)
         job = scope.launch(Dispatchers.Default) {
             try {
                 var total = repo.songCount()
                 var done = repo.analyzedCount()
                 _progress.value = Progress(running = true, done = done, total = total)
 
+                // Where the walk has got to, by song id. See the query.
+                var after = Long.MIN_VALUE
+                var unreachable = 0
                 while (isActive) {
-                    val batch = repo.songsNeedingAnalysis(12)
+                    val batch = repo.songsNeedingAnalysis(after, 12)
                     if (batch.isEmpty()) break
+                    after = batch.last().id
                     // Asked once per batch rather than once per song: the
                     // answer is a file system check per distinct card, and it
                     // cannot change halfway through twelve songs in a way that
                     // matters.
                     val mounted = Volumes.mountedRoots(batch.map { it.path })
-                    // Songs passed over because the card they live on is out.
-                    // Per batch, so the loop can tell "nothing left to do"
-                    // from "nothing reachable to do" - a skipped song gets no
-                    // row, so the same batch comes back next time round.
-                    var skipped = 0
                     for (song in batch) {
                         if (!isActive) break
                         // A file on a card that is not in the device is not a
@@ -80,8 +85,16 @@ class AnalysisManager(
                         // this a card pulled out mid-pass left every song on
                         // it permanently marked unanalysable, and nothing
                         // short of wiping the measurements brought them back.
-                        if (Volumes.rootOf(song.path) !in mounted) {
-                            skipped++
+                        //
+                        // Only a root that is known and absent counts as out.
+                        // A path with no recognisable root - "/sdcard/...",
+                        // anything not under /storage - used to count as out
+                        // too, for ever, so those songs were never once
+                        // analysed. Cards always appear as /storage/XXXX-XXXX;
+                        // a path that is not one is the phone's own storage.
+                        val root = Volumes.rootOf(song.path)
+                        if (root.isNotEmpty() && root !in mounted) {
+                            unreachable++
                             continue
                         }
                         _progress.value = _progress.value.copy(currentTitle = song.title)
@@ -101,13 +114,9 @@ class AnalysisManager(
                         // give the rest of the app room to breathe
                         delay(15)
                     }
-                    // Every song in this batch was on storage that is not
-                    // attached, so the next batch would be the same twelve for
-                    // ever. Nothing reachable is left to measure until the
-                    // card is back, and spinning on it would be a busy loop.
-                    if (skipped == batch.size) break
                     total = repo.songCount()
                 }
+                _progress.value = _progress.value.copy(unreachable = unreachable)
             } finally {
                 // The model holds its weights and a working arena for as long
                 // as it is open, and the pass is the only thing that uses it.

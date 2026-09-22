@@ -587,8 +587,9 @@ class MusicRepository(
     // audio analysis storage
     // -----------------------------------------------------------------------
 
-    suspend fun songsNeedingAnalysis(limit: Int): List<SongEntity> =
-        withContext(Dispatchers.IO) { dao.songsNeedingAnalysis(limit) }
+    /** Songs still to analyse with an id above [after], in id order. */
+    suspend fun songsNeedingAnalysis(after: Long, limit: Int): List<SongEntity> =
+        withContext(Dispatchers.IO) { dao.songsNeedingAnalysis(after, limit) }
 
     /** Raw inventory, before the UI hides duplicate files. */
     suspend fun allSongsForExport(): List<SongEntity> =

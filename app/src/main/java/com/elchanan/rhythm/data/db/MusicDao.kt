@@ -268,12 +268,19 @@ interface MusicDao {
      * decode is marked tried as well, so no row is empty twice. Placeholder
      * rows for undecodable files have no energy and are never picked.
      */
+    //
+    // Walked in id order from a cursor rather than asked for "the first
+    // twelve" each time. A song that cannot be reached - on a card that is out
+    // - gets no row, so it stayed first in line for ever; once twelve of those
+    // filled a batch the pass concluded there was nothing to do and stopped,
+    // however many reachable songs were waiting behind them.
     @Query(
-        "SELECT * FROM songs WHERE id NOT IN (SELECT songId FROM audio_features) " +
-            "OR id IN (SELECT songId FROM audio_features WHERE soundPrint = '' AND energy > 0) " +
-            "LIMIT :limit"
+        "SELECT * FROM songs WHERE id > :after AND (" +
+            "id NOT IN (SELECT songId FROM audio_features) " +
+            "OR id IN (SELECT songId FROM audio_features WHERE soundPrint = '' AND energy > 0)" +
+            ") ORDER BY id LIMIT :limit"
     )
-    suspend fun songsNeedingAnalysis(limit: Int): List<SongEntity>
+    suspend fun songsNeedingAnalysis(after: Long, limit: Int): List<SongEntity>
 
     /**
      * Marks an already analysed song as having had its print attempted.
