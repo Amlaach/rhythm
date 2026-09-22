@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -444,10 +445,16 @@ class MusicRepository(
     /** The user saying a song is, or is not, in a mood - or (null) handing it back to the audio. */
     suspend fun setMoodMark(songId: Long, mood: com.elchanan.rhythm.engine.Mood, value: Boolean?) =
         withContext(Dispatchers.IO) {
-            dao.ensureStats(songId)
-            val current = dao.stats(songId)?.moods.orEmpty()
-            dao.setMoods(songId, com.elchanan.rhythm.engine.MoodMarks.with(current, mood, value))
+            // Read, change, write: two chips tapped quickly must not both read
+            // the old marks and have the second write erase the first.
+            moodMarkLock.withLock {
+                dao.ensureStats(songId)
+                val current = dao.stats(songId)?.moods.orEmpty()
+                dao.setMoods(songId, com.elchanan.rhythm.engine.MoodMarks.with(current, mood, value))
+            }
         }
+
+    private val moodMarkLock = kotlinx.coroutines.sync.Mutex()
 
     /** The user overruling the speech detector, either way. */
     suspend fun setSpoken(songId: Long, spoken: Boolean) = withContext(Dispatchers.IO) {

@@ -1743,7 +1743,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun applyLearnedWeights() {
-        val weights = _calibration.value?.weights ?: return
+        // Only weights that beat the defaults on held-out artists.
+        val report = _calibration.value?.takeIf { it.accepted } ?: return
+        val weights = report.weights ?: return
         prefs.learnedWeights = weights.encode()
         _message.value = "המשקלים האישיים הופעלו"
         refreshFeed()

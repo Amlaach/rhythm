@@ -33,7 +33,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.engine.Listening
@@ -238,16 +237,13 @@ fun AlgorithmSettingsScreen(
                         }
                         Spacer(Modifier.height(10.dp))
                         Row {
-                            if (report.weights != null) {
+                            if (report.accepted && report.weights != null) {
                                 Button(
                                     onClick = {
                                         vm.applyLearnedWeights()
                                         usingLearned = true
                                     },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (report.accepted) Accent else Surface1,
-                                        contentColor = if (report.accepted) Color.White else TextPrimary
-                                    )
+                                    colors = ButtonDefaults.buttonColors(containerColor = Accent)
                                 ) { Text("הפעל משקלים אישיים") }
                                 Spacer(Modifier.width(10.dp))
                             }
