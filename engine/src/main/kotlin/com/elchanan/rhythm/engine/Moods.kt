@@ -155,11 +155,33 @@ class MoodModel(
      */
     private val swingScale = scaleOf(swing.values.toList())
 
+    /**
+     * What MTG's heads said, per song, where the music model ran: arousal and
+     * valence on 0..1, from the regression heads trained on people's ratings
+     * and the mood classifiers on top of them.
+     *
+     * The rules below read a mood off tempo, key and brightness - proxies,
+     * and on this music often wrong ones: a fast niggun that everyone hears as
+     * calm, a minor key wedding song nobody hears as sad. These heads were
+     * trained on the question itself, by people asked how a song felt, so
+     * where they exist they carry most of the answer.
+     */
+    private val heard: Map<Long, Pair<Double?, Double?>> = buildMap {
+        for (f in usable) {
+            val m = MusicMoods.parse(f.musicMoods)
+            if (m.isEmpty()) continue
+            put(f.songId, musicArousal(m) to musicValence(m))
+        }
+    }
+
     /** Arousal and valence before the library is taken into account. */
     private val rawArousal: Map<Long, Double> =
-        usable.associate { it.songId to absoluteArousal(it) }
+        usable.associate { it.songId to blend(absoluteArousal(it), heard[it.songId]?.first) }
     private val rawValence: Map<Long, Double> =
-        usable.associate { it.songId to absoluteValence(it) }
+        usable.associate { it.songId to blend(absoluteValence(it), heard[it.songId]?.second) }
+
+    private fun blend(rules: Double, model: Double?): Double =
+        if (model == null) rules else (1 - MUSIC_WEIGHT) * rules + MUSIC_WEIGHT * model
 
     private val arousalScale = scaleOf(rawArousal.values.toList())
     private val valenceScale = scaleOf(rawValence.values.toList())
@@ -281,12 +303,12 @@ class MoodModel(
 
     /** Half what the anchors say, half where the library puts it. */
     fun arousal(f: AudioFeatureEntity): Double {
-        val raw = rawArousal[f.songId] ?: absoluteArousal(f)
+        val raw = rawArousal[f.songId] ?: blend(absoluteArousal(f), heardOf(f)?.first)
         return 0.5 * raw + 0.5 * rank(arousalScale, raw)
     }
 
     fun valence(f: AudioFeatureEntity): Double {
-        val raw = rawValence[f.songId] ?: absoluteValence(f)
+        val raw = rawValence[f.songId] ?: blend(absoluteValence(f), heardOf(f)?.second)
         return 0.5 * raw + 0.5 * rank(valenceScale, raw)
     }
 
@@ -362,6 +384,9 @@ class MoodModel(
             Mood.NIGHT -> 0.5 * (1.0 - a) + 0.5 * (1.0 - bright)
         }
     }
+
+    private fun heardOf(f: AudioFeatureEntity): Pair<Double?, Double?>? = heard[f.songId]
+        ?: MusicMoods.parse(f.musicMoods).takeIf { it.isNotEmpty() }?.let { musicArousal(it) to musicValence(it) }
 
     private fun rankTag(heard: FloatArray, slot: Int): Double =
         rank(tagScales[slot], heard[slot].toDouble())
@@ -588,6 +613,45 @@ class MoodModel(
          */
         const val STEADY_ENOUGH = 0.70
 
+
+        /** How much of each axis the music model's heads decide, where they ran. */
+        const val MUSIC_WEIGHT = 0.7
+
+        /** The regression heads' 1..9 rating scale onto 0..1. */
+        private fun nine(v: Float): Double = ((v - 1.0) / 8.0).coerceIn(0.0, 1.0)
+
+        private fun ratings(m: Map<String, Float>, axis: String): Double? =
+            m.filterKeys { it.endsWith(".$axis") }.values.map(::nine).takeIf { it.isNotEmpty() }?.average()
+
+        /**
+         * Arousal from the heads: the rated arousal where there is one, with
+         * the aggressive and relaxed classifiers pulling either way.
+         */
+        fun musicArousal(m: Map<String, Float>): Double? {
+            val rated = ratings(m, "arousal")
+            val pull = listOfNotNull(
+                m["aggressive"]?.toDouble(),
+                m["relaxed"]?.let { 1.0 - it },
+                m["party"]?.toDouble()
+            ).takeIf { it.isNotEmpty() }?.average()
+            return when {
+                rated != null && pull != null -> 0.6 * rated + 0.4 * pull
+                else -> rated ?: pull
+            }
+        }
+
+        /** Valence likewise: rated valence, with happy and sad pulling. */
+        fun musicValence(m: Map<String, Float>): Double? {
+            val rated = ratings(m, "valence")
+            val pull = listOfNotNull(
+                m["happy"]?.toDouble(),
+                m["sad"]?.let { 1.0 - it }
+            ).takeIf { it.isNotEmpty() }?.average()
+            return when {
+                rated != null && pull != null -> 0.6 * rated + 0.4 * pull
+                else -> rated ?: pull
+            }
+        }
 
         /** Marks each way a mood needs before it is learned rather than ruled. */
         const val MIN_MARKS = 3

@@ -217,7 +217,14 @@ data class AudioFeatureEntity(
      * Empty means never made; [SoundPrint.TRIED] means attempted and failed,
      * so the pass that fills these in does not retry it for ever.
      */
-    val soundPrint: String = ""
+    val soundPrint: String = "",
+    /**
+     * Discogs-EffNet's 1280 value summary, packed by MusicPrint. Empty means
+     * never made; MusicPrint.TRIED means attempted and failed.
+     */
+    val musicPrint: String = "",
+    /** What MTG's mood heads read off [musicPrint], encoded by MusicMoods. */
+    val musicMoods: String = ""
 )
 
 /**

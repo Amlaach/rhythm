@@ -168,5 +168,18 @@ fun AboutScreen(vm: MainViewModel, onBack: () -> Unit) {
                 }
             }
         }
+
+        item { SectionHeader(title = "מודלים שבתוך האפליקציה") }
+        item {
+            Text(
+                "זיהוי צלילים: YAMNet של Google, ברישיון Apache 2.0.\n" +
+                    "זיהוי סגנון ומצב רוח: Discogs-EffNet ומסווגי מצב הרוח של Essentia, " +
+                    "מאת MTG, אוניברסיטת פומפאו פברה בברצלונה, ברישיון " +
+                    "CC BY-NC-SA 4.0 — לשימוש לא מסחרי בלבד. האפליקציה מופצת בחינם.",
+                modifier = Modifier.padding(horizontal = gutter, vertical = 6.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary
+            )
+        }
     }
 }

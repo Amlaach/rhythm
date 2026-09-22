@@ -733,7 +733,8 @@ object Analysis {
             timbreVar = zeros,
             // A file that would not decode will not give up a print either,
             // and must not be queued for one on every pass.
-            soundPrint = SoundPrint.TRIED
+            soundPrint = SoundPrint.TRIED,
+            musicPrint = MusicPrint.TRIED
         )
     }
 }

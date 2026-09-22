@@ -21,7 +21,13 @@ class AcousticSpace(
      * only for the sound check, which has to measure the hand-made features
      * on their own to compare them with anything.
      */
-    usePrints: Boolean = true
+    usePrints: Boolean = true,
+    /**
+     * Whether Discogs-EffNet's music print takes part. Where both songs have
+     * one it is used before YAMNet's: it was trained on the difference between
+     * styles of music, YAMNet on the difference between sounds of every kind.
+     */
+    useMusic: Boolean = true
 ) {
 
     companion object {
@@ -71,12 +77,13 @@ class AcousticSpace(
          * kept on average - so a cosine between folded prints is a fair
          * estimate of the cosine between the full ones, at an eighth the size.
          */
-        private val BUCKET = IntArray(SoundPrint.DIMS)
-        private val SIGN = FloatArray(SoundPrint.DIMS)
+        private val WIDEST = maxOf(SoundPrint.DIMS, MusicPrint.DIMS)
+        private val BUCKET = IntArray(WIDEST)
+        private val SIGN = FloatArray(WIDEST)
 
         init {
             val r = java.util.Random(0x5EED)
-            for (i in 0 until SoundPrint.DIMS) {
+            for (i in 0 until WIDEST) {
                 BUCKET[i] = r.nextInt(PRINT_DIMS)
                 SIGN[i] = if (r.nextBoolean()) 1f else -1f
             }
@@ -84,7 +91,7 @@ class AcousticSpace(
 
         private fun fold(p: FloatArray): DoubleArray {
             val out = DoubleArray(PRINT_DIMS)
-            for (i in 0 until SoundPrint.DIMS) out[BUCKET[i]] += (SIGN[i] * p[i]).toDouble()
+            for (i in p.indices) out[BUCKET[i]] += (SIGN[i] * p[i]).toDouble()
             return out
         }
 
@@ -176,28 +183,44 @@ class AcousticSpace(
      * bounded 0..1 similarity rather than an unbounded distance.
      */
     fun similarity(a: Long, b: Long): Double {
+        val ma = music[a]
+        val mb = music[b]
+        if (ma != null && mb != null) return printSimilarity(ma, mb)
         val pa = prints[a] ?: return featureSimilarity(a, b)
         val pb = prints[b] ?: return featureSimilarity(a, b)
+        val print = printSimilarity(pa, pb)
+        if (PRINT_SHARE >= 1.0) return print
+        return (1.0 - PRINT_SHARE) * featureSimilarity(a, b) + PRINT_SHARE * print
+    }
+
+    private fun printSimilarity(pa: DoubleArray, pb: DoubleArray): Double {
         var dot = 0.0
         for (i in 0 until PRINT_DIMS) dot += pa[i] * pb[i]
         // The same curve as the features: for unit vectors the squared distance
         // is 2(1 - cos), so a pair of unrelated songs lands where it does there.
-        val print = exp(-(1.0 - dot.coerceIn(-1.0, 1.0)) / 0.8)
-        if (PRINT_SHARE >= 1.0) return print
-        return (1.0 - PRINT_SHARE) * featureSimilarity(a, b) + PRINT_SHARE * print
+        return exp(-(1.0 - dot.coerceIn(-1.0, 1.0)) / 0.8)
     }
 
     /**
      * Folded, centred, unit length prints, or none at all when too few songs
      * have one to know what the library's average sounds like.
      */
-    private val prints: Map<Long, DoubleArray> = if (!usePrints) emptyMap() else {
+    private val prints: Map<Long, DoubleArray> =
+        if (!usePrints) emptyMap() else folded(features) { SoundPrint.unpack(it.soundPrint) }
+
+    private val music: Map<Long, DoubleArray> =
+        if (!useMusic) emptyMap() else folded(features) { MusicPrint.unpack(it.musicPrint) }
+
+    private fun folded(
+        features: Collection<AudioFeatureEntity>,
+        read: (AudioFeatureEntity) -> FloatArray?
+    ): Map<Long, DoubleArray> {
         val folded = HashMap<Long, DoubleArray>()
         for (f in features) {
-            val p = SoundPrint.unpack(f.soundPrint) ?: continue
+            val p = read(f) ?: continue
             folded[f.songId] = fold(p)
         }
-        if (folded.size < 8) emptyMap() else {
+        return if (folded.size < 8) emptyMap() else {
             // Folding is linear, so the folded mean is the fold of the mean.
             val mean = DoubleArray(PRINT_DIMS)
             for (v in folded.values) for (i in 0 until PRINT_DIMS) mean[i] += v[i]

@@ -605,7 +605,9 @@ class MusicRepository(
 
     /** Songs still to analyse with an id above [after], in id order. */
     suspend fun songsNeedingAnalysis(after: Long, limit: Int): List<SongEntity> =
-        withContext(Dispatchers.IO) { dao.songsNeedingAnalysis(after, limit) }
+        withContext(Dispatchers.IO) {
+            dao.songsNeedingAnalysis(after, limit, com.elchanan.rhythm.engine.AudioAnalyzer.musicAvailable(context))
+        }
 
     /** Raw inventory, before the UI hides duplicate files. */
     suspend fun allSongsForExport(): List<SongEntity> =
@@ -661,7 +663,9 @@ class MusicRepository(
         rescan()
     }
 
-    suspend fun analyzedCount(): Int = withContext(Dispatchers.IO) { dao.featureCount() }
+    suspend fun analyzedCount(): Int = withContext(Dispatchers.IO) {
+        dao.featureCount(com.elchanan.rhythm.engine.AudioAnalyzer.musicAvailable(context))
+    }
 
     /** Song ids whose lyrics contain [query], as a plain substring. */
     suspend fun songIdsWithLyrics(query: String): List<Long> = withContext(Dispatchers.IO) {
