@@ -16,6 +16,7 @@ import com.elchanan.rhythm.data.LibraryWorkService
 import com.elchanan.rhythm.data.LyricsSource
 import com.elchanan.rhythm.data.MusicRepository
 import com.elchanan.rhythm.data.PlaylistExport
+import com.elchanan.rhythm.data.PlayCountImport
 import com.elchanan.rhythm.data.PlaylistImport
 import com.elchanan.rhythm.data.TagFileWriter
 import com.elchanan.rhythm.data.TagFixer
@@ -1241,6 +1242,55 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             } else {
                 "יובאה הרשימה \"$name\" עם ${songs.size} שירים"
             }
+        }
+    }
+
+    /**
+     * Imports listening history from another player's CSV export.
+     *
+     * Someone arriving with years of history elsewhere starts here with every
+     * model in the engine knowing nothing - and all of them need listening
+     * before they say anything useful. The evidence existed; there was no way
+     * to hand it over.
+     *
+     * Reported in full, including what did not match, because the usual
+     * reason for a miss is a spelling difference the user can actually go and
+     * fix, and a silent partial import looks exactly like a complete one.
+     */
+    fun importPlayCounts(uri: Uri) {
+        viewModelScope.launch {
+            _busy.value = true
+            val outcome = runCatching {
+                withContext(Dispatchers.IO) {
+                    val content = getApplication<Application>().contentResolver
+                        .openInputStream(uri)?.use { stream ->
+                            stream.readBytes().toString(Charsets.UTF_8)
+                        } ?: return@withContext null
+                    PlayCountImport.read(content, library.value.songs)
+                }
+            }.getOrNull()
+            _busy.value = false
+
+            if (outcome == null) {
+                _message.value = "לא הצלחתי לקרוא את הקובץ"
+                return@launch
+            }
+            if (outcome.parsed.entries.isEmpty()) {
+                _message.value = "לא זוהתה עמודת שם שיר בקובץ"
+                return@launch
+            }
+            if (outcome.matched.isEmpty()) {
+                _message.value = "אף שיר מהקובץ לא נמצא בספרייה שלך"
+                return@launch
+            }
+            val changed = repo.applyImportedPlays(outcome.matched)
+            _message.value = buildString {
+                append("עודכנו $changed שירים · ${outcome.totalPlays} השמעות")
+                if (outcome.unmatched.isNotEmpty()) {
+                    append(" · ${outcome.unmatched.size} לא נמצאו")
+                }
+            }
+            refreshFeed()
         }
     }
 

@@ -117,6 +117,7 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.elchanan.rhythm.data.PlaylistExport
+import com.elchanan.rhythm.data.PlayCountImport
 import com.elchanan.rhythm.data.PlaylistImport
 import com.elchanan.rhythm.data.AnalysisTransfer
 import com.elchanan.rhythm.data.TagFixer
@@ -977,6 +978,43 @@ private fun RhythmApp() {
     }
 
     /**
+     * Reads listening history out of another player's CSV export.
+     *
+     * Someone arriving with years of history elsewhere starts here with every
+     * model in the engine knowing nothing, and all of them need listening
+     * before they say anything useful. The evidence existed; there was no way
+     * to hand it over.
+     *
+     * What did not match is counted and said rather than dropped in silence:
+     * the usual reason for a miss is a spelling difference the user can go and
+     * fix, and a silent partial import looks exactly like a complete one.
+     */
+    fun importPlayCounts(file: File) {
+        scope.launch {
+            val note = withContext(Dispatchers.IO) {
+                val text = runCatching { file.readText() }.getOrNull()
+                    ?: return@withContext "לא הצלחתי לקרוא את הקובץ"
+                val result = PlayCountImport.read(text, library.songs)
+                when {
+                    result.parsed.entries.isEmpty() -> "לא זוהתה עמודת שם שיר בקובץ"
+                    result.matched.isEmpty() -> "אף שיר מהקובץ לא נמצא בספרייה"
+                    else -> {
+                        val changed = store.applyImportedPlays(result.matched)
+                        buildString {
+                            append("עודכנו $changed שירים · ${result.totalPlays} השמעות")
+                            if (result.unmatched.isNotEmpty()) {
+                                append(" · ${result.unmatched.size} לא נמצאו")
+                            }
+                        }
+                    }
+                }
+            }
+            reload()
+            status = note
+        }
+    }
+
+    /**
      * Writes every list out as m3u, the auto ones included.
      *
      * Everything that behaves like a list, not only the ones the user made by
@@ -1596,6 +1634,7 @@ private fun RhythmApp() {
                         chooseFolder()?.let { prefs.lyricsFolder = it.absolutePath }
                     },
                     onImportPlaylist = { choosePlaylistFile()?.let { importPlaylist(it) } },
+                    onImportPlayCounts = { choosePlayCountFile()?.let { importPlayCounts(it) } },
                     onExportPlaylists = { chooseFolder()?.let { exportPlaylists(it) } },
                     onExportAnalysis = { chooseAnalysisFile()?.let { exportAnalysis(it) } },
                     busy = busy,
@@ -3299,6 +3338,19 @@ private fun choosePlaylistFile(): File? {
         fileSelectionMode = JFileChooser.FILES_ONLY
         dialogTitle = "בחר קובץ רשימת השמעה"
         fileFilter = FileNameExtensionFilter("רשימות השמעה (m3u, m3u8, pls)", "m3u", "m3u8", "pls")
+    }
+    return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+        chooser.selectedFile
+    } else {
+        null
+    }
+}
+
+private fun choosePlayCountFile(): File? {
+    val chooser = JFileChooser().apply {
+        fileSelectionMode = JFileChooser.FILES_ONLY
+        dialogTitle = "בחר קובץ היסטוריית השמעות"
+        fileFilter = FileNameExtensionFilter("קובצי טבלה (csv, tsv, txt)", "csv", "tsv", "txt")
     }
     return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
         chooser.selectedFile

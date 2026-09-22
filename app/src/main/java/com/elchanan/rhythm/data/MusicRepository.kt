@@ -18,6 +18,7 @@ import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.data.db.TransitionEntity
+import com.elchanan.rhythm.data.PlayCountImport
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.BulkTagging
 import com.elchanan.rhythm.engine.Spoken
@@ -286,6 +287,30 @@ class MusicRepository(
         withContext(Dispatchers.IO) {
             val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
             dao.putStats(current.copy(styles = styles, stylesAuto = if (auto) 1 else 0))
+        }
+
+    /**
+     * Writes imported listening history onto the library.
+     *
+     * The larger of the two counts wins rather than the sum, so importing the
+     * same export twice does not double anybody's history - which is the one
+     * mistake a person is almost certain to make with this, since there is no
+     * way to tell by looking whether a file has already been read.
+     *
+     * @return how many songs were changed.
+     */
+    suspend fun applyImportedPlays(matches: List<PlayCountImport.Match>): Int =
+        withContext(Dispatchers.IO) {
+            var changed = 0
+            for (match in matches) {
+                val current = dao.stats(match.songId) ?: SongStatsEntity(songId = match.songId)
+                val plays = maxOf(current.playCount, match.plays)
+                val at = maxOf(current.lastPlayedAt, match.lastPlayedAt)
+                if (plays == current.playCount && at == current.lastPlayedAt) continue
+                dao.putStats(current.copy(playCount = plays, lastPlayedAt = at))
+                changed++
+            }
+            changed
         }
 
     /**
