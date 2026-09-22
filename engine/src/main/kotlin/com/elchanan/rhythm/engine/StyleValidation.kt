@@ -28,14 +28,28 @@ data class StyleMetrics(val byStyle: Map<String, StyleScore>, val songs: Int) {
     private fun List<Double>.averageOrZero(): Double = if (isEmpty()) 0.0 else average()
 
     companion object {
-        /** Each pair is (user labels, predicted labels); every extra/missing label counts. */
+        /**
+         * Each pair is (user labels, predicted labels); every extra or missing
+         * label counts - among the songs that answered the question.
+         *
+         * A song labelled only with a genre is not evidence that it is not
+         * lively; it is a song nobody asked about. Counting it as a wrong
+         * answer made every style whose question is only partly answered fail
+         * on songs it was never given a chance at. See [Styles.answers].
+         *
+         * What this does cost is stated plainly rather than hidden: precision
+         * here is precision among the songs the user did answer for. The model
+         * still writes tags onto songs they did not, and there is no way to
+         * measure that from labels that do not exist.
+         */
         fun measure(results: List<Pair<Set<String>, Set<String>>>): StyleMetrics {
             val labels = results.flatMap { (truth, prediction) -> truth + prediction }.toSortedSet()
             return StyleMetrics(labels.associateWith { label ->
+                val asked = results.filter { (truth, _) -> Styles.answers(label, truth) }
                 StyleScore(
-                    results.count { (truth, prediction) -> label in truth && label in prediction },
-                    results.count { (truth, prediction) -> label !in truth && label in prediction },
-                    results.count { (truth, prediction) -> label in truth && label !in prediction }
+                    asked.count { (truth, prediction) -> label in truth && label in prediction },
+                    asked.count { (truth, prediction) -> label !in truth && label in prediction },
+                    asked.count { (truth, prediction) -> label in truth && label !in prediction }
                 )
             }, results.size)
         }
@@ -109,6 +123,9 @@ object StyleThresholds {
             for (example in folds[testIndex]) {
                 val truth = example.labels.toSet()
                 for ((style, p) in model.probabilities(example.features)) {
+                    // Same rule as the scoring: a song that never answered
+                    // this question cannot calibrate the bar for it either.
+                    if (!Styles.answers(style, truth)) continue
                     observed.getOrPut(style) { mutableListOf() }.add(p to (style in truth))
                 }
             }

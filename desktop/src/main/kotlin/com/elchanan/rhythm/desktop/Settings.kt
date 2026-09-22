@@ -115,6 +115,7 @@ internal fun SettingsScreen(
     onResetStats: () -> Unit,
     onPickLyricsFolder: () -> Unit,
     onImportPlaylist: () -> Unit,
+    onImportPlayCounts: () -> Unit,
     onExportPlaylists: () -> Unit,
     onExportAnalysis: () -> Unit,
     busy: Boolean,
@@ -272,7 +273,7 @@ internal fun SettingsScreen(
             }
 
             if (page == SettingsPage.PORTING) item {
-                SettingSection("רשימות השמעה", "m3u ו־pls, כמו בטלפון")
+                SettingSection("ייבוא מנגן אחר", "רשימות השמעה והיסטוריית האזנה, כמו בטלפון")
                 ActionRow(
                     title = "ייבוא רשימת השמעה",
                     subtitle = "קורא m3u או pls ומתאים אותו לשירים שבספרייה. " +
@@ -281,6 +282,17 @@ internal fun SettingsScreen(
                     enabled = true,
                     primary = true,
                     onClick = onImportPlaylist
+                )
+                ActionRow(
+                    title = "ייבוא היסטוריית השמעות",
+                    subtitle = "קורא CSV שיוצא מנגן אחר. צריך עמודת שם שיר; " +
+                        "עמודת אמן ועמודת מספר השמעות משפרות את ההתאמה. " +
+                        "קובץ שיש בו שורה לכל השמעה נספר לבד, " +
+                        "וייבוא חוזר של אותו קובץ לא מכפיל את המספרים",
+                    action = "בחר קובץ",
+                    enabled = true,
+                    primary = false,
+                    onClick = onImportPlayCounts
                 )
                 ActionRow(
                     title = "ייצוא כל הרשימות",

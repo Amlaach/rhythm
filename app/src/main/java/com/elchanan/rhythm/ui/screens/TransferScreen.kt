@@ -61,6 +61,15 @@ fun TransferScreen(vm: MainViewModel, onBack: () -> Unit) {
         }
     }
 
+    // Same reasoning as the playlist picker: a CSV exported by another player
+    // arrives as text/csv, text/plain, text/comma-separated-values or
+    // application/octet-stream depending on who wrote it.
+    val playCountLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) vm.importPlayCounts(uri)
+    }
+
     // A folder rather than a file: there is more than one list to write, and
     // asking where to put each of thirty of them would be absurd.
     val exportLauncher = rememberLauncherForActivityResult(
@@ -111,6 +120,30 @@ fun TransferScreen(vm: MainViewModel, onBack: () -> Unit) {
                     enabled = !busy,
                     colors = ButtonDefaults.buttonColors(containerColor = Accent)
                 ) { Text("שמור רשימה") }
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("ייבוא היסטוריית השמעות", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "קורא קובץ CSV שיוצא מנגן אחר. צריך עמודת שם שיר; " +
+                            "עמודת אמן ועמודת מספר השמעות משפרות את ההתאמה. " +
+                            "קובץ שיש בו שורה לכל השמעה נספר לבד. " +
+                            "ייבוא חוזר של אותו קובץ לא מכפיל את המספרים",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+                Button(
+                    onClick = { playCountLauncher.launch(arrayOf("*/*")) },
+                    enabled = !busy,
+                    colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                ) { Text("בחר קובץ") }
             }
         }
 

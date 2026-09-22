@@ -224,7 +224,14 @@ class StyleLearner private constructor(
             labelled: List<Pair<FloatArray, List<String>>>,
             minPerStyle: Int = DEFAULT_MIN_PER_STYLE
         ): List<String> = styleCounts(labelled)
-            .filter { it.second >= minPerStyle && it.second <= labelled.size - minPerStyle }
+            .filter { (style, count) ->
+                // Counter-examples are counted among the songs that answered
+                // this style's question, not the whole library. A song
+                // labelled only by genre is not a counter-example of a
+                // character - see Styles.answers.
+                val asked = labelled.count { (_, labels) -> Styles.answers(style, labels) }
+                count >= minPerStyle && count <= asked - minPerStyle
+            }
             .map { it.first }
             .sorted()
 
@@ -281,18 +288,26 @@ class StyleLearner private constructor(
 
             for (s in styles.indices) {
                 val style = styles[s]
+                // Only the songs that answered this style's question. Training
+                // every style against the whole library meant a song labelled
+                // "חסידי" and nothing else was fed in as proof that it is not
+                // "קצבי" - and since a good half of the fast songs in a real
+                // library carry a genre and no character, the boundary for
+                // "קצבי" was fitted straight through its own positives.
+                val rows = x.indices.filter { Styles.answers(style, labelled[it].second) }
+                if (rows.isEmpty()) continue
                 val y = BooleanArray(labelled.size) { style in labelled[it].second }
                 // Positives are usually the minority, and without this the
                 // cheapest way to cut the loss is to answer "no" to everything.
-                val positives = y.count { it }
-                val posWeight = (labelled.size - positives).toDouble() / positives.coerceAtLeast(1)
+                val positives = rows.count { y[it] }
+                val posWeight = (rows.size - positives).toDouble() / positives.coerceAtLeast(1)
 
                 val w = weights[s]
                 var b = bias[s]
                 for (epoch in 0 until epochs) {
                     val gradW = DoubleArray(dimension)
                     var gradB = 0.0
-                    for (row in x.indices) {
+                    for (row in rows) {
                         var z = b
                         val xi = x[row]
                         for (i in 0 until dimension) z += w[i] * xi[i]
@@ -303,7 +318,7 @@ class StyleLearner private constructor(
                         for (i in 0 until dimension) gradW[i] += error * xi[i]
                         gradB += error
                     }
-                    val step = learningRate / labelled.size
+                    val step = learningRate / rows.size
                     for (i in 0 until dimension) {
                         w[i] -= step * (gradW[i] + l2 * w[i])
                     }

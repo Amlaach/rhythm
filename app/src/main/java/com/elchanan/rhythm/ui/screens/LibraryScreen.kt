@@ -9,6 +9,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -26,6 +29,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -76,6 +80,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.data.db.SongEntity
+import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.engine.AlphabetIndexing
 import com.elchanan.rhythm.engine.Folders
 import com.elchanan.rhythm.ui.ArtistInfo
@@ -989,6 +994,18 @@ private fun FolderTreeTab(
     // longer exists would otherwise show an empty screen with no way out.
     val here = remember(root, path) { Folders.find(root, path) ?: root }
     val trail = remember(root, here) { Folders.trail(root, here.path) }
+    // Which folder the style dialog is about, or null while it is closed.
+    var tagging by remember { mutableStateOf<Folders.Node?>(null) }
+
+    tagging?.let { node ->
+        val inside = remember(node) { Folders.allSongs(node) }
+        FolderStyleDialog(
+            folderName = node.name,
+            count = inside.size,
+            onDismiss = { tagging = null },
+            onApply = { styles, replace -> vm.tagFolder(inside, styles, replace) }
+        )
+    }
 
     BackHandler(enabled = here.path != root.path) {
         path = trail.getOrNull(trail.size - 2)?.path ?: root.path
@@ -1050,6 +1067,7 @@ private fun FolderTreeTab(
                         Chip(label = "ערבב", selected = false, onClick = {
                             vm.shuffleList(Folders.allSongs(here))
                         })
+                        Chip(label = "תייג סגנון", selected = false, onClick = { tagging = here })
                     }
                 }
             }
@@ -1110,6 +1128,16 @@ private fun FolderTreeTab(
                             maxLines = 1
                         )
                     }
+                    if (!selectionMode) {
+                        IconButton(onClick = { tagging = child }) {
+                            Icon(
+                                Icons.Filled.LocalOffer,
+                                contentDescription = "תייג סגנון לתיקייה",
+                                tint = TextTertiary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                     Icon(
                         Icons.Filled.ChevronLeft,
                         contentDescription = null,
@@ -1149,6 +1177,103 @@ private fun FolderTreeTab(
             }
         }
     }
+}
+
+/**
+ * Puts one set of style tags on every song in a folder.
+ *
+ * The shortcut that was missing. A downloaded library arrives as folders and
+ * the folder is usually the answer for everything inside it, so tagging song
+ * by song was most of the manual work the app asked for - and the reason a
+ * library in daily use for months still had too few labels for the learner to
+ * fit anything.
+ *
+ * Adding is the default and replacing is the opt-in, because the destructive
+ * one is the one that has to be chosen on purpose. Either way a tag the app
+ * guessed is overwritten without asking: it was never the user's answer, and
+ * this is.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FolderStyleDialog(
+    folderName: String,
+    count: Int,
+    onDismiss: () -> Unit,
+    onApply: (List<String>, Boolean) -> Unit
+) {
+    var selected by remember { mutableStateOf(emptyList<String>()) }
+    var replace by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("תגיות לתיקייה") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    "\"$folderName\" · $count שירים, כולל תת־תיקיות",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(10.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Styles.SUGGESTED.forEach { style ->
+                        val on = selected.any { it.equals(style, ignoreCase = true) }
+                        Chip(label = style, selected = on, onClick = {
+                            selected = if (on) {
+                                selected.filterNot { it.equals(style, ignoreCase = true) }
+                            } else {
+                                selected + style
+                            }
+                        })
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Chip(
+                        label = "הוסף לקיים",
+                        selected = !replace,
+                        onClick = { replace = false }
+                    )
+                    Chip(
+                        label = "החלף מה שיש",
+                        selected = replace,
+                        onClick = { replace = true }
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (replace) {
+                        "תגיות שסימנת בעצמך על שירים בתיקייה יימחקו ויוחלפו."
+                    } else {
+                        "תגיות שסימנת בעצמך יישארו. ניחושים של האפליקציה יוחלפו בכל מקרה."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (replace) Accent else TextSecondary
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = selected.isNotEmpty(),
+                onClick = { onApply(selected, replace); onDismiss() }
+            ) {
+                Text("תייג $count שירים", color = if (selected.isEmpty()) TextTertiary else Accent)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
 }
 
 /** The older flat list, for anyone who preferred it. */

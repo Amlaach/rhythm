@@ -18,6 +18,10 @@ import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.data.db.TransitionEntity
+import com.elchanan.rhythm.data.PlayCountImport
+import com.elchanan.rhythm.engine.AudioTags
+import com.elchanan.rhythm.engine.BulkTagging
+import com.elchanan.rhythm.engine.Spoken
 import com.elchanan.rhythm.engine.AcousticSpace
 import com.elchanan.rhythm.engine.Loudness
 import com.elchanan.rhythm.engine.Names
@@ -284,6 +288,56 @@ class MusicRepository(
             val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
             dao.putStats(current.copy(styles = styles, stylesAuto = if (auto) 1 else 0))
         }
+
+    /**
+     * Writes imported listening history onto the library.
+     *
+     * The larger of the two counts wins rather than the sum, so importing the
+     * same export twice does not double anybody's history - which is the one
+     * mistake a person is almost certain to make with this, since there is no
+     * way to tell by looking whether a file has already been read.
+     *
+     * @return how many songs were changed.
+     */
+    suspend fun applyImportedPlays(matches: List<PlayCountImport.Match>): Int =
+        withContext(Dispatchers.IO) {
+            var changed = 0
+            for (match in matches) {
+                val current = dao.stats(match.songId) ?: SongStatsEntity(songId = match.songId)
+                val plays = maxOf(current.playCount, match.plays)
+                val at = maxOf(current.lastPlayedAt, match.lastPlayedAt)
+                if (plays == current.playCount && at == current.lastPlayedAt) continue
+                dao.putStats(current.copy(playCount = plays, lastPlayedAt = at))
+                changed++
+            }
+            changed
+        }
+
+    /**
+     * Puts one set of style tags on many songs at once.
+     *
+     * What a folder tag runs on. The decision about what may be overwritten is
+     * [BulkTagging]'s and is shared with the desktop build, because it is the
+     * one place here that can destroy tagging the user cannot get back.
+     *
+     * @return how many songs actually changed.
+     */
+    suspend fun setStylesForSongs(
+        songIds: List<Long>,
+        styles: List<String>,
+        replace: Boolean
+    ): Int = withContext(Dispatchers.IO) {
+        var changed = 0
+        for (id in songIds) {
+            val current = dao.stats(id)
+            val next = BulkTagging.tagsFor(current, styles, replace) ?: continue
+            dao.putStats(
+                (current ?: SongStatsEntity(songId = id)).copy(styles = next, stylesAuto = 0)
+            )
+            changed++
+        }
+        changed
+    }
 
     /**
      * Forgets every style tag the app guessed, keeping every one that was typed.
@@ -653,13 +707,29 @@ class MusicRepository(
         // rows with zero energy are placeholders for files that failed to
         // decode; they must not enter the statistics of the acoustic space
         val featureRows = dao.allFeatures().filter { it.energy > 0f }
+        val allSongs = dao.allSongs()
+        val statsById = dao.allStats().associateBy { it.songId }
+        val featuresById = featureRows.associateBy { it.songId }
+        // Worked out here rather than inside the engine, because deciding what
+        // is speech needs the tag scores unpacked from their stored form and
+        // the user's own answer where they gave one - neither of which the
+        // engine is handed.
+        val spokenIds = allSongs.filterTo(HashSet()) { song ->
+            val feature = featuresById[song.id]
+            Spoken.isSpoken(
+                song,
+                feature,
+                feature?.tags?.let { AudioTags.pick(it, AudioTags.SPEECH_INDICES) },
+                statsById[song.id]?.spoken ?: -1
+            )
+        }.mapTo(HashSet()) { it.id }
         Recommender(
-            songs = dao.allSongs(),
-            stats = dao.allStats().associateBy { it.songId },
+            songs = allSongs,
+            stats = statsById,
             artists = dao.allArtists().associateBy { it.artistKey },
             affinity = affinityMap(),
             transitions = transitionMap(),
-            features = featureRows.associateBy { it.songId },
+            features = featuresById,
             acoustic = if (featureRows.size >= 8) AcousticSpace(featureRows) else null,
             tuning = com.elchanan.rhythm.engine.EngineTuning(
                 discovery = prefs.discovery,
@@ -671,7 +741,8 @@ class MusicRepository(
                 lastMood = prefs.lastMood
             ),
             now = System.currentTimeMillis(),
-            feedSeed = prefs.feedSeed.toLong()
+            feedSeed = prefs.feedSeed.toLong(),
+            spoken = spokenIds
         )
     }
 

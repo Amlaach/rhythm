@@ -25,6 +25,50 @@ object Styles {
         )
     )
 
+    /**
+     * Which family a style word belongs to, or null for anything free typed.
+     *
+     * The distinction the learner needs in order to have anything to say about
+     * a song whose artist is already tagged: "חסידי" and "קצבי" are answers to
+     * two different questions, and knowing one is no reason not to learn the
+     * other.
+     */
+    fun familyOf(style: String): String? {
+        val wanted = style.trim()
+        for ((family, members) in FAMILIES) {
+            if (members.any { it.equals(wanted, ignoreCase = true) }) return family
+        }
+        return null
+    }
+
+    /**
+     * Whether a set of labels says anything about the question [style] answers.
+     *
+     * Nobody labels a library completely. They settle the genre once per
+     * artist and type a character on the handful of tracks they feel strongly
+     * about, and everything else carries a genre and nothing else.
+     *
+     * Treating that silence as a "no" is what broke the learner. A song
+     * labelled only "חסידי" was counted as a negative example of "קצבי" -
+     * proof that it is not lively - when all it really says is that nobody was
+     * ever asked. Every fast song in the library that happened to be tagged
+     * only by genre became a counter-example of fastness, the boundary was
+     * fitted through the middle of the positives, and the style then failed
+     * the precision gate on the same unanswered songs. Which is what the
+     * screen reported, run after run, to a user who had done a great deal of
+     * tagging: nothing is good enough to write.
+     *
+     * So a style is only trained and scored on the songs that answered its
+     * question - the ones carrying some label from the same family. A free
+     * typed word belongs to no family and there is no telling what it
+     * contradicts, so it keeps the old behaviour of being measured against
+     * everything.
+     */
+    fun answers(style: String, labels: Collection<String>): Boolean {
+        val family = familyOf(style) ?: return true
+        return labels.any { familyOf(it) == family }
+    }
+
     fun parse(raw: String): List<String> =
         raw.split(',', '|', '،')
             .map { it.trim() }
