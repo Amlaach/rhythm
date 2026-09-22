@@ -220,6 +220,42 @@ class Recommender(
         return st.playCount == 0 && st.skipCount == 0
     }
 
+    /**
+     * Whether the song was heard again after it was last skipped.
+     *
+     * The rule asked for was: an immediate skip counts against a song, unless
+     * you listened to it afterwards. The skip count alone cannot say that - it
+     * only adds up - so a song skipped five times a year ago and played five
+     * times since still carried a fifty per cent skip rate, and a later play
+     * diluted a skip rather than answering it.
+     *
+     * The order is recoverable without storing anything new. `lastPlayedAt`
+     * is moved by every touch, a skip included; [heardAt] only by a play. A
+     * play writes both with the same timestamp, so when the last touch is no
+     * later than the last play, the last thing that happened was a play.
+     */
+    private fun heardSinceLastSkip(songId: Long): Boolean {
+        val st = stats[songId] ?: return false
+        if (st.skipCount == 0 || st.playCount == 0) return false
+        val heard = heardAt(songId)
+        if (heard <= 0L) return false
+        return st.lastPlayedAt <= heard + SAME_EVENT_MS
+    }
+
+    /**
+     * Skips as the ranking counts them: in full, or mostly forgiven when the
+     * song was played after them.
+     *
+     * Mostly rather than entirely. One skip followed by a play is a mood and
+     * is almost erased; thirty skips followed by one play are still thirty
+     * skips, and pretending otherwise would bring back a song the listener has
+     * turned off over and over on the strength of one time they let it run.
+     */
+    private fun countedSkips(songId: Long): Double {
+        val skips = stats[songId]?.skipCount ?: 0
+        return if (heardSinceLastSkip(songId)) skips * SKIP_FORGIVEN else skips.toDouble()
+    }
+
     private val hourBucket: Int = bucketOf(now)
     private val weekendNow: Boolean = isWeekend(now)
     private val maxPlays: Int = stats.values.maxOfOrNull { it.playCount } ?: 0
@@ -485,6 +521,45 @@ class Recommender(
 
     private val taste: Map<String, Double> = buildTasteVector()
 
+    /**
+     * What the listening says about each artist: the sum of what it says
+     * about each of their songs, skips taken off.
+     *
+     * The second rule asked for: hear an artist and more of them should come
+     * up. Nothing did that. An artist reached a song's score only through a
+     * rating typed by hand; listening moved the song listened to, and reached
+     * the rest of that artist's work only if they happened to sound alike or
+     * had been given a style tag. Fifty plays of an untagged singer with a
+     * varied catalogue did almost nothing for his other songs.
+     *
+     * Read per song through [artistListeningTerm], which leaves the song itself
+     * out - its own plays already count in its own score - and saturates, so
+     * the hundredth play of an artist adds far less than the tenth. That is
+     * what keeps this from becoming "one artist and nothing else", which the
+     * per-artist caps on every shelf then enforce outright.
+     */
+    private val artistListening: Map<String, Double> = run {
+        val out = HashMap<String, Double>()
+        for (song in playable) {
+            val w = behaviour[song.id] ?: continue
+            if (w == 0.0) continue
+            out.merge(song.artistKey, w) { a, b -> a + b }
+        }
+        out
+    }
+
+    /**
+     * -1..1: how much the listening to this song's artist - their other songs,
+     * not this one - speaks for it. Negative for an artist who is mostly
+     * skipped.
+     */
+    private fun artistListeningTerm(song: SongEntity): Double {
+        val total = artistListening[song.artistKey] ?: return 0.0
+        val others = total - (behaviour[song.id] ?: 0.0)
+        if (abs(others) < 1e-9) return 0.0
+        return kotlin.math.tanh(others / ARTIST_LISTEN_SCALE)
+    }
+
     /** the songs the acoustic kNN measures against */
     private val acousticPositives: List<Long>
     private val acousticNegatives: List<Long>
@@ -657,8 +732,9 @@ class Recommender(
             else -> 0.0
         }
         if (st.rating > 0) w += (st.rating - 3) * 0.8
-        val attempts = st.playCount + st.skipCount
-        if (attempts > 0) w -= 0.7 * (st.skipCount.toDouble() / attempts) * ln(1.0 + st.skipCount)
+        val skips = countedSkips(songId)
+        val attempts = st.playCount + skips
+        if (attempts > 0.0) w -= 0.7 * (skips / attempts) * ln(1.0 + skips)
         return w
     }
 
@@ -776,11 +852,50 @@ class Recommender(
         }
     }
 
+    /** The skip penalty, or null when the song has never been tried. */
+    private fun skipTerm(song: SongEntity): Double? {
+        val st = stats[song.id] ?: return null
+        val skips = countedSkips(song.id)
+        val attempts = st.playCount + skips
+        if (attempts <= 0.0) return null
+        // Smoothed rather than taken raw. One play and two skips is a ratio of
+        // 0.67 on three observations, and charging the full penalty for that
+        // condemned songs on evidence far too thin to carry it. The prior it
+        // is pulled towards is how often this listener skips anything at all,
+        // so a library that is skipped through constantly does not read every
+        // song in it as bad.
+        val rate = (skips + SKIP_PRIOR * restlessness) / (attempts + SKIP_PRIOR)
+        return -1.25 * rate
+    }
+
+    /**
+     * How much of the track actually gets heard, or null when there is too
+     * little to say.
+     *
+     * A skip count alone is blunt: it cannot tell a song abandoned after four
+     * seconds from one left at the last chorus. This can, and it now speaks
+     * from the very first skip. It used to wait for two attempts, so a single
+     * skip at four seconds and a single skip at seventy per cent cost exactly
+     * the same - and only the first of those is a listener saying no. When
+     * every attempt so far is a skip the average here is exact: it is simply
+     * how far into the song the skips got.
+     */
+    private fun heardFraction(song: SongEntity): Double? {
+        val st = stats[song.id] ?: return null
+        if (song.durationMs <= 0) return null
+        val attempts = st.playCount + st.skipCount
+        val onlySkips = st.playCount == 0 && st.skipCount >= 1
+        if (attempts < 2 && !onlySkips) return null
+        val expected = song.durationMs.toDouble() * attempts
+        return ((st.listenedMs).toDouble() / expected).coerceIn(0.0, 1.0)
+    }
+
     private fun computeBase(song: SongEntity): Double {
         val st = stats[song.id]
         var score = 0.0
 
         score += tuning.artistWeight * ratingTerm(song)
+        score += ARTIST_LISTEN_WEIGHT * tuning.artistWeight * artistListeningTerm(song)
         score += 1.55 * tuning.styleWeight * styleFit(song.id)
         score += 1.15 * tuning.acousticWeight * (acousticFitById[song.id] ?: 0.0)
 
@@ -792,32 +907,13 @@ class Recommender(
         val plays = st?.playCount ?: 0
         if (maxPlays > 0) score += 0.55 * (ln(1.0 + plays) / ln(1.0 + maxPlays))
 
-        val skips = st?.skipCount ?: 0
-        val attempts = plays + skips
-        // Smoothed rather than taken raw. One play and two skips is a ratio of
-        // 0.67 on three observations, and charging the full penalty for that
-        // condemned songs on evidence far too thin to carry it. The prior it
-        // is pulled towards is how often this listener skips anything at all,
-        // so a library that is skipped through constantly does not read every
-        // song in it as bad.
-        if (attempts > 0) {
-            val rate = (skips + SKIP_PRIOR * restlessness) / (attempts + SKIP_PRIOR)
-            score -= 1.25 * rate
-        }
+        skipTerm(song)?.let { score += it }
 
-        // How much of the track actually gets heard. A skip count alone is blunt:
-        // it cannot tell a song abandoned after four seconds from one left at the
-        // last chorus. Both numbers below were already being recorded and neither
-        // was ever read.
         if (plays >= 2) {
             val finished = (st?.completeCount ?: 0).toDouble() / plays
             score += 0.9 * (finished - 0.5)
         }
-        if (attempts >= 2 && song.durationMs > 0) {
-            val expected = song.durationMs.toDouble() * attempts
-            val heard = ((st?.listenedMs ?: 0L).toDouble() / expected).coerceIn(0.0, 1.0)
-            score += 0.7 * (heard - 0.5)
-        }
+        heardFraction(song)?.let { score += 0.7 * (it - 0.5) }
 
         score += 0.75 * timeFit(st)
         score += 0.45 * dayFit(st)
@@ -847,6 +943,17 @@ class Recommender(
                 }
             )
         )
+        val listening = artistListeningTerm(song)
+        if (listening != 0.0) {
+            out.add(
+                ScoreTerm(
+                    "האזנה לאמן",
+                    ARTIST_LISTEN_WEIGHT * tuning.artistWeight * listening,
+                    if (listening > 0) "אתה שומע שירים אחרים של ${song.artistName}"
+                    else "אתה מדלג על שירים אחרים של ${song.artistName}"
+                )
+            )
+        }
         out.add(
             ScoreTerm(
                 "התאמת סגנון",
@@ -882,10 +989,16 @@ class Recommender(
         }
         val skips = st?.skipCount ?: 0
         val attempts = plays + skips
-        if (attempts > 0) {
-            val rate = (skips + SKIP_PRIOR * restlessness) / (attempts + SKIP_PRIOR)
+        skipTerm(song)?.let { value ->
             out.add(
-                ScoreTerm("דילוגים", -1.25 * rate, "$skips דילוגים מתוך $attempts")
+                ScoreTerm(
+                    "דילוגים", value,
+                    if (heardSinceLastSkip(song.id)) {
+                        "$skips דילוגים מתוך $attempts · שמעת אותו אחרי הדילוג, אז הם נספרים בחלקם"
+                    } else {
+                        "$skips דילוגים מתוך $attempts"
+                    }
+                )
             )
         }
         // Four terms used to be missing from this list, so the numbers on
@@ -901,9 +1014,7 @@ class Recommender(
                 )
             )
         }
-        if (attempts >= 2 && song.durationMs > 0) {
-            val expected = song.durationMs.toDouble() * attempts
-            val heard = ((st?.listenedMs ?: 0L).toDouble() / expected).coerceIn(0.0, 1.0)
+        heardFraction(song)?.let { heard ->
             out.add(
                 ScoreTerm(
                     "כמה נשמע בפועל",
@@ -2200,6 +2311,33 @@ class Recommender(
          * puts the midpoint where an ordinary strong pair lands.
          */
         private const val AFFINITY_HALF = 0.6
+
+        /**
+         * What a skip still weighs once the song has been heard after it: a
+         * quarter. See [countedSkips] for why not nothing.
+         */
+        private const val SKIP_FORGIVEN = 0.25
+
+        /**
+         * A play writes the history and the stats with one timestamp; this is
+         * slack for any clock that rounds, far short of the few seconds a skip
+         * needs to be recorded at all.
+         */
+        private const val SAME_EVENT_MS = 1_000L
+
+        /**
+         * How much listening to an artist's other songs speaks for this one,
+         * at most. Level with a four-to-five star rating, below the five star
+         * one: a rating is said on purpose, listening is inferred.
+         */
+        private const val ARTIST_LISTEN_WEIGHT = 1.0
+
+        /**
+         * Where artist listening saturates. Roughly: a handful of songs heard a
+         * few times each is most of the way there, and the hundredth play adds
+         * almost nothing more.
+         */
+        private const val ARTIST_LISTEN_SCALE = 6.0
 
         /** How long a song must have been off before "listen again" offers it. */
         private const val AGAIN_AFTER_HOURS = 48.0
