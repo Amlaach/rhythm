@@ -23,7 +23,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -157,7 +157,7 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "חזור", tint = TextSecondary)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "חזור", tint = TextSecondary)
             }
             Spacer(Modifier.width(4.dp))
             Text("תיקון תגיות", style = MaterialTheme.typography.titleLarge)

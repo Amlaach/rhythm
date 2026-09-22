@@ -53,8 +53,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
@@ -371,7 +371,7 @@ fun PlayerScreen(
                         if (showQueue) showLyrics = false
                     }) {
                         Icon(
-                            Icons.Filled.QueueMusic,
+                            Icons.AutoMirrored.Filled.QueueMusic,
                             contentDescription = "תור",
                             tint = if (showQueue) Accent else TextSecondary
                         )
@@ -501,7 +501,7 @@ fun PlayerScreen(
                     if (placement(PlayerAction.ADD_TO_PLAYLIST) == ActionPlacement.BUTTON) {
                         IconButton(onClick = { optionsOpen = true }) {
                             Icon(
-                                Icons.Filled.PlaylistAdd,
+                                Icons.AutoMirrored.Filled.PlaylistAdd,
                                 contentDescription = "הוספה לרשימה",
                                 tint = TextSecondary
                             )
@@ -1008,7 +1008,7 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
                         showSavePlaylist = true
                     }
                 ) {
-                    Icon(Icons.Filled.PlaylistAdd, contentDescription = null)
+                    Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
                     Text("שמור תור כפלייליסט")
                 }

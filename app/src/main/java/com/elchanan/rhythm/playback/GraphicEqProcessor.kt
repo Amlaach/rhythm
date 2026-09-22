@@ -1,8 +1,10 @@
 package com.elchanan.rhythm.playback
 
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
+import androidx.media3.common.util.UnstableApi
 import com.elchanan.rhythm.engine.EqFilters
 import com.elchanan.rhythm.engine.EqSettings
 import java.nio.ByteBuffer
@@ -24,6 +26,14 @@ import kotlin.math.roundToInt
  * swaps in, and this side picks it up at a buffer boundary; nothing is locked
  * and nothing is allocated while audio is flowing.
  */
+/**
+ * Accepts media3's unstable API for this class.
+ *
+ * AudioProcessor and BaseAudioProcessor are both unstable: the audio
+ * processor chain is the only hook media3 offers for touching decoded
+ * audio, and it has never been promised to stay.
+ */
+@OptIn(markerClass = [UnstableApi::class])
 class GraphicEqProcessor : BaseAudioProcessor() {
 
     private val filters = EqFilters()

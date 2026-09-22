@@ -303,7 +303,6 @@ fun SongCard(
     song: SongEntity,
     width: Dp = rememberMetrics().cardWidth,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
     onMore: (() -> Unit)? = null
 ) {
     Column(
