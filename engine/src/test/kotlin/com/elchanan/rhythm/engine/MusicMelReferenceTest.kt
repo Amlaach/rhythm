@@ -49,7 +49,7 @@ class MusicMelReferenceTest {
                 worst = maxOf(worst, kotlin.math.abs((mine[b] - expected[b]).toDouble()))
             }
         }
-        // log10 bands run 0..~4; a hundredth is far inside what the model can feel
-        assertTrue("largest difference from Essentia: $worst", worst < 0.01)
+        // measured at 3e-5 against Essentia; log10 bands run 0..~5
+        assertTrue("largest difference from Essentia: $worst", worst < 1e-3)
     }
 }
