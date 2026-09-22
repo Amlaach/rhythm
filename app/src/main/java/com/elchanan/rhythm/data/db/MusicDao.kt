@@ -248,14 +248,44 @@ interface MusicDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putFeatures(features: List<AudioFeatureEntity>)
 
-    @Query("SELECT COUNT(*) FROM audio_features")
+    /**
+     * Songs whose analysis is complete, sound print included - or settled as
+     * impossible. A row analysed before prints existed is not done: the pass
+     * goes back for it, and progress has to say so rather than read 100%.
+     */
+    @Query("SELECT COUNT(*) FROM audio_features WHERE soundPrint != '' OR energy <= 0")
     suspend fun featureCount(): Int
 
     @Query("DELETE FROM audio_features")
     suspend fun clearFeatures()
 
-    @Query("SELECT * FROM songs WHERE id NOT IN (SELECT songId FROM audio_features) LIMIT :limit")
+    /**
+     * Songs never analysed, then songs analysed before the sound print existed.
+     *
+     * The second half is what fills prints in for a library measured long ago.
+     * It cannot loop: every analysis writes either a print or
+     * [com.elchanan.rhythm.engine.SoundPrint.TRIED], and a file that will not
+     * decode is marked tried as well, so no row is empty twice. Placeholder
+     * rows for undecodable files have no energy and are never picked.
+     */
+    @Query(
+        "SELECT * FROM songs WHERE id NOT IN (SELECT songId FROM audio_features) " +
+            "OR id IN (SELECT songId FROM audio_features WHERE soundPrint = '' AND energy > 0) " +
+            "LIMIT :limit"
+    )
     suspend fun songsNeedingAnalysis(limit: Int): List<SongEntity>
+
+    /**
+     * Marks an already analysed song as having had its print attempted.
+     *
+     * For a re-analysis that fails - a file that decoded once and does not
+     * now. Its measurements are kept; writing the blank placeholder over
+     * them, as a first analysis would, would throw away good data.
+     *
+     * @return rows changed: 0 when there was no analysed row to keep.
+     */
+    @Query("UPDATE audio_features SET soundPrint = '-' WHERE songId = :id AND energy > 0")
+    suspend fun markPrintTried(id: Long): Int
 
     // ---------- history ----------
 

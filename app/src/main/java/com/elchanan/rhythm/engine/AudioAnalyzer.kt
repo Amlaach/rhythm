@@ -58,14 +58,17 @@ object AudioAnalyzer {
         // Tagging is best effort. A device where the model will not load, or a
         // build that ships without it, still gets every measured feature - the
         // track is simply left without labels rather than left unanalysed.
-        val tags = runCatching {
-            val tagger = tagger(context) ?: return@runCatching ""
-            val waveform = Analysis.concat(forTagging)
-            val scores = tagger.scores(waveform) ?: return@runCatching ""
-            AudioTags.compress(scores)
-        }.getOrDefault("")
+        val heard = runCatching {
+            tagger(context)?.listen(Analysis.concat(forTagging))
+        }.getOrNull()
+        val tags = heard?.let { runCatching { AudioTags.compress(it.scores) }.getOrNull() }.orEmpty()
+        // Always something: a print, or the mark that one was attempted. An
+        // empty print is what queues a song for another pass, so leaving it
+        // empty after a failure would queue it for ever.
+        val print = heard?.print?.let { runCatching { SoundPrint.pack(it) }.getOrNull() }
+            ?: SoundPrint.TRIED
 
-        return if (tags.isEmpty()) merged else merged.copy(tags = tags)
+        return merged.copy(tags = tags, soundPrint = print)
     }
 
     @Volatile

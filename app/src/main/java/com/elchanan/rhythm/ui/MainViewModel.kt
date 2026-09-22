@@ -34,6 +34,7 @@ import com.elchanan.rhythm.engine.AcousticSpace
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.LearnResult
+import com.elchanan.rhythm.engine.SoundCheck
 import com.elchanan.rhythm.engine.LyricLine
 import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.engine.Mix
@@ -1605,6 +1606,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val learnResult: StateFlow<LearnResult?> = _learnResult.asStateFlow()
     private val _learning = MutableStateFlow(false)
     val learning: StateFlow<Boolean> = _learning.asStateFlow()
+    private val _soundCheck = MutableStateFlow<String?>(null)
+
+    /** The last sound print check, in the words the settings screen shows. */
+    val soundCheck: StateFlow<String?> = _soundCheck.asStateFlow()
+
+    /**
+     * Measures whether songs that sound alike share a style, by the current
+     * sound features and by the sound print, on this library. Changes
+     * nothing: it is how a change to the sound model gets judged by results
+     * rather than by argument.
+     */
+    fun runSoundCheck() {
+        viewModelScope.launch {
+            _soundCheck.value = "בודק…"
+            val lib = library.value
+            val features = repo.featureMap()
+            val result = withContext(Dispatchers.Default) {
+                runCatching {
+                    SoundCheck.measure(
+                        lib.songs,
+                        features,
+                        lib.artists.associate { it.key to it.styles }
+                    )
+                }.getOrNull()
+            }
+            _soundCheck.value = SoundCheck.describe(result)
+        }
+    }
+
     private val _learningReport = MutableStateFlow<String?>(null)
     val learningReport: StateFlow<String?> = _learningReport.asStateFlow()
 

@@ -88,9 +88,12 @@ class AnalysisManager(
                         val feature = runCatching { AudioAnalyzer.analyze(context, song) }.getOrNull()
                         if (feature != null) {
                             repo.putFeature(feature)
-                        } else {
+                        } else if (!repo.markPrintTried(song.id)) {
                             // store a blank row so a file that cannot be decoded
-                            // is not retried on every pass
+                            // is not retried on every pass - unless it had been
+                            // analysed before and was only back for its sound
+                            // print, in which case the measurements stay and it
+                            // is simply marked as tried
                             repo.putFeature(Analysis.blankFor(song.id))
                         }
                         done++

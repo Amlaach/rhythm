@@ -68,6 +68,7 @@ fun AlgorithmSettingsScreen(
     val busy by vm.busy.collectAsStateWithLifecycle()
     val learning by vm.learning.collectAsStateWithLifecycle()
     val learningReport by vm.learningReport.collectAsStateWithLifecycle()
+    val soundCheck by vm.soundCheck.collectAsStateWithLifecycle()
 
     var discovery by remember { mutableFloatStateOf(vm.prefs.discovery) }
     var artistWeight by remember { mutableFloatStateOf(vm.prefs.artistWeight) }
@@ -175,6 +176,40 @@ fun AlgorithmSettingsScreen(
             }
 
             learningReport?.let { report ->
+                item {
+                    Text(
+                        report,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextPrimary
+                    )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("בדיקת טביעת הצליל", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "בודק על הספרייה שלך אם השירים שנשמעים דומה באמת מאותו " +
+                                "סגנון — פעם לפי מדידת הסאונד הנוכחית ופעם לפי טביעת " +
+                                "הצליל החדשה. לא משנה כלום; רק מודד",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = { vm.runSoundCheck() },
+                        enabled = !busy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("בדוק") }
+                }
+            }
+
+            soundCheck?.let { report ->
                 item {
                     Text(
                         report,

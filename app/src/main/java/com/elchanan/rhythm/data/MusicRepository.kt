@@ -596,6 +596,10 @@ class MusicRepository(
     suspend fun putFeature(feature: AudioFeatureEntity) =
         withContext(Dispatchers.IO) { dao.putFeature(feature) }
 
+    /** See [MusicDao.markPrintTried]. True when an analysed row was kept. */
+    suspend fun markPrintTried(songId: Long): Boolean =
+        withContext(Dispatchers.IO) { dao.markPrintTried(songId) > 0 }
+
     suspend fun putFeatures(features: List<AudioFeatureEntity>) =
         withContext(Dispatchers.IO) { dao.putFeatures(features) }
 
