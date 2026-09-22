@@ -98,21 +98,27 @@ class MusicRepository(
         val skipRecordings = prefs.skipRecordings
         val minMs = prefs.minDurationSec * 1000L
 
-        // Ask the system to look at the folders the library already knows
-        // about before asking it what it has. A file copied in over USB or
-        // dropped in by a file manager is often not indexed for hours, and
-        // until it is there is nothing for a scan to find - which is what
-        // "I added songs and it does not see them" actually is. Fired and
-        // not awaited: whatever it turns up arrives as a MediaStore change,
-        // and the observer runs the scan again.
-        runCatching {
-            MediaScanner.askSystemToIndex(
-                context,
-                dao.allSongs().mapTo(LinkedHashSet()) { it.folder }
-            )
-        }
-
-        val onDevice = MediaScanner.scan(context)
+        // Ask MediaStore what it has, then ask the disk whether that was
+        // everything - because it frequently is not.
+        //
+        // MediaStore is a list the system keeps, not the storage itself, and
+        // it only learns about a file when something tells it. Copying music
+        // in over adb or a card reader, restoring a backup, or using a file
+        // manager that does not announce what it wrote, all leave files that
+        // are on the phone and playable and in no app's library. A rescan
+        // could never fix that: it asked MediaStore, and MediaStore had never
+        // heard of them.
+        //
+        // So anything on the storage that MediaStore has no row for is handed
+        // to the system scanner, and this waits for it rather than hoping the
+        // change observer picks it up later - a scan that finishes and says
+        // "nothing new" while the songs are sitting there is the complaint.
+        var onDevice = MediaScanner.scan(context)
+        val indexed = runCatching {
+            val known = onDevice.mapTo(HashSet(onDevice.size * 2)) { it.path }
+            MediaScanner.indexNow(context, MediaScanner.unindexedFiles(context, known))
+        }.getOrDefault(0)
+        if (indexed > 0) onDevice = MediaScanner.scan(context)
         var tooShort = 0
         var inExcluded = 0
         var recordings = 0

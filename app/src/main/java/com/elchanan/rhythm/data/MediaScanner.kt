@@ -9,6 +9,9 @@ import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.engine.Names
 import java.io.File
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Reads the device's audio library out of MediaStore.
@@ -18,32 +21,141 @@ import java.util.Locale
 object MediaScanner {
 
     /**
-     * Asks the system to look again at the folders the library already knows.
+     * Audio files that are sitting on the storage and are not in MediaStore.
      *
-     * MediaStore only contains what it has been told about. A file copied in
-     * over USB, dropped in by a file manager, restored from a backup or
-     * written by another app is often not indexed for a long time - sometimes
-     * not until the device reboots - and until it is, no amount of rescanning
-     * from this side will find it, because there is nothing to find.
+     * This is the whole of "I added songs and the player does not see them".
+     * MediaStore is not the disk; it is a list the system keeps, and it is
+     * only updated when something tells it to. An app writing a file tells
+     * it. `adb push`, a card written in a card reader, a restored backup, a
+     * file manager that does not bother and a great deal of sideloading all
+     * do not - and the file then sits there, perfectly playable, invisible
+     * to every app on the phone including this one. No amount of rescanning
+     * finds it, because a rescan asks MediaStore and MediaStore has never
+     * heard of it.
      *
-     * Best effort by nature: it is a request to a system service, the service
-     * decides, and on some versions a directory is walked while on others
-     * only a file is. Fired and forgotten at the start of a scan, so anything
-     * it does turn up arrives as a MediaStore change a moment later and the
-     * observer runs the scan again.
+     * So this asks the disk instead. Anything it finds that MediaStore has
+     * no row for is handed to indexNow below, which is the one way to get a
+     * file into MediaStore from outside.
+     *
+     * Bounded on purpose - depth, count, and the directories it refuses to
+     * enter. A walk of a 128GB card must not be what a scan costs.
      */
-    fun askSystemToIndex(context: Context, folders: Collection<String>) {
-        if (folders.isEmpty()) return
-        runCatching {
-            MediaScannerConnection.scanFile(
-                context,
-                // Bounded: a library can be filed under hundreds of folders
-                // and this is a courtesy, not the mechanism.
-                folders.take(MAX_INDEX_REQUESTS).toTypedArray(),
-                null,
-                null
-            )
+    fun unindexedFiles(context: Context, known: Set<String>): List<String> {
+        val out = ArrayList<String>()
+        val visited = HashSet<String>()
+        for (root in storageRoots(context)) {
+            walk(root, known, out, visited, 0)
+            if (out.size >= MAX_INDEX_REQUESTS) break
         }
+        return out
+    }
+
+    /**
+     * Where to look: every volume the app can see, not just the built in one.
+     *
+     * getExternalFilesDirs is the reliable way to enumerate volumes without
+     * the permissions StorageManager wants - each entry is this app's own
+     * folder on a volume, and the volume root is the part before /Android/.
+     * The built in storage is the first entry and a memory card the next, so
+     * one call covers both, on every version. Which matters here, because a
+     * card is exactly where a large sideloaded library tends to live.
+     *
+     * Deliberately not getExternalStorageDirectory: it answers for the built
+     * in volume only, and has been deprecated since Android 10.
+     */
+    private fun storageRoots(context: Context): List<File> {
+        val roots = LinkedHashSet<File>()
+        runCatching { context.getExternalFilesDirs(null) }.getOrNull()?.forEach { dir ->
+            val path = dir?.absolutePath ?: return@forEach
+            val cut = path.indexOf("/Android/")
+            if (cut > 0) roots.add(File(path.substring(0, cut)))
+        }
+        // Resolved, because /sdcard and /storage/emulated/0 are the same
+        // place under two names and MediaStore records one of them. Walking
+        // the other produces paths that match nothing it knows, and every
+        // file on the phone then looks new on every single scan.
+        return roots
+            .map { runCatching { it.canonicalFile }.getOrDefault(it) }
+            .distinct()
+            .filter { runCatching { it.isDirectory }.getOrDefault(false) }
+    }
+
+    private fun walk(
+        dir: File,
+        known: Set<String>,
+        out: MutableList<String>,
+        visited: MutableSet<String>,
+        depth: Int
+    ) {
+        if (depth > MAX_DEPTH || out.size >= MAX_INDEX_REQUESTS) return
+
+        // By canonical path, so a volume mounted at two places and a symlink
+        // that points back up are both walked once rather than forever.
+        val here = runCatching { dir.canonicalPath }.getOrNull() ?: return
+        if (!visited.add(here)) return
+
+        val entries = runCatching { dir.listFiles() }.getOrNull() ?: return
+
+        // .nomedia is the established way of saying "nothing in here is
+        // media". Respecting it is not politeness: it is what keeps a
+        // WhatsApp audio cache or a game's sound effects out of a library.
+        if (entries.any { it.name == ".nomedia" }) return
+
+        for (entry in entries) {
+            if (out.size >= MAX_INDEX_REQUESTS) return
+            val name = entry.name
+            if (name.startsWith(".")) continue
+            if (runCatching { entry.isDirectory }.getOrDefault(false)) {
+                // Other apps' private storage. Unreadable since Android 11
+                // and nothing anyone chose to put there anyway.
+                if (name == "Android") continue
+                walk(entry, known, out, visited, depth + 1)
+            } else {
+                val ext = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+                if (ext !in AUDIO_EXTENSIONS) continue
+                val path = entry.absolutePath
+                if (path in known) continue
+                out.add(path)
+            }
+        }
+    }
+
+    /**
+     * Puts files into MediaStore, and waits for it to happen.
+     *
+     * The old code passed folders here, which does nothing: scanFile scans
+     * the files it is given and does not walk a directory it is handed. It
+     * also only ever passed folders the library already had a song in - so a
+     * brand new folder could never be indexed, because it could only be
+     * indexed once it had a song in the library, and it could only get a song
+     * into the library by being indexed. Nothing new ever arrived.
+     *
+     * Waiting matters too. The old call was fired and forgotten on the theory
+     * that the change observer would notice and scan again, which leaves the
+     * person watching a scan that finishes and reports nothing new. Here the
+     * scan waits, and the songs are there when it says it is done.
+     */
+    fun indexNow(context: Context, paths: List<String>): Int {
+        if (paths.isEmpty()) return 0
+        val batch = paths.take(MAX_INDEX_REQUESTS)
+        val remaining = CountDownLatch(batch.size)
+        val indexed = AtomicInteger(0)
+
+        val started = runCatching {
+            MediaScannerConnection.scanFile(context, batch.toTypedArray(), null) { _, uri ->
+                if (uri != null) indexed.incrementAndGet()
+                remaining.countDown()
+            }
+        }.isSuccess
+        if (!started) return 0
+
+        // Bounded, because this is a system service that can simply not call
+        // back - and a scan that never returns is worse than one that misses
+        // a file. Anything still outstanding when the time is up is picked up
+        // by the next scan, by which point the system has usually finished.
+        val seconds = (WAIT_BASE_SEC + batch.size / FILES_PER_SEC).coerceAtMost(WAIT_MAX_SEC)
+        runCatching { remaining.await(seconds, TimeUnit.SECONDS) }
+        return indexed.get()
     }
 
     /**
@@ -220,8 +332,27 @@ object MediaScanner {
         }
     }
 
-    /** A courtesy to the system service, not a queue to be drained. */
-    private const val MAX_INDEX_REQUESTS = 400
+    /** How many files one scan will hand over. The rest follow on the next. */
+    private const val MAX_INDEX_REQUESTS = 2000
+
+    /** Deep enough for anyone's filing, shallow enough to stay quick. */
+    private const val MAX_DEPTH = 12
+
+    private const val WAIT_BASE_SEC = 5L
+    private const val FILES_PER_SEC = 25
+    private const val WAIT_MAX_SEC = 90L
+
+    /**
+     * Extensions worth handing to the scanner.
+     *
+     * By extension rather than by asking what a file is, because asking means
+     * opening every file on the volume. The system decides properly once the
+     * file reaches it; a wrong guess here costs one rejected scan request.
+     */
+    private val AUDIO_EXTENSIONS = setOf(
+        "mp3", "m4a", "m4b", "aac", "flac", "ogg", "oga", "opus", "wav",
+        "wma", "aif", "aiff", "ape", "mpc", "wv", "amr", "mka", "dsf"
+    )
 
     /** What to ask when the fuller question is refused. */
     private const val FALLBACK_SELECTION = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
