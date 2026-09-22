@@ -106,7 +106,7 @@ def convert_effnet_onnx(onnx_path):
     out = os.path.join(WORK, "effnet_onnx2tf")
     # -kat: the input is [batch, frames, bands], not channels-first; left to
     # itself onnx2tf transposes it as if it were and the first convolution fails.
-    cmd = ["onnx2tf", "-i", onnx_path, "-o", out, "-b", "1", "-osd", "-kat"] + names
+    cmd = ["onnx2tf", "-i", onnx_path, "-o", out, "-b", "1", "-osd", "-kt"] + names
     print(" ".join(cmd), flush=True)
     r = subprocess.run(cmd, capture_output=True, text=True)
     print(r.stdout[-3000:])
@@ -147,6 +147,10 @@ def batch_of_one(pb):
     g.ParseFromString(open(pb, "rb").read())
     changed = 0
     for node in g.node:
+        # Every node carries the shapes it had at export, batch of 64 included,
+        # and constant folding trusts them over the new placeholder.
+        if "_output_shapes" in node.attr:
+            del node.attr["_output_shapes"]
         if node.op == "Placeholder" and "shape" in node.attr:
             dims = node.attr["shape"].shape.dim
             if dims and dims[0].size == 64:
@@ -156,7 +160,7 @@ def batch_of_one(pb):
             t = tf.make_ndarray(node.attr["value"].tensor)
             if t.ndim == 1 and 2 <= t.size <= 5 and t[0] == 64:
                 t = t.copy()
-                t[0] = 1
+                t[0] = -1 if node.name.endswith("/shape") else 1
                 node.attr["value"].tensor.CopyFrom(tf.make_tensor_proto(t, dtype=tf.int32))
                 changed += 1
     print("batch surgery changed", changed, "nodes")
