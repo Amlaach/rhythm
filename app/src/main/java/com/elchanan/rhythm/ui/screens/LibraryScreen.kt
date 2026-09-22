@@ -29,6 +29,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -37,18 +41,17 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
-import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
-import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -134,8 +137,7 @@ fun LibraryScreen(
     vm: MainViewModel,
     onOpenDetail: () -> Unit,
     onOpenArtist: () -> Unit,
-    onOpenAlbums: () -> Unit,
-    onOpenRatings: () -> Unit
+    onOpenAlbums: () -> Unit
 ) {
     val library by vm.library.collectAsStateWithLifecycle()
     val playlists by vm.playlists.collectAsStateWithLifecycle()
@@ -151,7 +153,8 @@ fun LibraryScreen(
     var sort by remember { mutableStateOf(SongSort.TITLE) }
     var sortOpen by remember { mutableStateOf(false) }
     var filter by remember { mutableStateOf("") }
-    var selection by remember { mutableStateOf(setOf<Long>()) }
+    // The app's one selection, not this screen's. See MainViewModel.selection.
+    val selection by vm.selection.collectAsStateWithLifecycle()
     // Selecting starts with a long press and ends when the last one is
     // deselected, so there is no separate mode to turn on: having anything
     // selected *is* the mode. The tabs that show songs all read this.
@@ -172,8 +175,7 @@ fun LibraryScreen(
     fun toggleGroup(songs: List<SongEntity>) {
         val ids = songs.map { it.id }
         if (ids.isEmpty()) return
-        selection = if (selection.containsAll(ids)) selection - ids.toSet()
-        else selection + ids
+        vm.toggleGroup(ids)
     }
 
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -213,7 +215,7 @@ fun LibraryScreen(
                     selected = tab == index,
                     onClick = {
                         tab = index
-                        selection = emptySet()
+                        vm.clearSelection()
                     }
                 )
             }
@@ -227,7 +229,7 @@ fun LibraryScreen(
                     vm = vm,
                     selection = selection,
                     onToggleSelect = { id ->
-                        selection = if (id in selection) selection - id else selection + id
+                        vm.toggleSelect(id)
                     },
                     onMore = { sheetSong = it },
                     sortLabel = sort.label,
@@ -249,7 +251,7 @@ fun LibraryScreen(
                             vm = vm,
                             selection = selection,
                             onToggleSelect = { id ->
-                                selection = if (id in selection) selection - id else selection + id
+                                vm.toggleSelect(id)
                             },
                             onMore = { sheetSong = it },
                             sortLabel = sort.label,
@@ -260,21 +262,11 @@ fun LibraryScreen(
                     }
                 }
 
+                // Just the artists. Rating them, tagging them and merging two
+                // spellings of one name all live on the אמנים tab, which is a
+                // tap away on the bar at the bottom - a row here that only
+                // opened it was a second door onto the same room.
                 LibraryTab.ARTISTS -> LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
-                    item { ArtistMergeSuggestions(vm, library.artists) }
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(onClick = onOpenRatings)
-                                .padding(horizontal = gutter, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Filled.Favorite, contentDescription = null, tint = Accent)
-                            Spacer(Modifier.width(12.dp))
-                            Text("דירוג אמנים וסגנונות", style = MaterialTheme.typography.titleMedium)
-                        }
-                    }
                     items(library.artists, key = { it.key }) { artist ->
                         ArtistRow(
                             artist = artist,
@@ -510,16 +502,12 @@ fun LibraryScreen(
                                     selectionMode = selectionMode,
                                     onClick = {
                                         if (selectionMode) {
-                                            selection = if (song.id in selection) {
-                                                selection - song.id
-                                            } else {
-                                                selection + song.id
-                                            }
+                                            vm.toggleSelect(song.id)
                                         } else {
                                             vm.playList(spoken, spoken.indexOf(song))
                                         }
                                     },
-                                    onLongClick = { selection = selection + song.id },
+                                    onLongClick = { vm.toggleSelect(song.id) },
                                     onMore = { sheetSong = song },
                                     trailing = if (at != null && at.positionMs > 0) {
                                         {
@@ -550,8 +538,7 @@ fun LibraryScreen(
                             selection = selection,
                             onToggleGroup = { toggleGroup(it) },
                             onToggleSong = { id ->
-                                selection = if (id in selection) selection - id
-                                else selection + id
+                                vm.toggleSelect(id)
                             },
                             onMore = { sheetSong = it }
                         )
@@ -569,14 +556,6 @@ fun LibraryScreen(
             }
         }
 
-        if (selection.isNotEmpty()) {
-            SelectionBar(
-                vm = vm,
-                selection = selection,
-                songs = library.songs.filter { it.id in selection },
-                onClear = { selection = emptySet() }
-            )
-        }
     }
 
     if (sortOpen) {
@@ -755,17 +734,17 @@ private fun SongTab(
 }
 
 @Composable
-internal fun SelectionBar(
-    vm: MainViewModel,
-    selection: Set<Long>,
-    songs: List<SongEntity>,
-    onClear: () -> Unit
-) {
+internal fun SelectionBar(vm: MainViewModel) {
+    val selection by vm.selection.collectAsStateWithLifecycle()
+    if (selection.isEmpty()) return
+    val songs = remember(selection) { vm.selectedSongs() }
+    val onClear: () -> Unit = { vm.clearSelection() }
     val playlists by vm.playlists.collectAsStateWithLifecycle()
     var rateOpen by remember { mutableStateOf(false) }
     var playlistOpen by remember { mutableStateOf(false) }
     var genreOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
+    var moreOpen by remember { mutableStateOf(false) }
     val ids = selection.toList()
 
     Row(
@@ -784,14 +763,40 @@ internal fun SelectionBar(
             modifier = Modifier.padding(end = 6.dp)
         )
         Spacer(Modifier.weight(1f))
+        // Four on the bar and the rest behind the dots. Eight labelled icons
+        // do not fit a phone: on a narrow screen they were squeezing each
+        // other off the end, and which four survived depended on the device.
         BarAction(Icons.Filled.PlayArrow, "נגן") { vm.playList(songs); onClear() }
         BarAction(Icons.AutoMirrored.Filled.QueueMusic, "לתור") { vm.bulkQueue(songs); onClear() }
         BarAction(Icons.Filled.ThumbUp, "לייק") { vm.bulkLikeSongs(ids, 1); onClear() }
-        BarAction(Icons.Filled.Star, "דרג") { rateOpen = true }
         BarAction(Icons.AutoMirrored.Filled.PlaylistAdd, "לרשימה") { playlistOpen = true }
-        BarAction(Icons.Filled.LocalOffer, "ז'אנר") { genreOpen = true }
-        BarAction(Icons.Filled.Share, "שתף") { vm.shareSongs(songs); onClear() }
-        BarAction(Icons.Filled.Delete, "מחק") { deleteOpen = true }
+        Box {
+            BarAction(Icons.Filled.MoreVert, "עוד") { moreOpen = true }
+            DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("דרג") },
+                    leadingIcon = { Icon(Icons.Filled.Star, contentDescription = null) },
+                    onClick = { moreOpen = false; rateOpen = true }
+                )
+                DropdownMenuItem(
+                    text = { Text("ז'אנר") },
+                    leadingIcon = { Icon(Icons.Filled.LocalOffer, contentDescription = null) },
+                    onClick = { moreOpen = false; genreOpen = true }
+                )
+                DropdownMenuItem(
+                    text = { Text("שתף") },
+                    leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
+                    onClick = { moreOpen = false; vm.shareSongs(songs); onClear() }
+                )
+                DropdownMenuItem(
+                    text = { Text("מחק", color = Color_Error) },
+                    leadingIcon = {
+                        Icon(Icons.Filled.Delete, contentDescription = null, tint = Color_Error)
+                    },
+                    onClick = { moreOpen = false; deleteOpen = true }
+                )
+            }
+        }
     }
 
     if (genreOpen) {

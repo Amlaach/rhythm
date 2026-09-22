@@ -1,7 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,18 +25,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Sell
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -44,6 +45,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -61,28 +64,27 @@ import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.SectionKind
 import com.elchanan.rhythm.engine.ShelfKind
-import com.elchanan.rhythm.ui.MainViewModel
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.ui.text.style.TextOverflow
 import com.elchanan.rhythm.ui.AlbumInfo
+import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.Artwork
-import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.EmptyState
 import com.elchanan.rhythm.ui.components.MixCard
 import com.elchanan.rhythm.ui.components.SectionHeader
 import com.elchanan.rhythm.ui.components.SongCard
-import com.elchanan.rhythm.ui.components.quickPickColumnWidth
 import com.elchanan.rhythm.ui.components.formatDuration
-import com.elchanan.rhythm.ui.theme.HeaderWarm
-import com.elchanan.rhythm.ui.theme.RhythmMark
-import com.elchanan.rhythm.ui.theme.HeaderMid
+import com.elchanan.rhythm.ui.components.quickPickColumnWidth
+import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
+import com.elchanan.rhythm.ui.theme.HeaderMid
+import com.elchanan.rhythm.ui.theme.HeaderWarm
+import com.elchanan.rhythm.ui.theme.RhythmMark
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface2
+import com.elchanan.rhythm.ui.theme.Surface3
 import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import java.util.Calendar
@@ -508,6 +510,8 @@ private fun FeedSectionView(
     onMore: (SongEntity) -> Unit
 ) {
     val library by vm.library.collectAsStateWithLifecycle()
+    val selection by vm.selection.collectAsStateWithLifecycle()
+    val selectionMode = selection.isNotEmpty()
     val gutter = rememberMetrics().gutter
 
     when (section.kind) {
@@ -544,9 +548,19 @@ private fun FeedSectionView(
                                 QuickPickRow(
                                     song = song,
                                     liked = library.stats[song.id]?.liked ?: 0,
+                                    selected = song.id in selection,
+                                    selectionMode = selectionMode,
+                                    onLongClick = { vm.toggleSelect(song.id) },
                                     onClick = {
-                                        val index = section.songs.indexOf(song)
-                                        vm.playList(section.songs, if (index >= 0) index else 0)
+                                        if (selectionMode) {
+                                            vm.toggleSelect(song.id)
+                                        } else {
+                                            val index = section.songs.indexOf(song)
+                                            vm.playList(
+                                                section.songs,
+                                                if (index >= 0) index else 0
+                                            )
+                                        }
                                     },
                                     onMore = { onMore(song) }
                                 )
@@ -591,9 +605,16 @@ private fun FeedSectionView(
                 items(section.songs, key = { it.id }) { song ->
                     SongCard(
                         song = song,
+                        selected = song.id in selection,
+                        selectionMode = selectionMode,
+                        onLongClick = { vm.toggleSelect(song.id) },
                         onClick = {
-                            val index = section.songs.indexOf(song)
-                            vm.playList(section.songs, if (index >= 0) index else 0)
+                            if (selectionMode) {
+                                vm.toggleSelect(song.id)
+                            } else {
+                                val index = section.songs.indexOf(song)
+                                vm.playList(section.songs, if (index >= 0) index else 0)
+                            }
                         },
                         onMore = { onMore(song) }
                     )
@@ -719,20 +740,40 @@ private fun QuickPickTile(
  * enough to spot at a glance, and quieter than repeating the thumb here when
  * it is already on every other row in the app.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun QuickPickRow(
     song: SongEntity,
     liked: Int,
+    selected: Boolean = false,
+    selectionMode: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
     onMore: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .then(
+                if (onLongClick == null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                }
+            )
+            .background(if (selected) Accent.copy(alpha = 0.16f) else Color.Transparent)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (selectionMode) {
+            Icon(
+                imageVector = Icons.Filled.CheckCircle,
+                contentDescription = null,
+                tint = if (selected) Accent else Surface3,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+        }
         Artwork(
             songId = song.id,
             albumId = song.albumId,

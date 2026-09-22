@@ -360,6 +360,56 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // selection
+    // -----------------------------------------------------------------------
+
+    /**
+     * The songs currently ticked, wherever they were ticked from.
+     *
+     * Here rather than inside a screen because a selection is not a property
+     * of the screen it started on. Someone who picks four songs off a shelf
+     * on the home page, two more from a search and an album from the library
+     * has made one selection, and the bar that acts on it has to be the same
+     * bar. Every screen was keeping its own set, so each of those was a
+     * separate selection that the others could not see and switching tabs
+     * silently threw away.
+     *
+     * Ids and not songs: a song row can be rebuilt by a rescan while the
+     * selection is open, and an id survives that where an object does not.
+     */
+    private val _selection = MutableStateFlow<Set<Long>>(emptySet())
+    val selection: StateFlow<Set<Long>> = _selection.asStateFlow()
+
+    /** Ticking the last one off ends selection mode, because empty is the mode. */
+    fun toggleSelect(id: Long) {
+        _selection.value = _selection.value.let { if (id in it) it - id else it + id }
+    }
+
+    /**
+     * A whole group at once - an album, an artist, a folder, a shelf.
+     *
+     * Already entirely selected means take it back out, so the same gesture
+     * undoes itself rather than doing nothing the second time.
+     */
+    fun toggleGroup(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        val current = _selection.value
+        _selection.value =
+            if (current.containsAll(ids)) current - ids.toSet() else current + ids
+    }
+
+    fun clearSelection() {
+        _selection.value = emptySet()
+    }
+
+    /** The selected songs, in the order the library holds them. */
+    fun selectedSongs(): List<SongEntity> {
+        val picked = _selection.value
+        if (picked.isEmpty()) return emptyList()
+        return library.value.songs.filter { it.id in picked }
+    }
+
     /** Whether the scan now running was asked for by someone who wants telling. */
     private var announceScan = false
     private var busyWatchdog: Job? = null

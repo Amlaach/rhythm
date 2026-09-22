@@ -101,6 +101,7 @@ private fun DetailTopBar(title: String, onBack: () -> Unit) {
 fun DetailListScreen(vm: MainViewModel, onBack: () -> Unit) {
     val detail by vm.detail.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
+    val selection by vm.selection.collectAsStateWithLifecycle()
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
 
     val data = detail
@@ -162,7 +163,13 @@ fun DetailListScreen(vm: MainViewModel, onBack: () -> Unit) {
                     song = song,
                     liked = library.stats[song.id]?.liked ?: 0,
                     rating = library.stats[song.id]?.rating ?: 0,
-                    onClick = { vm.playList(songs, songs.indexOf(song)) },
+                    selected = song.id in selection,
+                    selectionMode = selection.isNotEmpty(),
+                    onClick = {
+                        if (selection.isNotEmpty()) vm.toggleSelect(song.id)
+                        else vm.playList(songs, songs.indexOf(song))
+                    },
+                    onLongClick = { vm.toggleSelect(song.id) },
                     onMore = { sheetSong = song },
                     onLike = { vm.like(song.id) },
                     onDislike = { vm.dislike(song.id) }
@@ -189,6 +196,7 @@ fun DetailListScreen(vm: MainViewModel, onBack: () -> Unit) {
 fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -> Unit) {
     val artist by vm.artistDetail.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
+    val selection by vm.selection.collectAsStateWithLifecycle()
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
     val gutter = rememberMetrics().gutter
@@ -354,7 +362,13 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
                     song = song,
                     liked = library.stats[song.id]?.liked ?: 0,
                     rating = library.stats[song.id]?.rating ?: 0,
-                    onClick = { vm.playList(displayedSongs, displayedSongs.indexOf(song)) },
+                    selected = song.id in selection,
+                    selectionMode = selection.isNotEmpty(),
+                    onClick = {
+                        if (selection.isNotEmpty()) vm.toggleSelect(song.id)
+                        else vm.playList(displayedSongs, displayedSongs.indexOf(song))
+                    },
+                    onLongClick = { vm.toggleSelect(song.id) },
                     onMore = { sheetSong = song },
                     onLike = { vm.like(song.id) },
                     onDislike = { vm.dislike(song.id) }
@@ -421,26 +435,17 @@ private fun ratingHint(rating: Int): String = when (rating) {
 fun AlbumsScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -> Unit) {
     val library by vm.library.collectAsStateWithLifecycle()
     // The same gesture as the list view of the same albums, and the same bar
-    // underneath it. A cover in a grid is still a row of songs.
-    var selection by remember { mutableStateOf(setOf<Long>()) }
+    // underneath it - which is now the app's one bar, drawn in RhythmRoot.
+    // A cover in a grid is still a row of songs.
+    val selection by vm.selection.collectAsStateWithLifecycle()
     val selectionMode = selection.isNotEmpty()
 
     fun toggle(album: AlbumInfo) {
-        val ids = album.songs.map { it.id }
-        if (ids.isEmpty()) return
-        selection = if (selection.containsAll(ids)) selection - ids.toSet() else selection + ids
+        vm.toggleGroup(album.songs.map { it.id })
     }
 
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = "אלבומים", onBack = onBack)
-        if (selectionMode) {
-            SelectionBar(
-                vm = vm,
-                selection = selection,
-                songs = library.songs.filter { it.id in selection },
-                onClear = { selection = emptySet() }
-            )
-        }
         LazyVerticalGrid(
             // Two columns on a phone, more as the window widens, without ever
             // squeezing a cover below a legible size.
