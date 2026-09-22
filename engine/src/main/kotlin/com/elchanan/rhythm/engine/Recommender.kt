@@ -197,11 +197,7 @@ class Recommender(
     private val declaredStyles: Map<Long, List<String>> = if (separations.isEmpty) {
         emptyMap()
     } else {
-        songs.associate { song ->
-            val own = Styles.parse(stats[song.id]?.styles.orEmpty())
-            val styles = own.ifEmpty { Styles.parse(artists[song.artistKey]?.styles.orEmpty()) }
-            song.id to styles
-        }
+        songs.associate { song -> song.id to stylesOf(song) }
     }
 
     /** True when these two must not appear in the same generated list. */
@@ -483,10 +479,7 @@ class Recommender(
 
     private fun tokensFor(song: SongEntity): List<String> {
         val out = ArrayList<String>(8)
-        // a tag put on the song itself wins over the artist's tags
-        val songStyles = Styles.parse(stats[song.id]?.styles.orEmpty())
-        if (songStyles.isNotEmpty()) out.addAll(songStyles)
-        else artists[song.artistKey]?.styles?.let { out.addAll(Styles.parse(it)) }
+        out.addAll(stylesOf(song))
 
         song.genre?.takeIf { it.isNotBlank() }?.let { out.add(it.trim()) }
         if (song.year in 1900..2100) out.add("decade:${song.year / 10 * 10}")
@@ -508,6 +501,29 @@ class Recommender(
             if (f.mode >= 0) out.add(if (f.mode == 1) "mode:major" else "mode:minor")
         }
         return out.map { it.lowercase(Locale.ROOT) }.distinct()
+    }
+
+    /**
+     * The style words in force for a song: its own, or its artist's, or both.
+     *
+     * A tag the user typed on a song replaces the artist's, because saying
+     * this one is different is the whole point of typing it. A tag the learner
+     * wrote adds to them instead: it is only ever allowed to name something
+     * the artist tag left unanswered - a character where the artist gave a
+     * genre - so replacing would throw away what the user actually said in
+     * order to keep a guess.
+     */
+    fun stylesInForce(song: SongEntity): List<String> = stylesOf(song)
+
+    private fun stylesOf(song: SongEntity): List<String> {
+        val own = stats[song.id]
+        val songStyles = Styles.parse(own?.styles.orEmpty())
+        val artistStyles = Styles.parse(artists[song.artistKey]?.styles.orEmpty())
+        return when {
+            songStyles.isEmpty() -> artistStyles
+            own?.stylesAuto == 1 -> (artistStyles + songStyles).distinct()
+            else -> songStyles
+        }
     }
 
     /** The song's tokens, weighted by how much each one tells us, then L2 normalised. */

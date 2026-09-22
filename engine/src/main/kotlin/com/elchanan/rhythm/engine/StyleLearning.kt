@@ -283,10 +283,35 @@ object StyleLearning {
             val own = stats[song.id]
             val current = Styles.parse(own?.styles.orEmpty())
             if (current.isNotEmpty() && own?.stylesAuto != 1) continue
-            if (Styles.parse(stylesByArtist[song.artistKey].orEmpty()).isNotEmpty()) continue
+            val inherited = Styles.parse(stylesByArtist[song.artistKey].orEmpty())
+            // A song whose artist carries tags used to be skipped outright,
+            // and that left the learner with nothing to do for precisely the
+            // user who had done the most work. Tag your artists - which is
+            // what the app tells you to do, because it is one decision
+            // covering a hundred songs - and every song in the library becomes
+            // ineligible, so the run ends with "no songs need tags" and looks
+            // for all the world like a failure.
+            //
+            // It can still say something useful about those songs, as long as
+            // it is about a different question. "חסידי" and "קצבי" are answers
+            // to two different ones: the artist tag settles the kind of music
+            // and says nothing about the character of this particular track.
+            // So where a genre is already known, only a character may be
+            // added, and the other way round. A style with no family - free
+            // text the user typed - is not offered here at all, since there is
+            // no way to tell what it would be contradicting.
+            val allowed = if (inherited.isEmpty()) {
+                trusted
+            } else {
+                val answered = inherited.mapNotNullTo(HashSet()) { Styles.familyOf(it) }
+                trusted.filterTo(HashSet()) { style ->
+                    Styles.familyOf(style)?.let { it !in answered } == true
+                }
+            }
+            if (allowed.isEmpty()) continue
             val x = StyleTraining.featuresFor(features[song.id]) ?: continue
             candidates++
-            val predicted = model.predict(x, thresholds, trusted)
+            val predicted = model.predict(x, thresholds, allowed)
             if (predicted.isEmpty() || predicted.toSet() == current.toSet()) continue
             for (style in predicted) appliedByStyle[style] = (appliedByStyle[style] ?: 0) + 1
             predictions.add(song.id to Styles.join(predicted))
@@ -424,6 +449,10 @@ object StyleLearning {
         append("\nנדרש מכל סגנון: F1 ${percent(MIN_F1)}, דיוק ${percent(MIN_PRECISION)}, ")
         append("ושיפור של ${(MIN_BASELINE_GAIN * 100).toInt()} נקודות על ניחוש פשוט.")
         append("\nהמדדים הם מול התיוג שלך, לא הבטחת דיוק לז׳אנרים.")
+        append("\nכל סגנון נמדד רק על השירים שענו על השאלה שלו: שיר שמתויג ")
+        append("ז'אנר בלבד לא נספר כהוכחה שהוא לא קצבי, כי פשוט לא נשאלת. ")
+        append("המשמעות היא שהדיוק שלמעלה הוא הדיוק על מה שתייגת — ")
+        append("על שירים שלא תייגת אין מה למדוד.")
         if (r.styles.any { it.influences.isNotEmpty() }) {
             append("\n\n\"המודל מקשיב בעיקר ל\" מראה על מה ההחלטה נשענת: + מושך לסגנון, ")
             append("− דוחה ממנו. אם מה שמופיע שם הוא מצב רוח או קצב (שמח, עצוב, רגוע, ")
