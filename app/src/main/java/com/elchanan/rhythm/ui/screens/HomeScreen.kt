@@ -33,11 +33,18 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -260,6 +267,7 @@ fun HomeScreen(
                 if (library.albums.size >= 3) {
                     item {
                         AlbumShelf(
+                            vm = vm,
                             albums = library.albums,
                             onOpen = { album ->
                                 vm.openList(
@@ -303,7 +311,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun AlbumShelf(albums: List<AlbumInfo>, onOpen: (AlbumInfo) -> Unit) {
+private fun AlbumShelf(vm: MainViewModel, albums: List<AlbumInfo>, onOpen: (AlbumInfo) -> Unit) {
     val metrics = rememberMetrics()
     val width = metrics.cardWidth
     // Matching the header's margin so the first cover lines up with its title.
@@ -318,13 +326,25 @@ private fun AlbumShelf(albums: List<AlbumInfo>, onOpen: (AlbumInfo) -> Unit) {
                         .clickable { onOpen(album) }
                         .padding(horizontal = 4.dp, vertical = 4.dp)
                 ) {
-                    Artwork(
-                        songId = album.songs.firstOrNull()?.id ?: -1L,
-                        albumId = album.albumId,
-                        seed = album.name,
-                        modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-                        corner = 12
-                    )
+                    // The cover and its menu share a box so the three dots can
+                    // sit in the corner of the artwork. Everywhere else the
+                    // menu is reached by long press, but a shelf that scrolls
+                    // sideways cannot spare a long press - it is how you flick
+                    // through it - so here it is a button you can see.
+                    Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
+                        Artwork(
+                            songId = album.songs.firstOrNull()?.id ?: -1L,
+                            albumId = album.albumId,
+                            seed = album.name,
+                            modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                            corner = 12
+                        )
+                        AlbumCardMenu(
+                            vm = vm,
+                            album = album,
+                            modifier = Modifier.align(Alignment.TopEnd)
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     Text(
                         text = album.name,
@@ -343,6 +363,111 @@ private fun AlbumShelf(albums: List<AlbumInfo>, onOpen: (AlbumInfo) -> Unit) {
             }
         }
     }
+}
+
+/**
+ * The three dot menu on an album cover.
+ *
+ * The same four things the selection bar offers, aimed at a whole album at
+ * once so none of it needs selecting first: play it, queue it, put it on a
+ * list, or - for anything the menu does not cover - drop into selection with
+ * its songs already ticked, where the full bar takes over.
+ */
+@Composable
+private fun AlbumCardMenu(vm: MainViewModel, album: AlbumInfo, modifier: Modifier = Modifier) {
+    var open by remember { mutableStateOf(false) }
+    var playlistOpen by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        // A dark disc behind the dots, because a cover can be any colour and
+        // white dots vanish on a pale one.
+        IconButton(
+            onClick = { open = true },
+            modifier = Modifier
+                .padding(4.dp)
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.45f))
+        ) {
+            Icon(
+                Icons.Filled.MoreVert,
+                contentDescription = "אפשרויות אלבום",
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text("נגן") },
+                leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                onClick = { open = false; vm.playList(album.songs) }
+            )
+            DropdownMenuItem(
+                text = { Text("הוסף לתור") },
+                leadingIcon = {
+                    Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = null)
+                },
+                onClick = { open = false; vm.bulkQueue(album.songs) }
+            )
+            DropdownMenuItem(
+                text = { Text("הוסף לרשימה") },
+                leadingIcon = {
+                    Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null)
+                },
+                onClick = { open = false; playlistOpen = true }
+            )
+            DropdownMenuItem(
+                text = { Text("בחר שירים") },
+                leadingIcon = { Icon(Icons.Filled.CheckCircle, contentDescription = null) },
+                onClick = { open = false; vm.toggleGroup(album.songs.map { it.id }) }
+            )
+        }
+    }
+
+    if (playlistOpen) {
+        AlbumPlaylistDialog(vm = vm, album = album, onDismiss = { playlistOpen = false })
+    }
+}
+
+/**
+ * The list of playlists to drop a whole album onto.
+ *
+ * The same dialog the selection bar uses, kept here rather than shared because
+ * it is four lines and reaching for it from a shelf card should not pull the
+ * whole library screen in with it.
+ */
+@Composable
+private fun AlbumPlaylistDialog(vm: MainViewModel, album: AlbumInfo, onDismiss: () -> Unit) {
+    val playlists by vm.playlists.collectAsStateWithLifecycle()
+    val ids = remember(album) { album.songs.map { it.id } }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("הוספה לרשימה") },
+        text = {
+            Column {
+                if (playlists.isEmpty()) {
+                    Text("אין עדיין רשימות", color = TextSecondary)
+                }
+                playlists.forEach { info ->
+                    Text(
+                        text = info.playlist.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                vm.bulkAddToPlaylist(info.playlist.id, ids)
+                                onDismiss()
+                            }
+                            .padding(vertical = 11.dp)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("סגור", color = TextSecondary) }
+        }
+    )
 }
 
 /**
