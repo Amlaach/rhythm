@@ -73,7 +73,12 @@ data class LearnResult(
     /** Every style the run considered, accepted or not. */
     val styles: List<StyleOutcome> = emptyList(),
     /** Songs that were eligible to receive a tag. */
-    val candidates: Int = 0
+    val candidates: Int = 0,
+    /** Whether the music print was among the inputs - it is only when it tested better. */
+    val usedMusic: Boolean = false,
+    /** Held-out F1 without and with the music print, when both were measured. */
+    val withoutMusicF1: Double? = null,
+    val withMusicF1: Double? = null
 ) {
     /** Only genuinely new/changed assignments are returned for storage. */
     val applied: Int get() = predictions.size
@@ -164,11 +169,57 @@ object StyleLearning {
             .filter { (style, score) -> verdict(style, score, report.baseline.byStyle[style]).first }
             .keys
 
+    /**
+     * Learns twice when the music print is there - with it and without it -
+     * and keeps whichever did better on artists it did not learn from.
+     *
+     * The print was trained on 400 Western styles and knows nothing of the
+     * words this library uses; whether its picture of a song helps the
+     * learner tell חסידי from מזרחי here is a question for this library's own
+     * tags, not an assumption. Better means more styles trusted, then a higher
+     * average F1 on the held-out artists.
+     */
     fun learn(
         songs: List<SongEntity>,
         stats: Map<Long, SongStatsEntity>,
         stylesByArtist: Map<String, String>,
         features: Map<Long, AudioFeatureEntity>
+    ): LearnResult {
+        val plain = learnWith(songs, stats, stylesByArtist, features, music = false)
+        val base = StyleTraining.rows(songs, features, stylesByArtist, stats).size
+        val withPrint = StyleTraining.rows(songs, features, stylesByArtist, stats, music = true).size
+        // Only when nearly every labelled song has a print: a comparison made
+        // on a different, smaller set of songs would not be a comparison.
+        if (base == 0 || withPrint < base * MUSIC_COVERAGE) return plain
+        val musical = learnWith(songs, stats, stylesByArtist, features, music = true)
+        val plainF1 = plain.validation?.metrics?.macroF1
+        val musicF1 = musical.validation?.metrics?.macroF1
+        // A margin, not a hair: two runs on the same songs differ by chance,
+        // and a print that hears nothing would otherwise win half the time.
+        // Judged on what gets written: styles that passed their own test. An
+        // average F1 over styles nothing passed rewards a model for guessing
+        // one answer for everything.
+        val better = musicF1 != null && (
+            musical.accepted.size > plain.accepted.size ||
+                (musical.accepted.isNotEmpty() && musical.accepted.size == plain.accepted.size &&
+                    musicF1 >= (plainF1 ?: 0.0) + MUSIC_MARGIN)
+            )
+        return (if (better) musical.copy(usedMusic = true) else plain)
+            .copy(withoutMusicF1 = plainF1, withMusicF1 = musicF1)
+    }
+
+    /** Share of labelled songs that must have a music print before it is tried. */
+    const val MUSIC_COVERAGE = 0.9
+
+    /** How much better the held-out F1 must be for the print to be kept. */
+    const val MUSIC_MARGIN = 0.03
+
+    private fun learnWith(
+        songs: List<SongEntity>,
+        stats: Map<Long, SongStatsEntity>,
+        stylesByArtist: Map<String, String>,
+        features: Map<Long, AudioFeatureEntity>,
+        music: Boolean
     ): LearnResult {
         val withStyles = songs.count { song ->
             val own = stats[song.id]
@@ -176,7 +227,7 @@ object StyleLearning {
                 Styles.parse(stylesByArtist[song.artistKey].orEmpty()).isNotEmpty()
         }
         val withEvidence = songs.count { StyleTraining.featuresFor(features[it.id]) != null }
-        val rows = StyleTraining.rows(songs, features, stylesByArtist, stats)
+        val rows = StyleTraining.rows(songs, features, stylesByArtist, stats, music)
         val artists = rows.map { it.artistKey }.distinct().size
         fun result(
             status: LearningStatus,
@@ -309,7 +360,7 @@ object StyleLearning {
                 }
             }
             if (allowed.isEmpty()) continue
-            val x = StyleTraining.featuresFor(features[song.id]) ?: continue
+            val x = StyleTraining.featuresFor(features[song.id], music) ?: continue
             candidates++
             val predicted = model.predict(x, thresholds, allowed)
             if (predicted.isEmpty() || predicted.toSet() == current.toSet()) continue
@@ -388,6 +439,15 @@ object StyleLearning {
         append("\nממוצע בין הסגנונות: F1 ${percent(v.metrics.macroF1)}, ")
         append("דיוק ${percent(v.metrics.macroPrecision)}, כיסוי ${percent(v.metrics.macroRecall)}.")
         append("\nניחוש הסגנון הנפוץ, לשם השוואה: F1 ${percent(v.baseline.macroF1)}.")
+        val without = r.withoutMusicF1
+        val with = r.withMusicF1
+        if (without != null && with != null) {
+            append("\n\nעם הטביעה המוזיקלית: F1 ${percent(with)} · בלעדיה: F1 ${percent(without)}")
+            append(
+                if (r.usedMusic) " — הלמידה משתמשת בטביעה המוזיקלית."
+                else " — הטביעה לא שיפרה כאן, אז הלמידה נשארה בלעדיה."
+            )
+        }
 
         if (r.styles.isNotEmpty()) {
             append("\n\nלפי סגנון — כל אחד נבחן בנפרד:")

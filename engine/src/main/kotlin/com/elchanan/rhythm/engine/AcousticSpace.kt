@@ -89,6 +89,13 @@ class AcousticSpace(
             }
         }
 
+        /** [fold] to a smaller width: the same hashing, buckets taken modulo [width]. */
+        fun foldTo(p: FloatArray, width: Int): DoubleArray {
+            val out = DoubleArray(width)
+            for (i in p.indices) out[BUCKET[i] % width] += (SIGN[i] * p[i]).toDouble()
+            return out
+        }
+
         private fun fold(p: FloatArray): DoubleArray {
             val out = DoubleArray(PRINT_DIMS)
             for (i in p.indices) out[BUCKET[i]] += (SIGN[i] * p[i]).toDouble()
