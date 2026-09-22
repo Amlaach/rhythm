@@ -68,7 +68,7 @@ class ArtistStylesTest {
         // arriving with one or two artists would fail the moment it was used,
         // which is not a thing to ship.
         val byStyle = ArtistStyles.CATALOGUE.groupBy { it.style }
-        assertEquals(4, byStyle.size)
+        assertEquals(ArtistStyles.STYLES.size, byStyle.size)
         for ((style, seeds) in byStyle) {
             assertTrue("$style has only ${seeds.size} artists", seeds.size >= 8)
         }

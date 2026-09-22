@@ -43,6 +43,16 @@ object ArtistStyles {
     const val CANTORIAL = "חזנות"
     const val MIZRAHI = "מזרחי"
 
+    /**
+     * Its own bucket rather than a corner of the pop one.
+     *
+     * A rapped verse and a sung one are not the same sound - the tagging model
+     * has separate classes for them and hears the difference plainly - so
+     * filing rap under פופ ישראלי would teach a blurred boundary for the sake
+     * of one fewer word.
+     */
+    const val HIP_HOP = "היפ הופ"
+
     val CATALOGUE: List<Seed> = listOf(
         // --- חסידי --------------------------------------------------------
         // Yiddish or Hebrew over a choir and a traditional arrangement. The
@@ -113,6 +123,32 @@ object ArtistStyles {
         Seed("יאיר לוי", ISRAELI_POP, listOf("Yair Levi")),
         Seed("זושא", ISRAELI_POP, listOf("Zusha")),
         Seed("שוטי הנבואה", ISRAELI_POP, listOf("Shotei Hanevua")),
+        // Secular and mainstream. The bucket is a sound, not an outlook, and
+        // these sit in the same one as everything above: Hebrew, a solo voice,
+        // guitar or keys, and a studio behind it.
+        Seed("נועה קירל", ISRAELI_POP, listOf("Noa Kirel")),
+        Seed("שירי מימון", ISRAELI_POP, listOf("Shiri Maimon")),
+        Seed("נטע ברזילי", ISRAELI_POP, listOf("Netta Barzilai", "נטע")),
+        Seed("סטטיק ובן אל", ISRAELI_POP, listOf("Static & Ben El", "סטטיק ובן אל תבורי")),
+        Seed("עברי לידר", ISRAELI_POP, listOf("Ivri Lider")),
+        Seed("שלומי שבן", ISRAELI_POP, listOf("Shlomi Shaban")),
+        Seed("מרינה מקסימיליאן", ISRAELI_POP, listOf("Marina Maximilian", "מרינה מקסימיליאן בלומין")),
+        Seed("אסף אמדורסקי", ISRAELI_POP, listOf("Assaf Amdursky")),
+        Seed("דודו טסה", ISRAELI_POP, listOf("Dudu Tassa")),
+        Seed("דיוויד ברוזה", ISRAELI_POP, listOf("David Broza", "דויד ברוזה")),
+        Seed("ארקדי דוכין", ISRAELI_POP, listOf("Arkadi Duchin")),
+        Seed("רמי פורטיס", ISRAELI_POP, listOf("Rami Fortis")),
+        Seed("יהורם גאון", ISRAELI_POP, listOf("Yehoram Gaon")),
+        Seed("חוה אלברשטיין", ISRAELI_POP, listOf("Chava Alberstein", "חווה אלברשטיין")),
+        Seed("מתי כספי", ISRAELI_POP, listOf("Matti Caspi")),
+        Seed("יוני רכטר", ISRAELI_POP, listOf("Yoni Rechter")),
+        Seed("דני סנדרסון", ISRAELI_POP, listOf("Danny Sanderson")),
+        Seed("גידי גוב", ISRAELI_POP, listOf("Gidi Gov")),
+        Seed("שלמה יידוב", ISRAELI_POP, listOf("Shlomo Ydov")),
+        Seed("כוורת", ISRAELI_POP, listOf("Kaveret", "פוגי")),
+        Seed("משינה", ISRAELI_POP, listOf("Mashina")),
+        Seed("אתניקס", ISRAELI_POP, listOf("Ethnix")),
+        Seed("טיפקס", ISRAELI_POP, listOf("Teapacks", "טיפקס")),
 
         // --- מזרחי ---------------------------------------------------------
         // The ornamented vocal line and its instrumentation, which is what
@@ -141,6 +177,24 @@ object ArtistStyles {
         Seed("עדן בן זקן", MIZRAHI, listOf("Eden Ben Zaken")),
         Seed("ליאור אלמליח", MIZRAHI, listOf("Lior Elmaliach")),
         Seed("ששי קשת", MIZRAHI, listOf("Sasi Keshet")),
+        Seed("פאר טסי", MIZRAHI, listOf("Peer Tasi")),
+        Seed("עדן חסון", MIZRAHI, listOf("Eden Hason")),
+        Seed("אושר כהן", MIZRAHI, listOf("Osher Cohen")),
+        Seed("מאיה בוסקילה", MIZRAHI, listOf("Maya Buskila")),
+        Seed("דיקלה", MIZRAHI, listOf("Dikla")),
+
+        // --- היפ הופ -------------------------------------------------------
+        // Rapped rather than sung, over programmed drums. The one bucket here
+        // the tagging model already has its own classes for.
+        Seed("הדג נחש", HIP_HOP, listOf("Hadag Nahash", "הדג נחש")),
+        Seed("סאבלימינל", HIP_HOP, listOf("Subliminal", "סובלימינל")),
+        Seed("טונה", HIP_HOP, listOf("Tuna")),
+        Seed("רביד פלוטניק", HIP_HOP, listOf("Ravid Plotnik", "נצ'י נצ'", "Nechi Nech")),
+        Seed("שאנן סטריט", HIP_HOP, listOf("Shaanan Streett")),
+        Seed("קפה שחור חזק", HIP_HOP, listOf("Cafe Shahor Hazak")),
+        Seed("ג'ימבו ג'יי", HIP_HOP, listOf("Jimbo J", "גימבו גיי")),
+        Seed("לוקץ'", HIP_HOP, listOf("Lukach", "לוקץ")),
+        Seed("פלד", HIP_HOP, listOf("Peled")),
 
         // --- חזנות ---------------------------------------------------------
         // Acoustically the most distinct of the four, and the one where old
