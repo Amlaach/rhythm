@@ -1,0 +1,55 @@
+name: Convert music models
+
+# Fetches MTG-UPF's Discogs-EffNet and mood heads, converts them to TFLite and
+# commits the result to the branch it ran on. Triggered by a change to the
+# converter, or by hand; the sandbox that develops this app cannot reach the
+# model host, GitHub's runners can.
+on:
+  push:
+    branches-ignore: [ main, master ]
+    paths:
+      - 'tools/models/**'
+      - '.github/workflows/models.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install converters
+        run: |
+          python -m pip install --upgrade pip
+          pip install "tensorflow==2.15.*" "tf_keras==2.15.*" onnx==1.15.0 onnx2tf==1.20.0 \
+            onnx_graphsurgeon sng4onnx psutil "numpy<2" essentia-tensorflow
+
+      - name: Convert and check against Essentia
+        run: |
+          set -o pipefail
+          python tools/models/convert.py 2>&1 | tee convert.log
+
+      - name: Commit the models
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/assets/music engine/src/test/resources/effnet_reference.json
+          if git diff --cached --quiet; then echo "nothing changed"; exit 0; fi
+          git commit -m "Add converted Discogs-EffNet and mood heads (MTG-UPF, CC BY-NC-SA 4.0)"
+          git push
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: convert-log
+          path: convert.log
