@@ -31,6 +31,7 @@ import com.elchanan.rhythm.MainActivity
 import com.elchanan.rhythm.R
 import com.elchanan.rhythm.RhythmApp
 import com.elchanan.rhythm.data.MusicRepository
+import com.elchanan.rhythm.engine.Listening
 import com.elchanan.rhythm.engine.Spoken
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -602,7 +603,8 @@ class PlaybackService : MediaSessionService() {
         val listened = accumulatedMs
         trackedId = -1L
         accumulatedMs = 0L
-        if (listened < 3_000L) {
+        val minimum = repo.prefs.minPlayMs
+        if (listened < minimum) {
             trackedDurationMs = 0L
             return
         }
@@ -616,8 +618,12 @@ class PlaybackService : MediaSessionService() {
         lastActivityAt = now
 
         trackedDurationMs = 0L
-        val counted = ratio >= 0.5 || listened >= 90_000L ||
-            (duration <= 0L && listened >= 60_000L)
+        // One copy of the rule, in :engine, because the recommender divides
+        // skips by attempts and two builds that disagree about what an attempt
+        // is will rank the same library differently. Written out here and
+        // again on the desktop until now, and the two had already drifted on
+        // the case of a file with no length in its tags.
+        val counted = Listening.countsAsPlay(listened, duration, endedOnItsOwn = !manual, minimumMs = minimum)
         // the directed edge is written before lastCountedId moves on
         val previous = lastCountedId
         val previousFresh = previous > 0L && now - lastCountedAt < 15 * 60_000L

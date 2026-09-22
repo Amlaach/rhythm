@@ -130,6 +130,7 @@ import com.elchanan.rhythm.desktop.audio.Analyzer
 import com.elchanan.rhythm.desktop.audio.AudioPlayer
 import com.elchanan.rhythm.desktop.audio.Equalizer
 import com.elchanan.rhythm.desktop.data.Store
+import com.elchanan.rhythm.engine.Listening
 import com.elchanan.rhythm.engine.ActionPlacement
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.EngineTuning
@@ -386,7 +387,9 @@ private fun RhythmApp() {
         val leaving = queue.getOrNull(queueIndex)
         if (leaving != null) {
             val heard = player.state.value.positionMs
-            val counted = countsAsPlay(heard, leaving.durationMs, previousCompleted)
+            val counted = Listening.countsAsPlay(
+                heard, leaving.durationMs, previousCompleted, prefs.minPlayMs
+            )
             // Heard nearly to the end, whether the file ran out or the
             // listener moved on with seconds to go. This is what separates a
             // track someone sat through from one they merely did not skip.
@@ -396,7 +399,9 @@ private fun RhythmApp() {
             // track that simply ended is neither a skip nor, if it was
             // short of the bar, a play - it is nothing, and nothing is the
             // right thing to record about it.
-            val skipped = !counted && !previousCompleted && heard >= MIN_MEASURABLE_MS
+            val skipped = Listening.countsAsSkip(
+                heard, leaving.durationMs, previousCompleted, prefs.minPlayMs
+            )
             val now = System.currentTimeMillis()
             // A gap this long means this is a new sitting. The check comes
             // before the edges are written rather than after, or the first
@@ -1916,7 +1921,8 @@ private fun RhythmApp() {
             onLike = { current?.let { like(it) } },
             onOpen = { if (current != null) showPlayer = true },
             onToggle = { player.togglePause() },
-            onNext = { play(queue, queueIndex + 1) }
+            onNext = { play(queue, queueIndex + 1) },
+            onSeek = { player.seekTo(it) }
         )
 
         // The same four the phone has, in the same order, with the same icons
@@ -2005,12 +2011,9 @@ private const val LONG_FORM_MS = 12 * 60 * 1000L
  * song in three seconds - and counting it as one would let a few mis-clicks
  * bury a track the listener actually likes.
  */
-private const val MIN_MEASURABLE_MS = 3_000L
 
 /** Half the track, or a minute and a half, is a play. */
-private const val PLAY_FRACTION = 0.5
 
-private const val PLAY_MS = 90_000L
 
 /**
  * What to do when the length is not known.
@@ -2019,7 +2022,6 @@ private const val PLAY_MS = 90_000L
  * unknown length is not a number. A flat minute is the fallback, and it is
  * the same one the phone uses for the same reason.
  */
-private const val PLAY_MS_UNKNOWN_LENGTH = 60_000L
 
 /** How long a pair of songs may be apart and still count as a sequence. */
 private const val TRANSITION_WINDOW_MS = 15 * 60 * 1000L
@@ -2029,27 +2031,6 @@ private const val SESSION_GAP_MS = 40 * 60 * 1000L
 
 /** How far back a new play is linked. Beyond this the link means little. */
 private const val SESSION_TAIL = 5
-
-/**
- * Whether a track was listened to, as opposed to passed over.
- *
- * The same rule the phone measures by, and it has to be the same rule: the
- * recommender divides skips by attempts, and two builds that disagree about
- * what an attempt is will rank the same library differently. Half the track
- * or ninety seconds, whichever comes first, so a four minute song needs two
- * minutes and an hour of speech needs ninety seconds rather than half an
- * hour.
- *
- * A track that played to its end is a play whatever its length, which is the
- * case the thresholds cannot see: a forty second interlude never reaches
- * either bar and was still heard in full.
- */
-internal fun countsAsPlay(heardMs: Long, durationMs: Long, endedOnItsOwn: Boolean): Boolean {
-    if (heardMs < MIN_MEASURABLE_MS) return false
-    if (endedOnItsOwn) return true
-    if (durationMs <= 0L) return heardMs >= PLAY_MS_UNKNOWN_LENGTH
-    return heardMs >= durationMs * PLAY_FRACTION || heardMs >= PLAY_MS
-}
 
 /** Everything one reload reads, so the composition is updated once and not six times. */
 private data class Loaded(
@@ -3175,7 +3156,8 @@ private fun MiniPlayer(
     onLike: () -> Unit,
     onOpen: () -> Unit,
     onToggle: () -> Unit,
-    onNext: () -> Unit
+    onNext: () -> Unit,
+    onSeek: (Long) -> Unit
 ) {
     if (song == null) return
     Column(modifier = Modifier.fillMaxWidth().background(Surface1)) {
@@ -3243,18 +3225,30 @@ private fun MiniPlayer(
         // Under the row, not over it, and matching the full player: elapsed
         // time grows rightwards regardless of the language, so the two views
         // never disagree about which way the song runs.
+        //
+        // A control rather than a readout. It showed the position and refused
+        // to change it, so the only way to move inside a track from the main
+        // screen was to open the player first - on the one screen someone
+        // spends all their time.
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            LinearProgressIndicator(
-                progress = {
-                    if (durationMs > 0) {
-                        (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    }
+            var scrub by remember(song.id) { mutableStateOf<Float?>(null) }
+            Slider(
+                value = scrub ?: positionMs.toFloat(),
+                valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
+                onValueChange = { scrub = it },
+                onValueChangeFinished = {
+                    scrub?.let { onSeek(it.toLong()) }
+                    scrub = null
                 },
-                modifier = Modifier.fillMaxWidth().height(2.dp),
-                color = Accent,
-                trackColor = Surface1
+                colors = SliderDefaults.colors(
+                    thumbColor = Accent,
+                    activeTrackColor = Accent,
+                    inactiveTrackColor = Surface1
+                ),
+                // Kept to the height the readout had. A mini player is a strip
+                // above the tabs, and a full sized slider would turn it into a
+                // second player.
+                modifier = Modifier.fillMaxWidth().height(14.dp)
             )
         }
     }
