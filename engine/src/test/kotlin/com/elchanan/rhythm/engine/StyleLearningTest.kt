@@ -162,6 +162,44 @@ class StyleLearningTest {
         assertFalse(folk.reason.contains("אמן אחד"))
     }
 
+    @Test fun aStyleTooThinToSurviveTheSplitSaysSoRatherThanScoringZero() {
+        // Nine songs over two artists: clears "at least eight" on the whole
+        // set, and leaves four or five once an artist is held out - under the
+        // eight needed to fit. It is never learned in any fold that could
+        // score it, so its zero is the absence of a test, not the result of
+        // one. Exactly the shape a real library produced.
+        val base = mixedQuality()
+        val thin = (base.filter { it.artistKey == "artist-1" }.take(5) +
+            base.filter { it.artistKey == "artist-3" }.take(4))
+            .map { it.songId }.toSet()
+        val examples = base.map {
+            if (it.songId in thin) it.copy(labels = it.labels + "rare") else it
+        }
+        val songs = examples.map { song(it.songId, it.artistKey) }
+        val manual = examples.associate {
+            it.songId to SongStatsEntity(it.songId, styles = Styles.join(it.labels), stylesAuto = 0)
+        }
+        val result = StyleLearning.learn(
+            songs, manual, emptyMap(),
+            examples.associate { it.songId to feature(it.songId, "folk" in it.labels) }
+        )
+        val rare = result.styles.single { it.style == "rare" }
+        assertEquals(9, rare.examples)
+        assertTrue("two artists, so not the single-artist case", rare.artists >= 2)
+        assertTrue(
+            "only ${rare.trainable} left to train on",
+            rare.trainable < StyleLearner.DEFAULT_MIN_PER_STYLE
+        )
+        assertFalse(rare.accepted)
+        assertTrue(rare.reason, rare.reason.contains("לא נלמד"))
+        assertTrue(StyleLearning.report(result).contains("זמינות לאימון"))
+
+        // A style with room to spare is not accused of it.
+        val folk = result.styles.single { it.style == "folk" }
+        assertTrue(folk.trainable >= StyleLearner.DEFAULT_MIN_PER_STYLE)
+        assertFalse(folk.reason.contains("לא נלמד"))
+    }
+
     @Test fun everyStyleIsAccountedForInTheReport() {
         val result = mixedLearn()
         val text = StyleLearning.report(result)
