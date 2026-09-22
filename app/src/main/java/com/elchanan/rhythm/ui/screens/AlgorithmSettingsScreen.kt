@@ -60,6 +60,8 @@ fun AlgorithmSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     // its content back instead of spending it on empty edges.
     val gutter = rememberMetrics().gutter
     val busy by vm.busy.collectAsStateWithLifecycle()
+    val learning by vm.learning.collectAsStateWithLifecycle()
+    val learningReport by vm.learningReport.collectAsStateWithLifecycle()
 
     var discovery by remember { mutableFloatStateOf(vm.prefs.discovery) }
     var artistWeight by remember { mutableFloatStateOf(vm.prefs.artistWeight) }
@@ -150,7 +152,7 @@ fun AlgorithmSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                         Text(
                             "לומד איך הסגנונות שהגדרת נשמעים — מהשירים של האמנים " +
                                 "שתייגת — ומשלים תגיות לשירים שלא תויגו. האפליקציה " +
-                                "בודקת את עצמה על חצי מהספרייה, ואם הדיוק נמוך היא " +
+                                "בודקת על אמנים שלא השתתפו באימון, וסופרת גם תגיות שגויות וחסרות. אם הבדיקה אינה מספקת היא " +
                                 "לא משנה כלום",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
@@ -158,9 +160,20 @@ fun AlgorithmSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                     }
                     Button(
                         onClick = { vm.learnStyles() },
-                        enabled = !busy,
+                        enabled = !busy && !learning,
                         colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                    ) { Text("למד") }
+                    ) { Text(if (learning) "לומד…" else "למד") }
+                }
+            }
+
+            learningReport?.let { report ->
+                item {
+                    Text(
+                        report,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextPrimary
+                    )
                 }
             }
 

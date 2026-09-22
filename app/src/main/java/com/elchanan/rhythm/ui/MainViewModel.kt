@@ -1404,6 +1404,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val _learnResult = MutableStateFlow<LearnResult?>(null)
     val learnResult: StateFlow<LearnResult?> = _learnResult.asStateFlow()
+    private val _learning = MutableStateFlow(false)
+    val learning: StateFlow<Boolean> = _learning.asStateFlow()
+    private val _learningReport = MutableStateFlow<String?>(null)
+    val learningReport: StateFlow<String?> = _learningReport.asStateFlow()
 
     /**
      * Learns the user's own style words from their own library.
@@ -1414,28 +1418,42 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * end supplies the rows and stores what comes back.
      */
     fun learnStyles() {
+        if (_busy.value || _learning.value) return
+        _busy.value = true
+        _learning.value = true
+        _learnResult.value = null
+        _learningReport.value = "הלמידה מתבצעת — בודק על אמנים שלא השתתפו באימון…"
         viewModelScope.launch {
-            _busy.value = true
-            val outcome = runCatching {
-                withContext(Dispatchers.Default) {
-                    val lib = library.value
+            var saved = 0
+            try {
+                val lib = library.value
+                val features = repo.featureMap()
+                val outcome = withContext(Dispatchers.Default) {
                     StyleLearning.learn(
                         songs = lib.songs,
                         stats = lib.stats,
                         stylesByArtist = lib.artists.associate { it.key to it.styles },
-                        features = repo.featureMap()
+                        features = features
                     )
                 }
-            }.getOrNull()
-
-            for ((songId, styles) in outcome?.predictions.orEmpty()) {
-                repo.setSongStyles(songId, styles, auto = true)
+                for ((songId, styles) in outcome.predictions) {
+                    repo.setSongStyles(songId, styles, auto = true)
+                    saved++
+                }
+                _learnResult.value = outcome
+                _learningReport.value = StyleLearning.report(outcome)
+                _message.value = StyleLearning.message(outcome)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                _learningReport.value = "הלמידה הופסקה. נשמרו עד כה תגיות ל-$saved שירים."
+                throw cancelled
+            } catch (_: Exception) {
+                _learningReport.value = "הלמידה לא הושלמה. נשמרו תגיות ל-$saved שירים לפני השגיאה. נסה שוב."
+                _message.value = _learningReport.value
+            } finally {
+                _learning.value = false
+                _busy.value = false
+                if (saved > 0) refreshFeed()
             }
-
-            _busy.value = false
-            _learnResult.value = outcome
-            _message.value = StyleLearning.message(outcome)
-            if (outcome != null && outcome.applied > 0) refreshFeed()
         }
     }
 

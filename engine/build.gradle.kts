@@ -22,6 +22,7 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     // Room's annotations and nothing else. room-common is an ordinary JVM jar
     // - the database, the compiler and the Android runtime all live in
     // room-runtime, which this module does not have and does not want. The
