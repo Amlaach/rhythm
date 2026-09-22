@@ -26,6 +26,7 @@ import com.elchanan.rhythm.data.db.PlaylistEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.data.db.TagOverrideEntity
+import com.elchanan.rhythm.engine.ArtistStyles
 import com.elchanan.rhythm.engine.AcousticSpace
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.FeedSection
@@ -186,12 +187,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             val artistInfos = byArtist.map { (key, list) ->
                 val profile = artistMap[key]
+                val name = profile?.displayName?.takeIf { it.isNotBlank() }
+                    ?: nameForKey[key].orEmpty()
                 ArtistInfo(
                     key = key,
-                    displayName = profile?.displayName?.takeIf { it.isNotBlank() }
-                        ?: nameForKey[key].orEmpty(),
+                    displayName = name,
                     rating = profile?.rating ?: 0,
-                    styles = profile?.styles.orEmpty(),
+                    // The shipped catalogue fills in only where nothing was
+                    // typed, and is read here rather than written to the
+                    // database. A correction is therefore permanent - it is a
+                    // stored style, and a stored style is never asked about
+                    // again - while a later version's catalogue still arrives
+                    // without a migration and without touching anyone's edits.
+                    styles = profile?.styles?.takeIf { it.isNotBlank() }
+                        ?: ArtistStyles.styleFor(name).orEmpty(),
                     note = profile?.note.orEmpty(),
                     songs = list.distinctBy { it.id }.sortedBy { it.titleLower }
                 )
@@ -429,6 +438,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (repo.prefs.lastScanAt == 0L) return@launch
             refreshFeed()
         }
+        // Learning follows analysis, when it is left on.
+        //
+        // Here rather than after a scan, because a scan finds files and
+        // analysis is what turns them into the sound measurements the styles
+        // are learned from - running before that would learn from whatever
+        // happened to be measured already. Only on the falling edge, so a pass
+        // that is still working is never interrupted.
+        viewModelScope.launch {
+            var wasRunning = false
+            analysis.progress.collect { progress ->
+                val finished = wasRunning && !progress.running
+                wasRunning = progress.running
+                if (finished && repo.prefs.autoLearn) learnStyles(automatic = true)
+            }
+        }
+
         // Every finished scan rebuilds the feed, whoever ran it. Dropping the
         // first value because it is the starting count and not a scan.
         viewModelScope.launch {
@@ -1417,7 +1442,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * [StyleLearning] over in :engine, which the desktop build runs too. This
      * end supplies the rows and stores what comes back.
      */
-    fun learnStyles() {
+    /**
+     * @param automatic true when nothing was pressed - learning ran itself
+     *   after analysis. It then speaks only when it has something to say: a
+     *   toast reading "no new tags confident enough" every time a few files
+     *   are analysed is noise about a decision that was made correctly.
+     */
+    fun learnStyles(automatic: Boolean = false) {
         if (_busy.value || _learning.value) return
         _busy.value = true
         _learning.value = true
@@ -1442,13 +1473,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 _learnResult.value = outcome
                 _learningReport.value = StyleLearning.report(outcome)
-                _message.value = StyleLearning.message(outcome)
+                // The report is kept either way; only the toast is withheld.
+                if (!automatic || saved > 0) {
+                    _message.value = StyleLearning.message(outcome)
+                }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 _learningReport.value = "הלמידה הופסקה. נשמרו עד כה תגיות ל-$saved שירים."
                 throw cancelled
             } catch (_: Exception) {
                 _learningReport.value = "הלמידה לא הושלמה. נשמרו תגיות ל-$saved שירים לפני השגיאה. נסה שוב."
-                _message.value = _learningReport.value
+                if (!automatic) _message.value = _learningReport.value
             } finally {
                 _learning.value = false
                 _busy.value = false
