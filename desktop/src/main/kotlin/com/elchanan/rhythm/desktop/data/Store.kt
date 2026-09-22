@@ -63,8 +63,118 @@ class Store private constructor(private val conn: Connection) {
                 st.execute("PRAGMA foreign_keys=ON")
                 for (ddl in SCHEMA) st.execute(ddl)
             }
+            addMissingColumns(conn)
             return Store(conn)
         }
+
+        /**
+         * Brings a database written by an older build up to today's schema.
+         *
+         * Every table above is created IF NOT EXISTS, which is right the
+         * first time and does nothing ever after. So a column added to a
+         * table in a later version - and several have been: spoken, note,
+         * stylesAuto, scaleMode, chroma24 - never reaches a database that
+         * already has that table. The app then fails on the first query
+         * that names the column, on a library that looks perfectly fine,
+         * and the only cure anyone finds is deleting the lot and starting
+         * again. Which is exactly what an update should never ask for.
+         *
+         * So the columns each table is supposed to have are read back out
+         * of the same DDL that creates it - one source of truth, so a
+         * column added up there is migrated down here without anyone
+         * having to remember - and whatever is missing is added.
+         *
+         * Only ever additive. Nothing here drops or rewrites a column: the
+         * data in it is the user's, and a schema change is not a reason to
+         * lose it.
+         */
+        private fun addMissingColumns(conn: Connection) {
+            for (ddl in SCHEMA) {
+                val table = TABLE_NAME.find(ddl)?.groupValues?.get(1) ?: continue
+                val wanted = columnsOf(ddl)
+                if (wanted.isEmpty()) continue
+
+                val present = HashSet<String>()
+                conn.createStatement().use { st ->
+                    st.executeQuery("PRAGMA table_info(" + table + ")").use { rs ->
+                        while (rs.next()) present += rs.getString("name").lowercase()
+                    }
+                }
+                // Empty means the table did not exist a moment ago and was
+                // just created complete. Nothing to reconcile.
+                if (present.isEmpty()) continue
+
+                for ((name, definition) in wanted) {
+                    if (name.lowercase() in present) continue
+                    try {
+                        conn.createStatement().use {
+                            it.execute("ALTER TABLE " + table + " ADD COLUMN " + addable(definition))
+                        }
+                    } catch (e: Exception) {
+                        // One column that cannot be added is not a reason to
+                        // refuse to start. Say so and carry on - the rest of
+                        // the library still works, where a thrown exception
+                        // here would take the whole app down.
+                        System.err.println("Rhythm: could not add " + table + "." + name + " - " + e.message)
+                    }
+                }
+            }
+        }
+
+        /**
+         * The column definitions in a CREATE TABLE, as name to definition.
+         *
+         * Split at the commas that are not inside brackets, so a PRIMARY KEY
+         * (a, b) at the end counts as one part rather than two, and then drop
+         * the parts that describe the table rather than a column.
+         */
+        private fun columnsOf(ddl: String): List<Pair<String, String>> {
+            val body = ddl.substringAfter('(', "").substringBeforeLast(')', "")
+            if (body.isBlank()) return emptyList()
+
+            val parts = ArrayList<String>()
+            val part = StringBuilder()
+            var depth = 0
+            for (c in body) {
+                when {
+                    c == '(' -> { depth++; part.append(c) }
+                    c == ')' -> { depth--; part.append(c) }
+                    c == ',' && depth == 0 -> { parts += part.toString(); part.setLength(0) }
+                    else -> part.append(c)
+                }
+            }
+            parts += part.toString()
+
+            val out = ArrayList<Pair<String, String>>()
+            for (raw in parts) {
+                val definition = raw.trim().replace(WHITESPACE, " ")
+                if (definition.isEmpty()) continue
+                val first = definition.substringBefore(' ')
+                if (first.uppercase() in TABLE_CONSTRAINTS) continue
+                out += first to definition
+            }
+            return out
+        }
+
+        /**
+         * The same definition, in a form ALTER TABLE will accept.
+         *
+         * SQLite refuses to add a NOT NULL column without a default, because
+         * it has no idea what to put in the rows already there. Which value
+         * hardly matters - these are columns a later version invented, and
+         * nothing has ever written them - so it is the empty one for its
+         * type, matching what a fresh row would get anyway.
+         */
+        private fun addable(definition: String): String {
+            val upper = definition.uppercase()
+            if (!upper.contains(" NOT NULL") || upper.contains(" DEFAULT ")) return definition
+            return definition + " DEFAULT " + (if (upper.contains(" TEXT")) "''" else "0")
+        }
+
+        private val TABLE_NAME = Regex("CREATE TABLE IF NOT EXISTS (\\w+)", RegexOption.IGNORE_CASE)
+        private val WHITESPACE = Regex("\\s+")
+        private val TABLE_CONSTRAINTS =
+            setOf("PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "CONSTRAINT")
 
         private fun dataDir(): File {
             val os = System.getProperty("os.name").orEmpty().lowercase()
