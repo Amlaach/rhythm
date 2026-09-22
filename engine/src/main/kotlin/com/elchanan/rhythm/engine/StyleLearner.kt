@@ -39,6 +39,39 @@ class StyleLearner private constructor(
     val learnedStyles: List<String> get() = styles
 
     /**
+     * What the model is actually listening to when it names a style.
+     *
+     * The single question the scores cannot answer. A classifier is handed
+     * sixty one numbers and finds whatever separates the groups; it has no
+     * idea which of them a person would call musical. Among the inputs are
+     * four moods - שמח, עצוב, רגוע, מרגש - and if one library's pop happens
+     * to be calmer than its hasidic songs, "calm" separates them perfectly
+     * and the model will learn calm and call it pop. It scores well, and it
+     * falls apart on the first upbeat pop song it meets.
+     *
+     * The weights say which it did. They are comparable because every input
+     * was centred and scaled before fitting, so a big weight is a dimension
+     * the answer genuinely turns on rather than one that happens to be
+     * measured in larger units.
+     *
+     * Indicative and not proof: with correlated inputs a linear model can
+     * spread one real effect over several weights. It is still the difference
+     * between knowing what was learned and guessing.
+     *
+     * @return feature name to weight, strongest first. A positive weight
+     *   pushes towards the style, a negative one away from it.
+     */
+    fun influences(style: String, limit: Int = 6): List<Pair<String, Double>> {
+        val index = styles.indexOf(style)
+        if (index < 0) return emptyList()
+        val w = weights[index]
+        return w.indices
+            .sortedByDescending { kotlin.math.abs(w[it]) }
+            .take(limit)
+            .map { featureName(it) to w[it] }
+    }
+
+    /**
      * How strongly every learned style fits, whatever the strength.
      *
      * Unfiltered on purpose. Thresholding is a separate decision made per
@@ -126,6 +159,32 @@ class StyleLearner private constructor(
          * measured rather than guessed - see [StyleThresholds].
          */
         const val DEFAULT_THRESHOLD = 0.65
+
+        /**
+         * What the number at one position in the feature vector measures.
+         *
+         * The layout is fixed by StyleTraining.featuresFor: the classes the
+         * tagging model heard first, then the measured acoustics. Mirrored
+         * here rather than derived, because a name is only useful if it is
+         * the name of the right thing - so if that layout ever moves, this
+         * is the second place to change and the tests below say so.
+         */
+        fun featureName(index: Int): String {
+            val heard = AudioTags.ALL
+            if (index < heard.size) return heard[index].label
+            return when (val i = index - heard.size) {
+                0 -> "קצב"
+                1 -> "עוצמה"
+                2 -> "בהירות"
+                3 -> "רעשניות"
+                4 -> "דינמיקה"
+                5 -> "צפיפות נגינה"
+                in 6..17 -> "גוון ${i - 5}"
+                in 18..29 -> "הרמוניה ${i - 17}"
+                in 30..35 -> "מהלך השיר ${i - 29}"
+                else -> "מדד $i"
+            }
+        }
 
         /** Examples a style needs before it is worth fitting at all. */
         const val DEFAULT_MIN_PER_STYLE = 8

@@ -49,7 +49,17 @@ data class StyleOutcome(
     /** Why it was accepted or refused, in the words the screen shows. */
     val reason: String,
     /** Songs this style was actually written to. */
-    val applied: Int = 0
+    val applied: Int = 0,
+    /**
+     * What the model leans on when it names this style, strongest first.
+     *
+     * Shown so a style can be read as well as scored. Four of the inputs are
+     * moods, and a style whose top influences are רגוע and קצב was not learned
+     * as a kind of music at all - it was learned as a tempo, and it will break
+     * on the first fast song of that kind. The scores cannot show that; this
+     * can.
+     */
+    val influences: List<Pair<String, Double>> = emptyList()
 )
 
 data class LearnResult(
@@ -204,7 +214,10 @@ object StyleLearning {
             .groupBy({ it.first }, { it.second })
             .mapValues { (_, keys) -> keys.distinct().size }
 
-        fun outcomes(applied: Map<String, Int> = emptyMap()): List<StyleOutcome> {
+        fun outcomes(
+            applied: Map<String, Int> = emptyMap(),
+            fittedModel: StyleLearner? = null
+        ): List<StyleOutcome> {
             val seen = validation.metrics.byStyle.keys + counts.keys
             return seen.sortedWith(
                 compareByDescending<String> { counts[it] ?: 0 }.thenBy { it }
@@ -242,7 +255,8 @@ object StyleLearning {
                     threshold = validation.thresholds[style],
                     accepted = ok,
                     reason = why,
-                    applied = applied[style] ?: 0
+                    applied = applied[style] ?: 0,
+                    influences = fittedModel?.influences(style).orEmpty()
                 )
             }
         }
@@ -283,7 +297,7 @@ object StyleLearning {
                 candidates == 0 -> LearningStatus.NO_CANDIDATES
                 else -> LearningStatus.NO_CONFIDENT_PREDICTIONS
             },
-            validation, predictions, outcomes(appliedByStyle), candidates
+            validation, predictions, outcomes(appliedByStyle, model), candidates
         )
     }
 
@@ -367,6 +381,12 @@ object StyleLearning {
                     o.baseline?.let { append("\n    ניחוש פשוט על סגנון זה: F1 ${percent(it.f1)}") }
                 }
                 o.threshold?.let { append("\n    סף הביטחון שנמדד לסגנון: ${percent(it)}") }
+                if (o.influences.isNotEmpty()) {
+                    append("\n    המודל מקשיב בעיקר ל: ")
+                    append(o.influences.joinToString(", ") { (name, weight) ->
+                        "$name${if (weight >= 0) "+" else "−"}"
+                    })
+                }
                 if (o.accepted) {
                     append("\n    נכתב ל-${o.applied} שירים")
                 }
@@ -404,6 +424,13 @@ object StyleLearning {
         append("\nנדרש מכל סגנון: F1 ${percent(MIN_F1)}, דיוק ${percent(MIN_PRECISION)}, ")
         append("ושיפור של ${(MIN_BASELINE_GAIN * 100).toInt()} נקודות על ניחוש פשוט.")
         append("\nהמדדים הם מול התיוג שלך, לא הבטחת דיוק לז׳אנרים.")
+        if (r.styles.any { it.influences.isNotEmpty() }) {
+            append("\n\n\"המודל מקשיב בעיקר ל\" מראה על מה ההחלטה נשענת: + מושך לסגנון, ")
+            append("− דוחה ממנו. אם מה שמופיע שם הוא מצב רוח או קצב (שמח, עצוב, רגוע, ")
+            append("מרגש, קצב) ולא סוג מוזיקה או כלי נגינה — הסגנון נלמד כמצב רוח ולא ")
+            append("כז׳אנר, והוא ייכשל על שיר חריג. הדרך לתקן היא לתייג דוגמאות מגוונות ")
+            append("יותר בתוך אותו סגנון, מהיר ואיטי כאחד.")
+        }
     }
 
     private fun percent(value: Double): String = "${(value * 100).toInt()}%"

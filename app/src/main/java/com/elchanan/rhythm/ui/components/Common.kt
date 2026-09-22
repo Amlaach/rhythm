@@ -188,6 +188,12 @@ fun SongRow(
     onMore: (() -> Unit)? = null,
     onLike: (() -> Unit)? = null,
     onDislike: (() -> Unit)? = null,
+    /**
+     * An extra clause on the second line, for something about this song that
+     * the row would otherwise hide - a tag the app guessed, most of all. A
+     * list of guesses that does not say what was guessed cannot be checked.
+     */
+    note: String? = null,
     trailing: (@Composable () -> Unit)? = null
 ) {
     Row(
@@ -248,6 +254,10 @@ fun SongRow(
                             append(" • ")
                             append(playCount)
                             append(" השמעות")
+                        }
+                        if (!note.isNullOrBlank()) {
+                            append(" • ")
+                            append(note)
                         }
                     },
                     style = MaterialTheme.typography.bodySmall,
