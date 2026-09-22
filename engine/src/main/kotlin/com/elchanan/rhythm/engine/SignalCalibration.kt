@@ -45,6 +45,9 @@ object SignalCalibration {
     )
 
     const val MIN_EACH = 15
+
+    /** Below this many of each, a grade is one or two coin tosses and is not shown. */
+    const val MIN_TO_GRADE = 5
     const val MIN_GAIN = 0.02
     private const val FOLDS = 5
     private const val STEPS = 600
@@ -184,8 +187,12 @@ object SignalCalibration {
         val answered = report.positives + report.negatives
         append("נבדקו $answered שירים שההאזנה שלך כבר ענתה עליהם: ")
         append("${report.positives} אהובים ו-${report.negatives} שנדחו.\n")
-        if (report.currentAuc == null) {
-            append("עוד אין מספיק שירים משני הסוגים כדי לבדוק.")
+        if (report.currentAuc == null || report.positives < MIN_TO_GRADE || report.negatives < MIN_TO_GRADE) {
+            append(
+                "צריך לפחות $MIN_TO_GRADE מכל סוג כדי לתת ציון שאומר משהו. " +
+                    "שיר נחשב אהוב כשנתת לו לייק או 4-5 כוכבים, או ששמעת אותו 3 פעמים בלי לדלג; " +
+                    "נחשב נדחה כשנתת דיסלייק או 1-2 כוכבים, או שדילגת עליו ברוב הפעמים."
+            )
             return@buildString
         }
         append("\nעיוור — בלי ההיסטוריה של השיר עצמו:\n")

@@ -1039,8 +1039,12 @@ class Recommender(
         if (attempts < 2) return null
         val skipRate = st.skipCount.toDouble() / attempts
         val finished = if (st.playCount > 0) st.completeCount.toDouble() / st.playCount else 0.0
+        // Plays imported from another player carry no "finished" count, so a
+        // song played thirty times there read as never finished and was never
+        // counted as loved. Three plays that were not skipped say enough alone.
         return when {
             skipRate >= 0.6 -> false
+            st.playCount >= 3 && skipRate <= 0.34 -> true
             st.playCount >= 2 && skipRate <= 0.34 && finished >= 0.6 -> true
             else -> null
         }

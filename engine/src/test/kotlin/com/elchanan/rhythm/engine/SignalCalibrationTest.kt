@@ -121,4 +121,23 @@ class SignalCalibrationTest {
         assertEquals(SignalWeights(1.0, 2.0, 3.0, 4.0, 5.0), SignalWeights.decode(SignalWeights(1.0, 2.0, 3.0, 4.0, 5.0).encode()))
         assertNull(SignalWeights.decode("1,2,x"))
     }
+
+    @Test fun importedPlaysWithoutFinishesStillCountAsLoved() {
+        val songs = (1L..10L).map { song(it, "אמן") }
+        val stats = mapOf(1L to SongStatsEntity(1L, playCount = 30, lastPlayedAt = now - 86_400_000L))
+        val e = Recommender(
+            songs, stats, emptyMap(), emptyMap(), emptyMap(), emptyMap(), null,
+            EngineTuning(), now, 1L, emptySet(), emptyMap()
+        )
+        assertEquals(true, e.verdict(1L))
+    }
+
+    @Test fun aTinySampleIsNotGiven() {
+        val rows = listOf(
+            SignalCalibration.Row("a", DoubleArray(5), true),
+            SignalCalibration.Row("b", DoubleArray(5), false)
+        )
+        val text = SignalCalibration.describe(SignalCalibration.run(rows))
+        assertFalse(text.contains("ציון החיזוי"))
+    }
 }

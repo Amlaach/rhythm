@@ -95,6 +95,8 @@ class SoundCheckTest {
         assertEquals(48, r.songs)
         assertTrue("print ${r.print} should be near perfect", r.print > 0.95)
         assertTrue("the measured sound is identical, so it should be near chance", r.current < r.chance + 0.25)
+        // and the engine's own comparison, which now folds the print in, gains it
+        assertTrue("combined ${r.combined} vs current ${r.current}", r.combined > 0.9)
     }
 
     @Test fun aPrintThatIsNoiseScoresAboutChance() {
