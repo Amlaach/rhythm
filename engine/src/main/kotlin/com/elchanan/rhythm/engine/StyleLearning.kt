@@ -9,6 +9,31 @@ enum class LearningStatus {
     NOT_VALIDATABLE, QUALITY_TOO_LOW, NO_CANDIDATES, NO_CONFIDENT_PREDICTIONS, READY
 }
 
+/**
+ * What happened to one style, start to finish.
+ *
+ * Per style rather than per run, because the run's verdict is no longer one
+ * verdict. A library can know exactly what חסידי sounds like and have no idea
+ * about ג'אז, and the honest answer is to say so for each and write only the
+ * ones that earned it.
+ */
+data class StyleOutcome(
+    val style: String,
+    /** Labelled songs carrying this style, which is what it was fitted on. */
+    val examples: Int,
+    /** How it did on artists it never trained on, or null if never fitted. */
+    val score: StyleScore?,
+    /** What guessing the commonest style would have scored on this one. */
+    val baseline: StyleScore?,
+    /** The confidence bar this style had to clear, or null for the default. */
+    val threshold: Double?,
+    val accepted: Boolean,
+    /** Why it was accepted or refused, in the words the screen shows. */
+    val reason: String,
+    /** Songs this style was actually written to. */
+    val applied: Int = 0
+)
+
 data class LearnResult(
     val status: LearningStatus,
     val labelled: Int,
@@ -16,10 +41,17 @@ data class LearnResult(
     val withStyles: Int,
     val withEvidence: Int,
     val validation: StyleValidationReport? = null,
-    val predictions: List<Pair<Long, String>> = emptyList()
+    val predictions: List<Pair<Long, String>> = emptyList(),
+    /** Every style the run considered, accepted or not. */
+    val styles: List<StyleOutcome> = emptyList(),
+    /** Songs that were eligible to receive a tag. */
+    val candidates: Int = 0
 ) {
     /** Only genuinely new/changed assignments are returned for storage. */
     val applied: Int get() = predictions.size
+
+    val accepted: List<StyleOutcome> get() = styles.filter { it.accepted }
+    val rejected: List<StyleOutcome> get() = styles.filter { !it.accepted }
 }
 
 /**
@@ -28,14 +60,71 @@ data class LearnResult(
  * These gates are conservative product policy, not statistical guarantees.
  */
 object StyleLearning {
-    const val MIN_MACRO_F1 = 0.70
+    /**
+     * The bars, applied to each style on its own rather than to an average.
+     *
+     * Named without "macro" since the change: they are what one style has to
+     * reach, and the macro average they used to govern is now a summary line
+     * that decides nothing.
+     */
+    const val MIN_F1 = 0.70
     const val MIN_PRECISION = 0.80
     const val MIN_BASELINE_GAIN = 0.05
 
+    /**
+     * Whether the run as a whole cleared the bar, averaged over every style.
+     *
+     * Kept as the summary line, and no longer the gate. Averaging is the
+     * wrong way to decide what to write: it lets a style the model knows
+     * nothing about veto one it knows perfectly, and lets several mediocre
+     * styles carry one bad one through. [trustedStyles] decides; this only
+     * describes.
+     */
     internal fun passesQuality(report: StyleValidationReport): Boolean =
-        report.metrics.macroF1 >= MIN_MACRO_F1 &&
+        report.metrics.macroF1 >= MIN_F1 &&
             report.metrics.macroPrecision >= MIN_PRECISION &&
             report.metrics.macroF1 >= report.baseline.macroF1 + MIN_BASELINE_GAIN
+
+    /**
+     * Why one style may or may not be written, in the words the screen shows.
+     *
+     * Every style is judged on its own evidence. The point of the whole
+     * change: a library can separate חסידי perfectly and ג'אז not at all, and
+     * one average over the two describes neither. Under a single average the
+     * good style is silenced by the bad one - which is precisely the failure
+     * this replaces.
+     *
+     * The comparison against the majority guess is per style too. For the
+     * commonest style that guess is a real opponent - always answering
+     * "חסידי" in a mostly חסידי library scores well without knowing anything -
+     * so beating it means something. For a rare style the guess scores zero
+     * and the real bars are precision and F1.
+     */
+    internal fun verdict(
+        style: String,
+        score: StyleScore?,
+        baseline: StyleScore?
+    ): Pair<Boolean, String> {
+        if (score == null) return false to "לא נלמד"
+        val baselineF1 = baseline?.f1 ?: 0.0
+        return when {
+            score.truePositives + score.falsePositives == 0 ->
+                false to "לא הוצע אף פעם על אמנים שלא באימון"
+            score.precision < MIN_PRECISION ->
+                false to "דיוק ${percent(score.precision)} — נדרש ${percent(MIN_PRECISION)}"
+            score.f1 < MIN_F1 ->
+                false to "F1 ${percent(score.f1)} — נדרש ${percent(MIN_F1)}"
+            score.f1 < baselineF1 + MIN_BASELINE_GAIN ->
+                false to "לא משפר מספיק על ניחוש הסגנון הנפוץ (${percent(baselineF1)})"
+            else -> true to "עומד בתנאים"
+        }
+    }
+
+    /** The styles that earned the right to be written into the library. */
+    internal fun trustedStyles(report: StyleValidationReport): Set<String> =
+        report.metrics.byStyle
+            .filter { (style, score) -> verdict(style, score, report.baseline.byStyle[style]).first }
+            .keys
 
     fun learn(
         songs: List<SongEntity>,
@@ -54,8 +143,13 @@ object StyleLearning {
         fun result(
             status: LearningStatus,
             validation: StyleValidationReport? = null,
-            predictions: List<Pair<Long, String>> = emptyList()
-        ) = LearnResult(status, rows.size, artists, withStyles, withEvidence, validation, predictions)
+            predictions: List<Pair<Long, String>> = emptyList(),
+            styles: List<StyleOutcome> = emptyList(),
+            candidates: Int = 0
+        ) = LearnResult(
+            status, rows.size, artists, withStyles, withEvidence,
+            validation, predictions, styles, candidates
+        )
 
         if (withStyles == 0) return result(LearningStatus.NO_LABELS)
         if (withEvidence == 0) return result(LearningStatus.NO_AUDIO)
@@ -65,12 +159,56 @@ object StyleLearning {
 
         val validation = StyleValidation.evaluate(rows)
             ?: return result(LearningStatus.NOT_VALIDATABLE)
-        if (!passesQuality(validation)) return result(LearningStatus.QUALITY_TOO_LOW, validation)
+
+        // How many labelled songs carry each style, which is the other half of
+        // every per style line: a score of 100% off nine examples and off nine
+        // hundred are not the same claim.
+        val counts = StyleLearner.styleCounts(rows.map { it.trainingRow() }).toMap()
+        val fitted = StyleLearner.eligibleStyles(rows.map { it.trainingRow() }).toSet()
+
+        fun outcomes(applied: Map<String, Int> = emptyMap()): List<StyleOutcome> {
+            val seen = validation.metrics.byStyle.keys + counts.keys
+            return seen.sortedWith(
+                compareByDescending<String> { counts[it] ?: 0 }.thenBy { it }
+            ).map { style ->
+                val score = validation.metrics.byStyle[style]
+                val baseline = validation.baseline.byStyle[style]
+                val (ok, why) = when {
+                    style !in fitted && counts.containsKey(style) ->
+                        false to "רק ${counts[style]} דוגמאות — צריך ${StyleLearner.DEFAULT_MIN_PER_STYLE} וגם דוגמאות נגד"
+                    else -> verdict(style, score, baseline)
+                }
+                StyleOutcome(
+                    style = style,
+                    examples = counts[style] ?: 0,
+                    score = score,
+                    baseline = baseline,
+                    threshold = validation.thresholds[style],
+                    accepted = ok,
+                    reason = why,
+                    applied = applied[style] ?: 0
+                )
+            }
+        }
+
+        val trusted = trustedStyles(validation)
+        // Not "did the average pass" - "is there any style that passed". One
+        // style the model genuinely knows is worth writing even when the rest
+        // of the library defeats it.
+        if (trusted.isEmpty()) {
+            return result(LearningStatus.QUALITY_TOO_LOW, validation, styles = outcomes())
+        }
 
         val model = StyleLearner.fit(rows.map { it.trainingRow() })
-            ?: return result(LearningStatus.NOT_VALIDATABLE, validation)
+            ?: return result(LearningStatus.NOT_VALIDATABLE, validation, styles = outcomes())
+
+        // The production bars, calibrated the same way the tested ones were,
+        // on everything now that nothing is being held out to score.
+        val thresholds = StyleThresholds.tune(rows, MIN_PRECISION)
+
         var candidates = 0
         val predictions = ArrayList<Pair<Long, String>>()
+        val appliedByStyle = HashMap<String, Int>()
         for (song in songs) {
             val own = stats[song.id]
             val current = Styles.parse(own?.styles.orEmpty())
@@ -78,8 +216,9 @@ object StyleLearning {
             if (Styles.parse(stylesByArtist[song.artistKey].orEmpty()).isNotEmpty()) continue
             val x = StyleTraining.featuresFor(features[song.id]) ?: continue
             candidates++
-            val predicted = model.predict(x)
+            val predicted = model.predict(x, thresholds, trusted)
             if (predicted.isEmpty() || predicted.toSet() == current.toSet()) continue
+            for (style in predicted) appliedByStyle[style] = (appliedByStyle[style] ?: 0) + 1
             predictions.add(song.id to Styles.join(predicted))
         }
         return result(
@@ -88,7 +227,7 @@ object StyleLearning {
                 candidates == 0 -> LearningStatus.NO_CANDIDATES
                 else -> LearningStatus.NO_CONFIDENT_PREDICTIONS
             },
-            validation, predictions
+            validation, predictions, outcomes(appliedByStyle), candidates
         )
     }
 
@@ -130,22 +269,61 @@ object StyleLearning {
         }
     }
 
-    /** Kept on the settings screen, not only in a transient notification. */
+    /**
+     * The full account of a run, kept on the settings screen rather than
+     * flashing past in a notification.
+     *
+     * Long on purpose. This is the one place the app says what it did to
+     * someone's library and why, and a summary that hides which style failed
+     * leaves them with no way to act - the fix for a style short of examples
+     * is to tag more songs in it, and the fix for one that scores badly is
+     * usually that it is not a sound, it is a category. Those need opposite
+     * things, and only the per style lines can tell them apart.
+     */
     fun report(r: LearnResult?): String = buildString {
         append(message(r))
         if (r == null) return@buildString
-        append("\nדוגמאות ללמידה: ${r.labelled} שירים מ-${r.artists} אמנים.")
+
+        append("\n\nדוגמאות ללמידה: ${r.labelled} שירים מ-${r.artists} אמנים.")
+        append("\nבספרייה: ${r.withStyles} שירים מתויגים, ${r.withEvidence} עם נתוני צליל.")
+
         val v = r.validation ?: return@buildString
-        append("\nנבדקו ${v.metrics.songs} שירים מ-${v.artists} אמנים ב-${v.folds} חלוקות.")
-        append("\nציון משולב לתגיות נכונות וחסרות (F1): ${percent(v.metrics.macroF1)}")
-        append("\nדיוק התגיות שהוצעו: ${percent(v.metrics.macroPrecision)}")
-        append("\nכיסוי התגיות הידועות: ${percent(v.metrics.macroRecall)}")
-        append("\nציון ניחוש הסגנון הנפוץ: ${percent(v.baseline.macroF1)}")
-        for ((style, score) in v.metrics.byStyle) {
-            append("\n$style: F1 ${percent(score.f1)}, דיוק ${percent(score.precision)}, כיסוי ${percent(score.recall)}")
+        append("\n\nהבדיקה — ${v.metrics.songs} שירים מ-${v.artists} אמנים ב-${v.folds} חלוקות,")
+        append(" כל פעם על אמנים שלא השתתפו באימון.")
+        append("\nממוצע בין הסגנונות: F1 ${percent(v.metrics.macroF1)}, ")
+        append("דיוק ${percent(v.metrics.macroPrecision)}, כיסוי ${percent(v.metrics.macroRecall)}.")
+        append("\nניחוש הסגנון הנפוץ, לשם השוואה: F1 ${percent(v.baseline.macroF1)}.")
+
+        if (r.styles.isNotEmpty()) {
+            append("\n\nלפי סגנון — כל אחד נבחן בנפרד:")
+            for (o in r.styles) {
+                append("\n\n${if (o.accepted) "✓" else "✗"} ${o.style} — ${o.reason}")
+                append("\n    דוגמאות מתויגות: ${o.examples}")
+                val score = o.score
+                if (score != null) {
+                    append("\n    F1 ${percent(score.f1)} · דיוק ${percent(score.precision)}")
+                    append(" · כיסוי ${percent(score.recall)}")
+                    append("\n    בבדיקה: ${score.truePositives} נכון, ")
+                    append("${score.falsePositives} שגוי, ${score.falseNegatives} פוספס")
+                    o.baseline?.let { append("\n    ניחוש פשוט על סגנון זה: F1 ${percent(it.f1)}") }
+                }
+                o.threshold?.let { append("\n    סף הביטחון שנמדד לסגנון: ${percent(it)}") }
+                if (o.accepted) {
+                    append("\n    נכתב ל-${o.applied} שירים")
+                }
+            }
         }
-        append("\nהמדדים הם ממוצע שווה בין סגנונות, מול התיוג שלך; אינם הבטחת דיוק לז׳אנרים.")
-        append("\nנדרשים F1 של 70%, דיוק של 80% ושיפור של 5 נקודות אחוז על ניחוש פשוט.")
+
+        if (r.candidates > 0 || r.applied > 0) {
+            append("\n\nמה נכתב: ${r.applied} שירים מתוך ${r.candidates} מועמדים")
+            append(" (שירים עם נתוני צליל שאין להם תגית ידנית או תגית אמן).")
+        }
+
+        append("\n\nכל סגנון נבחן לחוד ויש לו סף משלו, ")
+        append("כך שסגנון שעומד בתנאים מתויג גם אם סגנון אחר נכשל.")
+        append("\nנדרש מכל סגנון: F1 ${percent(MIN_F1)}, דיוק ${percent(MIN_PRECISION)}, ")
+        append("ושיפור של ${(MIN_BASELINE_GAIN * 100).toInt()} נקודות על ניחוש פשוט.")
+        append("\nהמדדים הם מול התיוג שלך, לא הבטחת דיוק לז׳אנרים.")
     }
 
     private fun percent(value: Double): String = "${(value * 100).toInt()}%"

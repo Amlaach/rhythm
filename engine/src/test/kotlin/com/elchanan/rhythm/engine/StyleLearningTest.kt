@@ -59,12 +59,109 @@ class StyleLearningTest {
         val expected = folds.flatMapIndexed { index, heldOut ->
             val training = folds.filterIndexed { i, _ -> i != index }.flatten()
             val model = StyleLearner.fit(training.map { it.trainingRow() })!!
-            heldOut.map { it.labels.toSet() to model.predict(it.features).toSet() }
+            // Thresholds included: the scored run uses a bar per style, so a
+            // check that left them out would pass on any fixture separable
+            // enough for the bar not to matter - which is no check at all.
+            val bars = StyleThresholds.tune(training, StyleLearning.MIN_PRECISION)
+            heldOut.map { it.labels.toSet() to model.predict(it.features, bars).toSet() }
         }
         val report = StyleValidation.evaluate(examples)!!
         assertEquals(StyleMetrics.measure(expected), report.metrics)
         assertEquals(examples.size, report.metrics.songs)
         assertTrue(StyleLearning.passesQuality(report))
+    }
+
+    @Test fun thresholdsAreChosenWithoutLookingAtTheTestFold() {
+        val examples = examples()
+        val folds = StyleValidation.folds(examples)
+        val training = folds.drop(1).flatten()
+        val bars = StyleThresholds.tune(training, StyleLearning.MIN_PRECISION)
+        // Changing only the held-out fold must not move a single bar.
+        val poisoned = folds[0].map { it.copy(labels = listOf("folk", "rock")) } + training
+        assertEquals(bars, StyleThresholds.tune(poisoned.drop(folds[0].size), StyleLearning.MIN_PRECISION))
+    }
+
+    @Test fun eachStyleGetsItsOwnBarRatherThanOneForAll() {
+        val report = StyleValidation.evaluate(mixedQuality())!!
+        // A bar per style, not a single number standing in for all of them.
+        assertTrue(report.thresholds.isNotEmpty())
+        for (bar in report.thresholds.values) assertTrue(bar in 0.0..1.0)
+    }
+
+    @Test fun aStyleThatWorksIsTaggedEvenWhenAnotherStyleFails() {
+        val examples = mixedQuality()
+        val report = StyleValidation.evaluate(examples)!!
+
+        // The whole point. "noise" is unlearnable, and under one averaged bar
+        // it dragged the run down and silenced the two styles that work.
+        assertFalse(StyleLearning.passesQuality(report))
+
+        val trusted = StyleLearning.trustedStyles(report)
+        assertTrue("folk should survive its own test", "folk" in trusted)
+        assertTrue("rock should survive its own test", "rock" in trusted)
+        assertFalse("noise cannot be learned and must not be written", "noise" in trusted)
+    }
+
+    /**
+     * The mixed fixture driven through learn(), with "noise" carried on the
+     * songs themselves - an artist tag cannot express a label that alternates
+     * inside one artist, and routing it through the artist would quietly drop
+     * the very style these tests are about.
+     */
+    private fun mixedLearn(extra: List<SongEntity> = emptyList()): LearnResult {
+        val examples = mixedQuality()
+        val songs = examples.map { song(it.songId, it.artistKey) } + extra
+        val manual = examples.associate {
+            it.songId to SongStatsEntity(it.songId, styles = Styles.join(it.labels), stylesAuto = 0)
+        }
+        val features = examples.associate { it.songId to feature(it.songId, "folk" in it.labels) } +
+            extra.associate { it.id to feature(it.id, true) }
+        return StyleLearning.learn(songs, manual, emptyMap(), features)
+    }
+
+    @Test fun rejectedStylesAreNeverWrittenButAcceptedOnesAre() {
+        val result = mixedLearn(listOf(song(9000, "unlabelled")))
+        assertEquals(LearningStatus.READY, result.status)
+        val written = result.predictions.flatMap { Styles.parse(it.second) }.toSet()
+        assertTrue("a style that works must still be written", written.isNotEmpty())
+        assertFalse("an unlearnable style must never reach the library", "noise" in written)
+        // And it was genuinely in the running, not quietly absent.
+        assertTrue("noise" in result.styles.map { it.style })
+        assertTrue(result.rejected.any { it.style == "noise" })
+        assertTrue(result.accepted.isNotEmpty())
+    }
+
+    @Test fun everyStyleIsAccountedForInTheReport() {
+        val result = mixedLearn()
+        val text = StyleLearning.report(result)
+        assertTrue("noise", text.contains("noise"))
+        // Named one by one, accepted and rejected alike, with the numbers that
+        // say what to do about each: a style short of examples needs tagging,
+        // a style that scores badly needs rethinking.
+        for (style in listOf("folk", "rock")) assertTrue(style, text.contains(style))
+        assertTrue(text.contains("לפי סגנון"))
+        assertTrue(text.contains("דוגמאות מתויגות"))
+        assertTrue(text.contains("סף הביטחון שנמדד לסגנון"))
+        assertTrue(text.contains("פוספס"))
+        assertTrue(result.styles.isNotEmpty())
+        assertEquals(result.styles.size, result.accepted.size + result.rejected.size)
+    }
+
+    /**
+     * Two styles that track the sound exactly, and one that is noise.
+     *
+     * "noise" alternates inside each artist, so it is uncorrelated with
+     * anything the model can measure and no split by artist can help it.
+     */
+    private fun mixedQuality(): List<StyleExample> = (0 until 8).flatMap { artist ->
+        (0 until 16).map { index ->
+            val folk = artist % 2 == 0
+            StyleExample(
+                (artist * 16 + index).toLong(), "artist-$artist",
+                floatArrayOf(if (folk) -1f else 1f),
+                listOfNotNull(if (folk) "folk" else "rock", "noise".takeIf { index % 2 == 0 })
+            )
+        }
     }
 
     @Test fun identicalSoundCannotLearnBalancedStyles() {

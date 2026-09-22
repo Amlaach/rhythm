@@ -35,6 +35,23 @@ class StyleLearner private constructor(
     private val scale: DoubleArray
 ) {
 
+    /** The styles this model has a classifier for. */
+    val learnedStyles: List<String> get() = styles
+
+    /**
+     * How strongly every learned style fits, whatever the strength.
+     *
+     * Unfiltered on purpose. Thresholding is a separate decision made per
+     * style, and the code that chooses those thresholds needs the raw number
+     * for styles that will end up rejected just as much as for the ones that
+     * will not.
+     */
+    fun probabilities(scores: FloatArray): Map<String, Double> {
+        if (styles.isEmpty()) return emptyMap()
+        val x = standardise(scores)
+        return styles.indices.associate { s -> styles[s] to probability(x, s) }
+    }
+
     /**
      * How strongly each learned style fits, highest first.
      *
@@ -42,16 +59,38 @@ class StyleLearner private constructor(
      * classifier trained on a handful of examples will happily produce 0.51 for
      * everything, and a label that weak is worse than none: it would be written
      * into the library as though it were known.
+     *
+     * What counts as confident is asked per style, not once for all of them.
+     * The styles in one library are not equally easy: a library where half the
+     * songs are חסידי and a handful are ג'אז will separate the first cleanly
+     * and the second barely, and the probability that means "sure" for one is
+     * not the probability that means "sure" for the other. One number for
+     * everything has to be set for the hardest style, which then silences the
+     * easy ones - so [thresholds] carries a bar per style, chosen by
+     * [StyleThresholds] on data the model did not train on. [minimum] is only
+     * the fallback for a style that was never calibrated.
+     *
+     * [allowed], when given, is the set of styles the validation trusted.
+     * Anything outside it is not offered at all, however sure the model is:
+     * confidence is not accuracy, and a style that failed on held-out artists
+     * is confidently wrong rather than right.
      */
-    fun predict(scores: FloatArray, minimum: Double = 0.65, limit: Int = 3): List<String> {
+    fun predict(
+        scores: FloatArray,
+        thresholds: Map<String, Double> = emptyMap(),
+        allowed: Set<String>? = null,
+        minimum: Double = DEFAULT_THRESHOLD,
+        limit: Int = 3
+    ): List<String> {
         if (styles.isEmpty()) return emptyList()
-        val x = standardise(scores)
-        return styles.indices
-            .map { s -> styles[s] to probability(x, s) }
-            .filter { it.second >= minimum }
-            .sortedByDescending { it.second }
+        return probabilities(scores)
+            .asSequence()
+            .filter { (style, _) -> allowed == null || style in allowed }
+            .filter { (style, p) -> p >= (thresholds[style] ?: minimum) }
+            .sortedByDescending { it.value }
             .take(limit)
-            .map { it.first }
+            .map { it.key }
+            .toList()
     }
 
     private fun probability(x: DoubleArray, style: Int): Double {
@@ -79,6 +118,14 @@ class StyleLearner private constructor(
          * loud dimensions, so every input is centred and scaled first.
          */
         private const val EPS = 1e-6
+
+        /**
+         * The bar for a style nothing was calibrated for.
+         *
+         * Only a fallback. Every style that reaches production gets its own,
+         * measured rather than guessed - see [StyleThresholds].
+         */
+        const val DEFAULT_THRESHOLD = 0.65
 
         /** Examples a style needs before it is worth fitting at all. */
         const val DEFAULT_MIN_PER_STYLE = 8
