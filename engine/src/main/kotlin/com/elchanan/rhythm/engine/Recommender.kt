@@ -151,8 +151,33 @@ class Recommender(
     private val acoustic: AcousticSpace?,
     private val tuning: EngineTuning,
     private val now: Long,
-    private val feedSeed: Long
+    private val feedSeed: Long,
+    /**
+     * Songs that are talking rather than music.
+     *
+     * The detector found these and nothing here knew it. A shiur was filed
+     * correctly on its own shelf and went on behaving like a track everywhere
+     * else: in the feed, in a mix, in a radio, in a shuffle. The shelf was the
+     * only place the answer was used.
+     *
+     * Excluded from everything this class generates, and from the taste vector
+     * as well - an hour of listening to a lecture is not a statement about
+     * what music someone likes. Still reachable by search and still in the
+     * library, because being spoken is a reason not to mix something into an
+     * evening's listening, not a reason to hide it.
+     */
+    private val spoken: Set<Long> = emptySet()
 ) {
+
+    /**
+     * The songs anything generated may draw on.
+     *
+     * One list, computed once, so a new shelf or mix cannot forget to exclude
+     * speech by forgetting to filter - which is exactly how this went wrong
+     * the first time.
+     */
+    private val playable: List<SongEntity> =
+        if (spoken.isEmpty()) songs else songs.filterNot { it.id in spoken }
 
     private val hourBucket: Int = bucketOf(now)
     private val weekendNow: Boolean = isWeekend(now)
@@ -484,7 +509,7 @@ class Recommender(
         }
 
         // (b) behaviour, including per song ratings
-        for (song in songs) {
+        for (song in playable) {
             val w = behaviour[song.id] ?: 0.0
             if (abs(w) < 1e-6) continue
             for ((t, value) in unitVector(tokensBySong[song.id].orEmpty())) {
@@ -940,7 +965,7 @@ class Recommender(
         // through, which is the single most jarring thing an automatic queue
         // can do. Seeding a radio *from* a medley is still allowed - that was a
         // deliberate choice.
-        val pool = songs.filter {
+        val pool = playable.filter {
             it.id != seed.id && (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title) &&
                 !separated(seed.id, it.id)
         }
@@ -967,7 +992,7 @@ class Recommender(
     fun continuation(recent: List<Long>, exclude: Set<Long>, size: Int = 20): List<SongEntity> {
         val seedIds = recent.take(5)
         val last = seedIds.firstOrNull()
-        val pool = songs.filter {
+        val pool = playable.filter {
             it.id !in exclude && (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title) &&
                 // Against the track just played, not the whole of `recent`: a
                 // continuation follows what is happening now, and a sitting
@@ -1000,7 +1025,7 @@ class Recommender(
         // they stay out of radio: one arriving unasked sounds like a song that
         // began halfway through. They are still there to be played on purpose
         // from the library, from search, and from a folder.
-        val notDisliked = songs.filter {
+        val notDisliked = playable.filter {
             (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title)
         }
 
@@ -1057,7 +1082,7 @@ class Recommender(
             )
         }
 
-        val liked = songs.filter { (stats[it.id]?.liked ?: 0) == 1 }
+        val liked = playable.filter { (stats[it.id]?.liked ?: 0) == 1 }
         if (liked.size >= 4) {
             val likedIds = liked.map { it.id }
             val likedSet = likedIds.toSet()
@@ -1076,7 +1101,7 @@ class Recommender(
         }
 
         // rated songs get their own shelf now that ratings exist per song
-        val topRated = songs.filter { (stats[it.id]?.rating ?: 0) >= 4 }
+        val topRated = playable.filter { (stats[it.id]?.rating ?: 0) >= 4 }
         if (topRated.size >= 5) {
             mixes.add(
                 Mix(
@@ -1327,7 +1352,7 @@ class Recommender(
 
         // Live takes of tracks already liked in the studio. The connection the
         // listener most wants and the hardest one to stumble on by browsing.
-        val likedStudio = songs.filter {
+        val likedStudio = playable.filter {
             (stats[it.id]?.liked ?: 0) == 1 && !isLiveRecording(it.title)
         }
         if (likedStudio.isNotEmpty()) {
@@ -1387,7 +1412,7 @@ class Recommender(
         // The mood the user's own picks cluster into, then more of it. This leans
         // on measured audio rather than the style tags, which stay empty until
         // somebody types them in by hand.
-        val engaged = songs.filter {
+        val engaged = playable.filter {
             val st = stats[it.id]
             (st?.liked ?: 0) == 1 || (st?.rating ?: 0) >= 4 || (st?.playCount ?: 0) >= 3
         }
@@ -1430,7 +1455,7 @@ class Recommender(
             )
         }
 
-        val recentFiles = songs.sortedByDescending { it.dateAddedSec }.take(20)
+        val recentFiles = playable.sortedByDescending { it.dateAddedSec }.take(20)
         if (recentFiles.size >= 6) {
             sections.add(
                 FeedSection(
@@ -1529,7 +1554,7 @@ class Recommender(
      */
     fun dailyMixes(maxMixes: Int = 6): List<Mix> {
         val space = acoustic ?: return emptyList()
-        val entries = songs.filter { space.has(it.id) }
+        val entries = playable.filter { space.has(it.id) }
         if (entries.size < 40) return emptyList()
 
         val dims = AcousticSpace.DIMS
@@ -1702,7 +1727,7 @@ class Recommender(
      *   whole library, so this is the difference between a second and a minute.
      */
     fun evaluateSequence(recent: List<Long>, maxPairs: Int = 60): SequenceReport? {
-        val pool = songs.filter { (stats[it.id]?.liked ?: 0) != -1 }
+        val pool = playable.filter { (stats[it.id]?.liked ?: 0) != -1 }
         if (pool.size < 20) return null
 
         val pairs = ArrayList<Pair<Long, Long>>()

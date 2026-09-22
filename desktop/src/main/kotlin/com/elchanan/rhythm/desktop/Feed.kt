@@ -4,6 +4,8 @@ import com.elchanan.rhythm.data.db.ArtistEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
+import com.elchanan.rhythm.engine.AudioTags
+import com.elchanan.rhythm.engine.Spoken
 import com.elchanan.rhythm.engine.AcousticSpace
 import com.elchanan.rhythm.engine.EngineTuning
 import com.elchanan.rhythm.engine.FeedSection
@@ -64,7 +66,20 @@ object Feed {
         },
         tuning = tuning,
         now = System.currentTimeMillis(),
-        feedSeed = seed
+        feedSeed = seed,
+        // Talking is kept out of everything the engine generates. The detector
+        // already knew which tracks these were; nothing was asking it, so a
+        // shiur sat correctly on its own shelf and went on turning up in the
+        // feed, in mixes and in shuffles like any other track.
+        spoken = songs.filterTo(HashSet()) { song ->
+            val feature = features[song.id]
+            Spoken.isSpoken(
+                song,
+                feature,
+                feature?.tags?.let { AudioTags.pick(it, AudioTags.SPEECH_INDICES) },
+                stats[song.id]?.spoken ?: -1
+            )
+        }.mapTo(HashSet()) { it.id }
     )
 
 }

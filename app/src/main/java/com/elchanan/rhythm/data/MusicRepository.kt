@@ -18,6 +18,8 @@ import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.data.db.TransitionEntity
+import com.elchanan.rhythm.engine.AudioTags
+import com.elchanan.rhythm.engine.Spoken
 import com.elchanan.rhythm.engine.AcousticSpace
 import com.elchanan.rhythm.engine.Loudness
 import com.elchanan.rhythm.engine.Names
@@ -653,13 +655,29 @@ class MusicRepository(
         // rows with zero energy are placeholders for files that failed to
         // decode; they must not enter the statistics of the acoustic space
         val featureRows = dao.allFeatures().filter { it.energy > 0f }
+        val allSongs = dao.allSongs()
+        val statsById = dao.allStats().associateBy { it.songId }
+        val featuresById = featureRows.associateBy { it.songId }
+        // Worked out here rather than inside the engine, because deciding what
+        // is speech needs the tag scores unpacked from their stored form and
+        // the user's own answer where they gave one - neither of which the
+        // engine is handed.
+        val spokenIds = allSongs.filterTo(HashSet()) { song ->
+            val feature = featuresById[song.id]
+            Spoken.isSpoken(
+                song,
+                feature,
+                feature?.tags?.let { AudioTags.pick(it, AudioTags.SPEECH_INDICES) },
+                statsById[song.id]?.spoken ?: -1
+            )
+        }.mapTo(HashSet()) { it.id }
         Recommender(
-            songs = dao.allSongs(),
-            stats = dao.allStats().associateBy { it.songId },
+            songs = allSongs,
+            stats = statsById,
             artists = dao.allArtists().associateBy { it.artistKey },
             affinity = affinityMap(),
             transitions = transitionMap(),
-            features = featureRows.associateBy { it.songId },
+            features = featuresById,
             acoustic = if (featureRows.size >= 8) AcousticSpace(featureRows) else null,
             tuning = com.elchanan.rhythm.engine.EngineTuning(
                 discovery = prefs.discovery,
@@ -671,7 +689,8 @@ class MusicRepository(
                 lastMood = prefs.lastMood
             ),
             now = System.currentTimeMillis(),
-            feedSeed = prefs.feedSeed.toLong()
+            feedSeed = prefs.feedSeed.toLong(),
+            spoken = spokenIds
         )
     }
 
