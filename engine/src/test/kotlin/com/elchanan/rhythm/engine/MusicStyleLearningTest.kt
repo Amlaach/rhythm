@@ -70,4 +70,31 @@ class MusicStyleLearningTest {
         assertEquals(StyleTraining.BASE_INPUTS + StyleTraining.MUSIC_INPUTS, StyleTraining.featuresFor(f, music = true)!!.size)
         assertNull(StyleTraining.featuresFor(f.copy(musicPrint = MusicPrint.TRIED), music = true))
     }
+
+    @Test fun aLanguageIsReadOffTheNamesItIsWrittenIn() {
+        val r = Random(8)
+        val songs = ArrayList<SongEntity>()
+        val features = HashMap<Long, AudioFeatureEntity>()
+        val styles = HashMap<String, String>()
+        for (artist in 0 until 8) {
+            val english = artist % 2 == 0
+            val name = if (english) "Singer $artist" else "זמר $artist"
+            styles[name] = if (english) "english" else "hebrew"
+            repeat(16) {
+                val id = (artist * 16 + it).toLong()
+                val title = if (english) "Love song $it" else "שיר אהבה $it"
+                songs.add(SongEntity(
+                    id, title, title, name, name, "album", 1, 180000,
+                    1, 2026, null, "/music/$id.mp3", "/music", 0, 1000
+                ))
+                // the same sound for everyone: only the names can tell them apart
+                features[id] = feature(id, true, printSeparates = false, r = r)
+            }
+        }
+        val result = StyleLearning.learn(songs, emptyMap(), styles, features)
+        assertTrue(
+            "accepted ${result.accepted.map { it.style }}, F1 ${result.validation?.metrics?.macroF1}",
+            result.accepted.any { it.style == "english" }
+        )
+    }
 }

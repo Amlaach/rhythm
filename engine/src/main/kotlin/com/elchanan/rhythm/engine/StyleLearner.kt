@@ -182,8 +182,11 @@ class StyleLearner private constructor(
                 in 6..17 -> "גוון ${i - 5}"
                 in 18..29 -> "הרמוניה ${i - 17}"
                 in 30..35 -> "מהלך השיר ${i - 29}"
-                in AcousticSpace.DIMS until AcousticSpace.DIMS + StyleTraining.MUSIC_INPUTS ->
-                    "טביעה מוזיקלית ${i - AcousticSpace.DIMS + 1}"
+                AcousticSpace.DIMS -> "אותיות לטיניות בשם"
+                AcousticSpace.DIMS + 1 -> "אותיות עבריות בשם"
+                in (AcousticSpace.DIMS + StyleTraining.TEXT_INPUTS) until
+                    (AcousticSpace.DIMS + StyleTraining.TEXT_INPUTS + StyleTraining.MUSIC_INPUTS) ->
+                    "טביעה מוזיקלית ${i - AcousticSpace.DIMS - StyleTraining.TEXT_INPUTS + 1}"
                 else -> "מדד $i"
             }
         }
@@ -345,8 +348,38 @@ object StyleTraining {
     /** The music print folded to this many inputs, so it informs the learner without swamping it. */
     const val MUSIC_INPUTS = 64
 
-    /** Inputs before the music print: YAMNet's groups, then the measured acoustics. */
-    val BASE_INPUTS: Int get() = AudioTags.ALL.size + AcousticSpace.DIMS
+    /** Inputs read off the song's name rather than its sound. */
+    const val TEXT_INPUTS = 2
+
+    /** Inputs before the music print: YAMNet's groups, the measured acoustics, the name. */
+    val BASE_INPUTS: Int get() = AudioTags.ALL.size + AcousticSpace.DIMS + TEXT_INPUTS
+
+    /**
+     * Of the letters in the title, artist and album: the share that are Latin,
+     * and the share that are Hebrew.
+     *
+     * A library tagged "אנגלית" was being taught to hear English, and no
+     * sound model can: a language is not a timbre. It is, almost always,
+     * written on the file - a title in Latin letters is a song in a language
+     * that uses them. Two numbers, validated like every other input, so where
+     * the names say nothing about a style the learner learns to ignore them.
+     */
+    fun textInputs(song: SongEntity?): FloatArray {
+        if (song == null) return FloatArray(TEXT_INPUTS)
+        var latin = 0
+        var hebrew = 0
+        var letters = 0
+        for (c in song.title + " " + song.artistName + " " + song.albumName) {
+            if (!c.isLetter()) continue
+            letters++
+            when {
+                c in 'a'..'z' || c in 'A'..'Z' -> latin++
+                c in '\u05D0'..'\u05EA' -> hebrew++
+            }
+        }
+        if (letters == 0) return FloatArray(TEXT_INPUTS)
+        return floatArrayOf(latin.toFloat() / letters, hebrew.toFloat() / letters)
+    }
 
     /**
      * One song as the learner sees it.
@@ -355,18 +388,24 @@ object StyleTraining {
      * [MUSIC_INPUTS] numbers - and a song without one has no row at all,
      * rather than a row of zeros the model would read as a sound.
      */
-    fun featuresFor(feature: AudioFeatureEntity?, music: Boolean = false): FloatArray? {
+    fun featuresFor(
+        feature: AudioFeatureEntity?,
+        music: Boolean = false,
+        song: SongEntity? = null
+    ): FloatArray? {
         val f = feature ?: return null
         val measured = if (f.energy > 0f && f.energy.isFinite()) AcousticSpace.rawVector(f) else null
         if (f.tags.isBlank() && measured == null) return null
         val print = if (music) MusicPrint.unpack(f.musicPrint) ?: return null else null
         val heard = AudioTags.groupStrengths(f.tags)
-        val base = heard.size + AcousticSpace.DIMS
+        val base = heard.size + AcousticSpace.DIMS + TEXT_INPUTS
         val out = FloatArray(base + if (print != null) MUSIC_INPUTS else 0)
         System.arraycopy(heard, 0, out, 0, heard.size)
         if (measured != null) {
             for (i in measured.indices) out[heard.size + i] = measured[i].toFloat()
         }
+        val text = textInputs(song)
+        for (i in text.indices) out[heard.size + AcousticSpace.DIMS + i] = text[i]
         if (print != null) {
             val folded = AcousticSpace.foldTo(print, MUSIC_INPUTS)
             for (i in folded.indices) out[base + i] = folded[i].toFloat()
@@ -385,7 +424,7 @@ object StyleTraining {
         val manual = if (own?.stylesAuto == 0) Styles.parse(own.styles) else emptyList()
         val labels = manual.ifEmpty { Styles.parse(stylesByArtistKey[song.artistKey].orEmpty()) }
         if (labels.isEmpty() || song.artistKey.isBlank()) return@mapNotNull null
-        val x = featuresFor(features[song.id], music) ?: return@mapNotNull null
+        val x = featuresFor(features[song.id], music, song) ?: return@mapNotNull null
         StyleExample(song.id, song.artistKey, x, labels.distinct())
     }
 }

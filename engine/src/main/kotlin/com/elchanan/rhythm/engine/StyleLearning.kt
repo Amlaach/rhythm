@@ -360,7 +360,7 @@ object StyleLearning {
                 }
             }
             if (allowed.isEmpty()) continue
-            val x = StyleTraining.featuresFor(features[song.id], music) ?: continue
+            val x = StyleTraining.featuresFor(features[song.id], music, song) ?: continue
             candidates++
             val predicted = model.predict(x, thresholds, allowed)
             if (predicted.isEmpty() || predicted.toSet() == current.toSet()) continue
