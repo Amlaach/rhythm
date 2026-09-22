@@ -84,6 +84,21 @@ object Analysis {
 
     const val PROBE_SECONDS = 4
 
+    /**
+     * What each slot of the stored shape vector holds.
+     *
+     * Beside [merge], which is the code that writes it, so a reader asking for
+     * SHAPE_CONTRAST cannot quietly end up with brightRise after someone
+     * reorders the array.
+     */
+    const val SHAPE_DIMS = 6
+    const val SHAPE_ENERGY_RISE = 0
+    const val SHAPE_ENERGY_SPREAD = 1
+    const val SHAPE_BRIGHT_RISE = 2
+    const val SHAPE_ONSET_RISE = 3
+    const val SHAPE_DRIFT = 4
+    const val SHAPE_CONTRAST = 5
+
     // Krumhansl-Schmuckler key profiles
     private val MAJOR_PROFILE = doubleArrayOf(
         6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88
@@ -244,6 +259,8 @@ object Analysis {
             (energies.max() - energies.min()) / meanEnergy
         } else 0.0
 
+        // Order fixed by the SHAPE_ constants below; anything reading a slot
+        // by number reads them, so the two cannot drift apart.
         val shape = doubleArrayOf(
             energyRise, energySpread, brightRise, onsetRise, drift, contrast
         )

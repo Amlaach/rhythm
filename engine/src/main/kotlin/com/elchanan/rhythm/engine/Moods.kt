@@ -90,6 +90,43 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
         scaleOf(cues.values.map { it[slot].toDouble() })
     }
 
+    /**
+     * How far a track moves between its own probes, per song.
+     *
+     * The analyser measures eight points across a track and records how much
+     * they disagreed; nothing here ever read it. So a piece that holds a
+     * whisper for three minutes and then brings in a full choir was scored on
+     * its averages, and its averages say "still" - which is how a track that
+     * explodes came to be filed as רגוע.
+     *
+     * Spread and contrast rather than rise. Rise compares the end against the
+     * beginning, so a track that erupts in the middle and settles again comes
+     * out at nearly zero - and that track is exactly the case this is for.
+     * Spread and contrast do not care where the loud part sits.
+     *
+     * Missing for anything analysed before the shape vector existed, and for
+     * anything whose probes all failed. Those keep their old score rather than
+     * being nudged on a vector of zeros.
+     */
+    private val swing: Map<Long, Double> = buildMap {
+        for (f in usable) {
+            val shape = Features.parseVector(f.shape, Analysis.SHAPE_DIMS)
+            if (shape.all { it == 0.0 }) continue
+            val moved = 0.5 * shape[Analysis.SHAPE_ENERGY_SPREAD] + 0.5 * shape[Analysis.SHAPE_CONTRAST]
+            if (moved > 0.0) put(f.songId, moved)
+        }
+    }
+
+    /**
+     * Ranked across the library, like every other scale here.
+     *
+     * Spread and contrast are ratios against a track's own mean and have no
+     * natural ceiling, so an absolute threshold on them would mean one thing
+     * for a compressed studio record and another for a live recording. Where a
+     * track sits against the rest of the library is the comparable question.
+     */
+    private val swingScale = scaleOf(swing.values.toList())
+
     /** Arousal and valence before the library is taken into account. */
     private val rawArousal: Map<Long, Double> =
         usable.associate { it.songId to absoluteArousal(it) }
@@ -115,13 +152,66 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
             // than a missing value being scored as average.
             pulse
         }
-        val heard = cues[f.songId] ?: return measured
-        // Exciting and angry push up, tender and lullaby pull down.
-        val up = maxOf(rankTag(heard, SLOT_EXCITING), rankTag(heard, SLOT_ANGRY))
-        val down = maxOf(rankTag(heard, SLOT_TENDER), rankTag(heard, SLOT_LULLABY))
-        val tag = (0.5 + 0.5 * (up - down)).coerceIn(0.0, 1.0)
-        return (1 - TAG_WEIGHT) * measured + TAG_WEIGHT * tag
+        val heard = cues[f.songId]
+        val blended = if (heard == null) {
+            measured
+        } else {
+            // Exciting and angry push up, tender and lullaby pull down.
+            val up = maxOf(rankTag(heard, SLOT_EXCITING), rankTag(heard, SLOT_ANGRY))
+            val down = maxOf(rankTag(heard, SLOT_TENDER), rankTag(heard, SLOT_LULLABY))
+            val tag = (0.5 + 0.5 * (up - down)).coerceIn(0.0, 1.0)
+            (1 - TAG_WEIGHT) * measured + TAG_WEIGHT * tag
+        }
+        return withSwing(f, blended)
     }
+
+    /**
+     * Raises a track that moves, and leaves a steady one alone.
+     *
+     * Upward only, and deliberately. A track that swings between a whisper and
+     * a choir is not still, whatever its mean says, so the averages understate
+     * it; but a track that holds one level is exactly what its averages claim,
+     * and there is nothing to correct. A symmetric adjustment would invent a
+     * second effect to justify the first.
+     *
+     * Proportional to the room left, so it can lift a track off the floor
+     * without ever pushing one past the ceiling, and bounded by [SWING_WEIGHT]
+     * so it stays a correction to the measurement rather than a replacement
+     * for it.
+     *
+     * Arousal only. A rising brightness might mean a brighter mood or only a
+     * louder chorus, and guessing which would be inventing a signal rather
+     * than using one.
+     */
+    private fun withSwing(f: AudioFeatureEntity, arousal: Double): Double {
+        val moved = swingRank(f) ?: return arousal
+        return (arousal + SWING_WEIGHT * moved * (1.0 - arousal)).coerceIn(0.0, 1.0)
+    }
+
+    /**
+     * Where this track sits against the library for how much it moves, or
+     * null when it was analysed before the shape vector and has nothing to say.
+     */
+    private fun swingRank(f: AudioFeatureEntity): Double? {
+        if (swingScale.isEmpty()) return null
+        return rank(swingScale, swing[f.songId] ?: return null)
+    }
+
+    /**
+     * Whether a track holds its level, which is what the quiet moods promise.
+     *
+     * Asking for רגוע means asking for something that stays that way. A track
+     * whose mean is low because it whispers for three minutes before a choir
+     * arrives satisfies "quiet on average" and breaks the promise entirely,
+     * and the lift [withSwing] applies is a correction to a measurement - too
+     * small, by design, to throw such a track out of a filter on its own.
+     *
+     * So the quiet moods ask this as well. Stated where the promise is made
+     * rather than by inflating arousal, which is shared with every other mood
+     * and should stay an honest measure of how activated a track is.
+     */
+    private fun holdsItsLevel(f: AudioFeatureEntity): Boolean =
+        (swingRank(f) ?: 0.0) <= STEADY_ENOUGH
 
     /**
      * How positive it sounds, 0 (dark) to 1 (bright).
@@ -164,7 +254,9 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
         val steady = rank(dynamicsScale, feature.dynamics.toDouble())
         val loud = rank(energyScale, feature.energy.toDouble())
         return when (mood) {
-            Mood.CALM -> a <= 0.40
+            // Quiet the whole way through, not quiet on average: a track that
+            // erupts once is not what either of these words promises.
+            Mood.CALM -> a <= 0.40 && holdsItsLevel(feature)
             Mood.ENERGETIC -> a >= 0.60
             // Loudness as well as pace: a fast piece played quietly is not
             // what anyone means by a workout track.
@@ -172,14 +264,14 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
             Mood.BRIGHT -> v >= 0.60 && a >= 0.40
             Mood.DEEP -> v <= 0.40 && a in 0.20..0.80
             Mood.FOCUS -> steady <= 0.40 && a in 0.25..0.75
-            Mood.NIGHT -> a <= 0.45 && bright <= 0.35
+            Mood.NIGHT -> a <= 0.45 && bright <= 0.35 && holdsItsLevel(feature)
         }
     }
 
     private fun rankTag(heard: FloatArray, slot: Int): Double =
         rank(tagScales[slot], heard[slot].toDouble())
 
-    private companion object {
+    internal companion object {
 
         /**
          * The anchors, in the units the analyser reports.
@@ -204,6 +296,24 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
          * are informed rather than authoritative here.
          */
         const val TAG_WEIGHT = 0.3
+
+        /**
+         * How much a track's own movement may raise its arousal.
+         *
+         * Smaller than [TAG_WEIGHT] because it corrects a measurement rather
+         * than adding evidence: the averages are right about what the track is
+         * made of and wrong only about how still it is.
+         */
+        const val SWING_WEIGHT = 0.22
+
+        /**
+         * How much movement a quiet mood will still accept, as a place in the
+         * library rather than an absolute: spread and contrast are ratios with
+         * no natural ceiling, and what counts as restless in a library of
+         * niggunim is not what counts as restless in one of rock records.
+         */
+        const val STEADY_ENOUGH = 0.70
+
 
         // Positions within AudioTags.MOOD_INDICES.
         const val SLOT_LULLABY = 0
