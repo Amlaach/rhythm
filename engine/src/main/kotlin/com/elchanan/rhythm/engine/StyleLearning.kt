@@ -92,6 +92,19 @@ object StyleLearning {
         )
     }
 
+    /**
+     * What learning needs before it can write a tag at all.
+     *
+     * Stated on the settings screens, so the requirement is visible before a
+     * run rather than only in the message after one that found too little. The
+     * two ways of falling short of it need opposite things from the user - more
+     * songs in one case, more variety in the other - and both otherwise arrive
+     * in the same shape, after the fact.
+     */
+    fun requirement(): String =
+        "נדרשים לפחות ${StyleLearner.MIN_ROWS_TO_VALIDATE} שירים מתויגים עם נתוני צליל, " +
+            "מ-${StyleValidation.MIN_ARTISTS} אמנים לפחות ובשני סגנונות לפחות."
+
     fun message(r: LearnResult?): String {
         if (r == null) return "הלמידה נכשלה. נסה שוב."
         return when (r.status) {

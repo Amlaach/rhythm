@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.elchanan.rhythm.engine.StyleLearning
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.SectionHeader
 import com.elchanan.rhythm.ui.components.TuningSlider
@@ -153,7 +154,7 @@ fun AlgorithmSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                             "לומד איך הסגנונות שהגדרת נשמעים — מהשירים של האמנים " +
                                 "שתייגת — ומשלים תגיות לשירים שלא תויגו. האפליקציה " +
                                 "בודקת על אמנים שלא השתתפו באימון, וסופרת גם תגיות שגויות וחסרות. אם הבדיקה אינה מספקת היא " +
-                                "לא משנה כלום",
+                                "לא משנה כלום " + StyleLearning.requirement(),
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )

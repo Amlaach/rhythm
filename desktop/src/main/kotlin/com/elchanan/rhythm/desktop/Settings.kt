@@ -42,6 +42,7 @@ import com.elchanan.rhythm.engine.ActionPlacement
 import com.elchanan.rhythm.engine.EngineTuning
 import com.elchanan.rhythm.engine.PlayerAction
 import com.elchanan.rhythm.engine.ShelfKind
+import com.elchanan.rhythm.engine.StyleLearning
 import com.elchanan.rhythm.engine.TasteReport
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
@@ -852,7 +853,8 @@ internal fun AlgorithmSettingsScreen(
                     title = "למידת סגנונות מהספרייה",
                     subtitle = "לומד איך הסגנונות שהגדרת נשמעים — מהשירים של האמנים " +
                         "שתייגת — ומשלים תגיות לשירים שלא תויגו. האפליקציה בודקת " +
-                        "על אמנים שלא השתתפו באימון, וסופרת גם תגיות שגויות וחסרות. אם הבדיקה אינה מספקת, לא משתנות תגיות",
+                        "על אמנים שלא השתתפו באימון, וסופרת גם תגיות שגויות וחסרות. " +
+                        "אם הבדיקה אינה מספקת, לא משתנות תגיות " + StyleLearning.requirement(),
                     action = if (learning) "לומד…" else "למד",
                     enabled = !busy && !learning,
                     primary = true,

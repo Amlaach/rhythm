@@ -101,6 +101,25 @@ object AudioTags {
         ACCORDION, CLARINET, VIOLIN, PIANO, GUITAR, DRUMS
     )
 
+    /**
+     * The mood labels, which [HINTS] leaves out. Declared before it, which is
+     * the only reason it is not written in there.
+     */
+    private val MOOD_LABELS = setOf(HAPPY.label, SAD.label, TENDER.label, EXCITING.label)
+
+    /**
+     * The groups a hint line may name.
+     *
+     * Everything [ALL] holds except the four mood classes. Those four are the
+     * model's opinion about how a track feels, and the app already answers
+     * that question better: [MoodModel] reads them next to tempo, dynamics and
+     * the shape of the whole library, so a bare "שמח" sitting beside a mood
+     * filter that disagrees with it would be worse than saying nothing. What
+     * is left is what the track is made of: voice, instruments, and the
+     * AudioSet classes that name a kind of music.
+     */
+    private val HINTS: List<Group> = ALL.filterNot { it.label in MOOD_LABELS }
+
     /** The strongest score among a group's classes. */
     fun strength(scores: FloatArray, group: Group): Float {
         var best = 0f
@@ -117,15 +136,35 @@ object AudioTags {
      * classes are not equally common in the training data: "Music" fires on
      * almost anything musical and needs a high bar, while "Middle Eastern
      * music" is rare enough that a low score already means something.
+     *
+     * [groups] is which of them to ask about. [ALL] is the classifier's view
+     * of a track, [HINTS] the smaller one a screen shows.
      */
-    fun tagsFor(scores: FloatArray, limit: Int = 6): List<String> =
-        ALL.mapNotNull { group ->
+    fun tagsFor(scores: FloatArray, groups: List<Group> = ALL, limit: Int = 6): List<String> =
+        groups.mapNotNull { group ->
             val s = strength(scores, group)
             if (s >= group.threshold) group.label to s else null
         }
             .sortedByDescending { it.second }
             .take(limit)
             .map { it.first }
+
+    /**
+     * What the model heard on one song, as hints for a screen.
+     *
+     * Read back from the stored string rather than from the full score vector:
+     * a row keeps only the classes that fired, so this is the cheap direction
+     * and the one every caller outside the analyser wants.
+     *
+     * Empty means the model never ran on this song, which is not the same as
+     * it having heard nothing - a caller shows nothing rather than "none".
+     *
+     * These are hints and not tags. They come from AudioSet's vocabulary,
+     * which knows about accordions and pop music and nothing about the words
+     * the user tags with, so nothing here is ever written into the library.
+     */
+    fun hints(stored: String, limit: Int = 5): List<String> =
+        if (stored.isBlank()) emptyList() else tagsFor(decompress(stored), HINTS, limit)
 
     /**
      * The scores worth storing: index and value for the classes that fired.

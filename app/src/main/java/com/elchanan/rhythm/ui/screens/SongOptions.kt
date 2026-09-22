@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
+import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.Features
 import com.elchanan.rhythm.engine.Capo
 import com.elchanan.rhythm.engine.MusicalMode
@@ -139,6 +140,18 @@ fun SongOptionsSheet(
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary
                         )
+                        // What the tagging model heard, as a hint and nothing
+                        // more. These are AudioSet's own words rather than the
+                        // styles the user tags with, and no hint is ever
+                        // written into the library.
+                        val heard = AudioTags.hints(f.tags)
+                        if (heard.isNotEmpty()) {
+                            Text(
+                                text = "רמזים מהצליל: ${heard.joinToString(" · ")}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextTertiary
+                            )
+                        }
                     }
                     val plays = stats?.playCount ?: 0
                     if (plays > 0) {

@@ -94,6 +94,7 @@ import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.engine.AlphabetIndexing
+import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.Capo
 import com.elchanan.rhythm.engine.Folders
 import com.elchanan.rhythm.engine.MusicalMode
@@ -1554,6 +1555,17 @@ internal fun SongOptionsDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
+                // What the tagging model heard, as a hint and nothing more.
+                // These are AudioSet's own words rather than the styles the
+                // user tags with, and no hint is ever written into the library.
+                val heard = AudioTags.hints(feature?.tags.orEmpty())
+                if (heard.isNotEmpty()) {
+                    Text(
+                        "רמזים מהצליל: ${heard.joinToString(" · ")}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextTertiary
+                    )
+                }
             }
         },
         text = {
