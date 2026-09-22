@@ -11,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -57,12 +58,12 @@ class AnalysisManager(
         // started and does not yet say so, and a watcher that looked during
         // it would conclude there was nothing to wait for and stop the
         // service out from under the work it had just started.
-        _progress.value = _progress.value.copy(running = true, unreachable = 0)
+        _progress.update { it.copy(running = true, unreachable = 0) }
         job = scope.launch(Dispatchers.Default) {
             try {
                 var total = repo.songCount()
                 var done = repo.analyzedCount()
-                _progress.value = Progress(running = true, done = done, total = total)
+                _progress.update { it.copy(running = true, done = done, total = total) }
 
                 // Where the walk has got to, by song id. See the query.
                 var after = Long.MIN_VALUE
@@ -97,7 +98,7 @@ class AnalysisManager(
                             unreachable++
                             continue
                         }
-                        _progress.value = _progress.value.copy(currentTitle = song.title)
+                        _progress.update { it.copy(currentTitle = song.title) }
                         val feature = runCatching { AudioAnalyzer.analyze(context, song) }.getOrNull()
                         if (feature != null) {
                             repo.putFeature(feature)
@@ -110,18 +111,18 @@ class AnalysisManager(
                             repo.putFeature(Analysis.blankFor(song.id))
                         }
                         done++
-                        _progress.value = _progress.value.copy(done = done, total = total)
+                        _progress.update { it.copy(done = done, total = total) }
                         // give the rest of the app room to breathe
                         delay(15)
                     }
                     total = repo.songCount()
                 }
-                _progress.value = _progress.value.copy(unreachable = unreachable)
+                _progress.update { it.copy(unreachable = unreachable) }
             } finally {
                 // The model holds its weights and a working arena for as long
                 // as it is open, and the pass is the only thing that uses it.
                 runCatching { AudioAnalyzer.releaseTagger() }
-                _progress.value = _progress.value.copy(running = false, currentTitle = null)
+                _progress.update { it.copy(running = false, currentTitle = null) }
             }
         }
     }
@@ -129,7 +130,7 @@ class AnalysisManager(
     fun stop() {
         job?.cancel()
         job = null
-        _progress.value = _progress.value.copy(running = false, currentTitle = null)
+        _progress.update { it.copy(running = false, currentTitle = null) }
     }
 
     /** Stops the writer and waits until its finally block has released it. */
@@ -137,15 +138,29 @@ class AnalysisManager(
         val active = job
         job = null
         active?.cancelAndJoin()
-        _progress.value = _progress.value.copy(running = false, currentTitle = null)
+        _progress.update { it.copy(running = false, currentTitle = null) }
     }
 
+    /**
+     * Brings the counts up to date while no pass is running.
+     *
+     * It used to take the current state, wait on two database reads, and
+     * write that same state back with the new counts. A pass that started in
+     * the meantime - which is exactly what follows a scan, since the scan's
+     * completion is what calls this - had its "running" overwritten by the
+     * copy taken before it began. The loop carried on analysing; the screen
+     * read "not running", offered "analyse" instead of "stop", and the
+     * service keeping it alive in the background let go of it.
+     *
+     * Counts are read first and applied only if nothing started meanwhile.
+     */
     suspend fun refreshCounts() {
         if (_progress.value.running) return
-        _progress.value = _progress.value.copy(
-            done = repo.analyzedCount(),
-            total = repo.songCount()
-        )
+        val done = repo.analyzedCount()
+        val total = repo.songCount()
+        _progress.update { current ->
+            if (current.running) current else current.copy(done = done, total = total)
+        }
     }
 
     suspend fun reset() {
