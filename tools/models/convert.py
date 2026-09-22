@@ -97,8 +97,16 @@ def run_tflite(path, batch):
 
 
 def convert_effnet_onnx(onnx_path):
+    import onnx
+    model = onnx.load(onnx_path)
+    names = [i.name for i in model.graph.input]
+    print("onnx inputs", [(i.name, [d.dim_value or d.dim_param for d in i.type.tensor_type.shape.dim])
+                          for i in model.graph.input])
+    print("onnx outputs", [o.name for o in model.graph.output])
     out = os.path.join(WORK, "effnet_onnx2tf")
-    cmd = ["onnx2tf", "-i", onnx_path, "-o", out, "-b", "1", "-osd"]
+    # -kat: the input is [batch, frames, bands], not channels-first; left to
+    # itself onnx2tf transposes it as if it were and the first convolution fails.
+    cmd = ["onnx2tf", "-i", onnx_path, "-o", out, "-b", "1", "-osd", "-kat"] + names
     print(" ".join(cmd), flush=True)
     r = subprocess.run(cmd, capture_output=True, text=True)
     print(r.stdout[-3000:])
@@ -132,6 +140,31 @@ def convert_frozen(pb, inputs, outputs, shape, name, quant=True):
     return path
 
 
+def batch_of_one(pb):
+    import tensorflow as tf
+    from tensorflow.core.framework import graph_pb2
+    g = graph_pb2.GraphDef()
+    g.ParseFromString(open(pb, "rb").read())
+    changed = 0
+    for node in g.node:
+        if node.op == "Placeholder" and "shape" in node.attr:
+            dims = node.attr["shape"].shape.dim
+            if dims and dims[0].size == 64:
+                dims[0].size = 1
+                changed += 1
+        if node.op == "Const" and node.attr["dtype"].type == tf.int32.as_datatype_enum:
+            t = tf.make_ndarray(node.attr["value"].tensor)
+            if t.ndim == 1 and 2 <= t.size <= 5 and t[0] == 64:
+                t = t.copy()
+                t[0] = 1
+                node.attr["value"].tensor.CopyFrom(tf.make_tensor_proto(t, dtype=tf.int32))
+                changed += 1
+    print("batch surgery changed", changed, "nodes")
+    path = os.path.join(WORK, "effnet_single.pb")
+    open(path, "wb").write(g.SerializeToString())
+    return path
+
+
 def cos(a, b):
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-12))
 
@@ -160,12 +193,19 @@ def main():
                 candidates.append(quantize(saved, "effnet_onnx_%s.tflite" % ("fp16" if fp16 else "int8"), fp16))
             except Exception as e:  # keep going: the other routes may work
                 print("quantize failed", fp16, e)
-    for outputs in (["PartitionedCall:1"], ["PartitionedCall"]):
-        try:
-            candidates.append(convert_frozen(pb, ["serving_default_melspectrogram"], outputs, [1, 128, 96],
-                                             "effnet_pb_%d.tflite" % len(candidates)))
-        except Exception as e:
-            print("frozen conversion failed", outputs, e)
+    # The frozen graph is fixed at a batch of 64. Rewrite the placeholder to a
+    # batch of one, and any constant shape that spells out the 64, then let the
+    # comparison against Essentia say whether the surgery was sound.
+    try:
+        single = batch_of_one(pb)
+        for outputs in (["PartitionedCall:1"], ["PartitionedCall"]):
+            try:
+                candidates.append(convert_frozen(single, ["serving_default_melspectrogram"], outputs, [1, 128, 96],
+                                                 "effnet_pb_%d.tflite" % len(candidates)))
+            except Exception as e:
+                print("frozen conversion failed", outputs, e)
+    except Exception as e:
+        print("graph surgery failed", e)
 
     best = None
     for start, mel in mels.items():
