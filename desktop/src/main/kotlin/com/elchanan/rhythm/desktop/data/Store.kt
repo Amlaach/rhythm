@@ -1169,6 +1169,22 @@ class Store private constructor(private val conn: Connection) {
     // ---------------------------------------------------------------------
 
     /**
+     * When each song was last heard, from the history - which records plays
+     * and never skips. The engine reads recency from this rather than from
+     * `lastPlayedAt`, which a skip also updates.
+     */
+    @Synchronized
+    fun lastHeard(): Map<Long, Long> {
+        val out = HashMap<Long, Long>()
+        conn.createStatement().use { st ->
+            st.executeQuery("SELECT songId, MAX(playedAt) AS at FROM history GROUP BY songId").use { rs ->
+                while (rs.next()) out[rs.getLong("songId")] = rs.getLong("at")
+            }
+        }
+        return out
+    }
+
+    /**
      * The play history, newest first, capped.
      *
      * Capped because the recap reads all of it into memory at once and a
