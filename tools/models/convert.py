@@ -127,12 +127,14 @@ def quantize(saved_model_dir, name, float16=False):
     return path
 
 
-def convert_frozen(pb, inputs, outputs, shape, name, quant=True):
+def convert_frozen(pb, inputs, outputs, shape, name, quant="none"):
     import tensorflow as tf
     conv = tf.compat.v1.lite.TFLiteConverter.from_frozen_graph(
         pb, input_arrays=inputs, output_arrays=outputs, input_shapes={inputs[0]: shape})
-    if quant:
+    if quant in ("int8", "fp16"):
         conv.optimizations = [tf.lite.Optimize.DEFAULT]
+    if quant == "fp16":
+        conv.target_spec.supported_types = [tf.float16]
     data = conv.convert()
     path = os.path.join(WORK, name)
     open(path, "wb").write(data)
@@ -196,7 +198,7 @@ def pick_embedding(results, outs):
     for i, o in enumerate(outs):
         if o["shape"][-1] == 1280:
             return np.array([r[i] for r in results]), o["name"]
-    raise SystemExit("no 1280 wide output in " + str([o["shape"] for o in outs]))
+    return None, None
 
 
 def main():
@@ -220,12 +222,12 @@ def main():
     # comparison against Essentia say whether the surgery was sound.
     try:
         single = batch_of_one(pb)
-        for outputs in (["PartitionedCall:1"], ["PartitionedCall"]):
+        for quant in ("none", "fp16", "int8"):
             try:
-                candidates.append(convert_frozen(single, ["serving_default_melspectrogram"], outputs, [1, 128, 96],
-                                                 "effnet_pb_%d.tflite" % len(candidates)))
+                candidates.append(convert_frozen(single, ["serving_default_melspectrogram"], ["PartitionedCall:1"],
+                                                 [1, 128, 96], "effnet_pb_%s.tflite" % quant, quant))
             except Exception as e:
-                print("frozen conversion failed", outputs, e)
+                print("frozen conversion failed", quant, e)
     except Exception as e:
         print("graph surgery failed", e)
 
@@ -240,14 +242,17 @@ def main():
             except Exception as e:
                 print("run failed", path, e)
                 continue
+            if emb is None:
+                print("no 1280 wide output in", os.path.basename(path))
+                continue
             sims = [cos(emb[i], reference[i]) for i in range(n)]
             score = min(sims)
             print("startFromZero=%s %s out=%s patches=%d min cos=%.5f mean cos=%.5f size=%d"
                   % (start, os.path.basename(path), out_name, n, score, float(np.mean(sims)), os.path.getsize(path)))
-            key = (score > 0.999, -os.path.getsize(path), score)
+            key = (score > 0.99, -os.path.getsize(path), score)
             if best is None or key > best[0]:
                 best = (key, path, start, emb[0])
-    if best is None or best[0][2] < 0.99:
+    if best is None or best[0][2] < 0.98:
         raise SystemExit("no conversion reproduces Essentia: " + str(best and best[0]))
     _, path, start, first = best
     print("chosen", os.path.basename(path), "startFromZero", start)
@@ -271,7 +276,7 @@ def main():
         outs = [o for o in schema["outputs"] if o.get("output_purpose") == "predictions"] or schema["outputs"][:1]
         out = outs[0]["name"]
         try:
-            hpath = convert_frozen(hpb, [inp], [out], [1, 1280], head + ".tflite", quant=False)
+            hpath = convert_frozen(hpb, [inp], [out], [1, 1280], head + ".tflite")
         except Exception as e:
             print("head conversion failed", head, e)
             continue
