@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -66,7 +67,6 @@ fun AlgorithmSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     var acousticWeight by remember { mutableFloatStateOf(vm.prefs.acousticWeight) }
     var repeatGuard by remember { mutableFloatStateOf(vm.prefs.repeatGuard) }
 
-    val busy by vm.busy.collectAsStateWithLifecycle()
     val evaluation by vm.sequenceReport.collectAsStateWithLifecycle()
     var searchPersonal by remember { mutableStateOf(vm.prefs.searchPersonalized) }
     var searchLyrics by remember { mutableStateOf(vm.prefs.searchLyrics) }
@@ -370,7 +370,7 @@ fun AlgorithmSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             onDismiss = { separationsOpen = false },
             onApply = {
                 separations = it
-                vm.updateTuning(styleSeparations = it)
+                vm.setStyleSeparations(it)
                 separationsOpen = false
             }
         )

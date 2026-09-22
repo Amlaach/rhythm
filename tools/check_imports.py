@@ -89,6 +89,12 @@ BARE_FUN = {
     "delay", "runBlocking", "coroutineScope", "supervisorScope", "withTimeout",
     "withTimeoutOrNull", "awaitAll", "yield", "channelFlow", "callbackFlow",
     "flowOf", "emptyFlow", "combine", "merge", "produceState", "rememberCoroutineScope",
+    # The Compose state builders. Moving a block of UI from one file to
+    # another takes its `remember { mutableStateOf(...) }` with it and leaves
+    # the import behind, which is the single commonest way this breaks.
+    "remember", "rememberSaveable", "mutableStateOf", "mutableIntStateOf",
+    "mutableLongStateOf", "mutableFloatStateOf", "mutableDoubleStateOf",
+    "mutableStateListOf", "mutableStateMapOf", "derivedStateOf",
 }
 
 # Names that are only ever an extension, wherever they appear.
