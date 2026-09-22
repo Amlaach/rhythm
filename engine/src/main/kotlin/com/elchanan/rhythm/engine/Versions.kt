@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.engine
 
+import com.elchanan.rhythm.data.ArtistMerge
 import com.elchanan.rhythm.data.db.SongEntity
 
 /**
@@ -46,6 +47,36 @@ object Versions {
         Names.normalizeKey(NOISE.replace(title, " "))
 
     /**
+     * Whether two artist fields name the same performer.
+     *
+     * The question the covers shelf lives or dies on. A library built from
+     * downloads holds the same track twice under "ישי ריבו" and under
+     * "ישי ריבו feat. מוטי שטיינמץ", or with one letter different, or with a
+     * stray space - and the classifier read "different artist key" as proof
+     * of a different singer. So the second copy of a song was filed as
+     * somebody's cover of it and put on a shelf beside the original: the
+     * duplicate the user was trying to be rid of, wearing a label saying it
+     * is not one.
+     *
+     * Deliberately generous. Calling two spellings one performer costs the
+     * covers shelf an entry; calling one performer two costs the user a
+     * duplicate on their home screen, which is the thing they complained
+     * about. An unknown artist is evidence of nobody, so it is never taken
+     * as evidence of somebody else.
+     */
+    fun samePerformer(left: String, right: String): Boolean {
+        val a = Names.normalizeKey(Names.primaryArtist(left))
+        val b = Names.normalizeKey(Names.primaryArtist(right))
+        if (a == b) return true
+        if (a == "unknown" || b == "unknown") return true
+        // A whole-word prefix: "ישי" and "ישי ריבו" are one singer written
+        // two ways. The trailing space is what keeps it from also swallowing
+        // "אבי" into "אביתר".
+        if (a.startsWith("$b ") || b.startsWith("$a ")) return true
+        return ArtistMerge.oneLetterApart(a, b)
+    }
+
+    /**
      * Classifies every song, using the shape of the library as evidence.
      *
      * Wording settles most of it. What wording cannot settle is a plain cover -
@@ -71,15 +102,23 @@ object Versions {
                 .maxByOrNull { (_, list) ->
                     list.sumOf { playCount(it.id).toLong() } * 100 + list.size
                 }
-                ?.key
+                ?.value
+                ?.firstOrNull()
+                ?.artistName
 
             for (song in group) {
                 out[song.id] = when {
                     LIVE_WORDS.containsMatchIn(song.title) -> VersionType.LIVE
                     REMIX_WORDS.containsMatchIn(song.title) -> VersionType.REMIX
                     COVER_WORDS.containsMatchIn(song.title) -> VersionType.COVER
-                    // Same piece, different artist, and not the one who owns it.
-                    group.size > 1 && owner != null && song.artistKey != owner -> VersionType.COVER
+                    // Same piece, and a genuinely different singer from the one
+                    // who owns it. Comparing the keys was not enough: a second
+                    // download of the same track under a slightly different
+                    // artist tag has a different key and the same singer, and
+                    // reading that as a cover is what put duplicates on the
+                    // covers shelf.
+                    group.size > 1 && owner != null && !samePerformer(song.artistName, owner) ->
+                        VersionType.COVER
                     else -> VersionType.ORIGINAL
                 }
             }
@@ -116,33 +155,48 @@ object Versions {
         return out
     }
 
+    /** How far two copies of one recording may drift in length, in milliseconds. */
+    private const val SAME_LENGTH_MS = 2_500L
+
     /**
      * Exact duplicates: the same recording sitting in the library twice.
      *
-     * Same piece, same artist, same kind of version and near enough the same
+     * Same piece, same singer, same kind of version and near enough the same
      * length. Duration is what separates a genuine second copy from two
      * different takes that happen to share a name, so it is required rather
      * than treated as a hint.
+     *
+     * Two things here used to be decided by string equality and are now
+     * decided by tolerance, because both failed on exactly the libraries this
+     * is for. The artist is matched through [samePerformer], so the same
+     * singer tagged two ways is still one singer. The length is compared
+     * pairwise rather than bucketed: two copies at 4:01 and 4:02 fall either
+     * side of a fixed bucket edge about as often as they fall inside one,
+     * which meant the duplicate finder missed half of what it was for.
      */
     fun duplicateGroups(
         songs: List<SongEntity>,
         types: Map<Long, VersionType>
-    ): List<List<SongEntity>> =
-        songs
-            .groupBy { song ->
-                val seconds = song.durationMs / 1000
-                listOf(
-                    pieceKey(song.title),
-                    song.artistKey,
-                    types[song.id]?.name.orEmpty(),
-                    // Bucketed to two seconds, so re-encodes of the same file
-                    // still land together.
-                    (seconds / 2).toString()
-                ).joinToString("|")
+    ): List<List<SongEntity>> {
+        val out = ArrayList<List<SongEntity>>()
+        val byPieceAndKind = songs.groupBy { song ->
+            pieceKey(song.title) + "|" + types[song.id]?.name.orEmpty()
+        }
+        for ((key, group) in byPieceAndKind) {
+            if (group.size < 2 || key.startsWith("|")) continue
+            val clusters = ArrayList<MutableList<SongEntity>>()
+            for (song in group.sortedBy { it.id }) {
+                val home = clusters.firstOrNull { cluster ->
+                    val head = cluster.first()
+                    samePerformer(head.artistName, song.artistName) &&
+                        kotlin.math.abs(head.durationMs - song.durationMs) <= SAME_LENGTH_MS
+                }
+                if (home != null) home.add(song) else clusters.add(mutableListOf(song))
             }
-            .values
-            .filter { it.size > 1 }
-            .map { group -> group.sortedBy { it.id } }
+            for (cluster in clusters) if (cluster.size > 1) out.add(cluster)
+        }
+        return out
+    }
 
     /** One song per duplicate group, keeping everything that is not duplicated. */
     fun withoutDuplicates(

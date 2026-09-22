@@ -330,10 +330,60 @@ class Recommender(
         )
     }
 
-    /** Keeps the first take of each piece and drops the rest, order preserved. */
+    /**
+     * Keeps the first take of each piece and drops the rest, order preserved.
+     *
+     * Keyed on the piece rather than the recording. The recording key carries
+     * the artist, so two files of one song credited slightly differently - the
+     * ordinary state of a library built from downloads - counted as two songs
+     * and both went on the shelf.
+     */
     private fun dedupeVersions(list: List<SongEntity>): List<SongEntity> {
         val seen = HashSet<String>()
-        return list.filter { seen.add(versionKeyById[it.id] ?: it.id.toString()) }
+        return list.filter { song ->
+            val key = pieceKeyById[song.id]?.takeIf { it.isNotBlank() }
+                ?: versionKeyById[song.id]
+                ?: song.id.toString()
+            seen.add(key)
+        }
+    }
+
+    /**
+     * What every offered shelf goes through: one take of each piece, and one
+     * side of every separation rule.
+     *
+     * The shelves built by [pick] get both from inside it. These are the ones
+     * assembled by sorting a filtered list instead, and each of them had to
+     * remember the rules on its own - which is how a shelf of concert
+     * recordings ended up being the one place in the feed that still mixed two
+     * styles the user had told it never to mix.
+     *
+     * Order is preserved and the first tagged song decides the side, so the
+     * shelf keeps whatever ranking its caller chose.
+     *
+     * Not used on the shelves that report rather than recommend - most played,
+     * what you rated, what was added to the device. There the app is not
+     * choosing to put two styles together, it is showing what is there, and
+     * quietly hiding half of it would be its own kind of wrong.
+     */
+    private fun offered(list: List<SongEntity>): List<SongEntity> = oneSide(dedupeVersions(list))
+
+    /**
+     * Drops whatever clashes with the side of the rule this list has landed on.
+     *
+     * Separate from [offered] because one shelf needs this half without the
+     * other: the covers shelf exists to show two takes of a piece, so deduping
+     * it by piece would empty it.
+     */
+    private fun oneSide(list: List<SongEntity>): List<SongEntity> {
+        if (separations.isEmpty) return list
+        val side = ArrayList<String>()
+        return list.filter { song ->
+            val mine = declaredStyles[song.id].orEmpty()
+            if (side.isNotEmpty() && separations.clash(side, mine)) return@filter false
+            for (style in mine) if (style !in side) side.add(style)
+            true
+        }
     }
 
     private val artistKeyById: Map<Long, String> = songs.associate { it.id to it.artistKey }
@@ -475,8 +525,24 @@ class Recommender(
      * the two never disagree about what "liked" means.
      */
     private fun behaviourWeight(songId: Long): Double {
-        val st = stats[songId] ?: return 0.0
         var w = 0.0
+        // An artist rating is a statement about every song by that artist, and
+        // it was the one statement this never heard. It reached the ranking as
+        // a flat bonus on the song's own score and stopped there - so it never
+        // seeded the acoustic neighbourhood, never weighted the taste vector,
+        // and never picked the anchor for "sounds like this". Someone who had
+        // rated thirty artists and few individual songs was, as far as every
+        // model in here was concerned, someone who had said nothing at all,
+        // and the feed fell back on what it does with a silent user: offer the
+        // unheard. Which is exactly the complaint - rate an artist, nothing
+        // moves.
+        //
+        // Weighted below a play: rating an artist says you like them, playing
+        // a song says you like it, and the second is the better evidence about
+        // the track in hand.
+        val artistRating = artists[artistKeyById[songId]]?.rating ?: 0
+        if (artistRating > 0) w += (artistRating - 3) * 0.9
+        val st = stats[songId] ?: return w
         if (st.playCount > 0) {
             val recency = if (st.lastPlayedAt == 0L) 0.0 else exp(-daysSince(st.lastPlayedAt) / 45.0)
             w += ln(1.0 + st.playCount) * (0.55 + 0.45 * recency)
@@ -889,25 +955,47 @@ class Recommender(
         val albumCount = HashMap<Long, Int>()
         // One take of a piece per shelf. Offering the studio cut, the live take
         // and the remix as three separate recommendations is the single most
-        // obvious way a library of downloads looks broken.
-        val versionsUsed = HashSet<String>()
+        // obvious way a library of downloads looks broken. Keyed on the piece
+        // rather than the recording, so somebody else's cover of a song already
+        // on the shelf does not count as a second offer either.
+        val piecesUsed = HashSet<String>()
+        // Which side of a separation rule this shelf has landed on, filled in
+        // as it goes. The first tagged song to get in pins it; untagged songs
+        // pin nothing and clash with nothing.
+        val shelfStyles = ArrayList<String>()
+        val taken = HashSet<Long>()
         val out = ArrayList<SongEntity>(count)
-        for ((song, _) in ranked) {
-            if (out.size >= count) break
-            val a = artistCount.getOrDefault(song.artistKey, 0)
-            val b = albumCount.getOrDefault(song.albumId, 0)
-            if (a >= maxPerArtist || b >= maxPerAlbum) continue
-            val version = versionKeyById[song.id]
-            if (version != null && !versionsUsed.add(version)) continue
-            artistCount[song.artistKey] = a + 1
-            albumCount[song.albumId] = b + 1
-            out.add(song)
-        }
-        if (out.size < count) {
-            val taken = out.mapTo(HashSet()) { it.id }
+
+        // Two passes over the same ranking. The second widens the per artist
+        // and per album caps, because a shelf short of its target is better
+        // off with a third track by someone than left half empty.
+        //
+        // Nothing else widens, and that is the whole point of the rewrite.
+        // What stood here filled the shortfall by walking the ranking again
+        // with every rule switched off - so the moment a pool was smaller than
+        // the shelf asked for, the shelf silently became "the top scoring
+        // songs, caps and duplicates and separations be damned". That is not a
+        // degraded shelf, it is a different shelf, and it is what put thirteen
+        // tracks by one singer, both copies of the same song and two styles the
+        // user had said never to mix into a single row.
+        for (round in 0..1) {
+            val artistCap = if (round == 0) maxPerArtist else maxPerArtist * 3
+            val albumCap = if (round == 0) maxPerAlbum else maxPerAlbum * 3
             for ((song, _) in ranked) {
-                if (out.size >= count) break
+                if (out.size >= count) return out
                 if (song.id in taken) continue
+                if (artistCount.getOrDefault(song.artistKey, 0) >= artistCap) continue
+                if (albumCount.getOrDefault(song.albumId, 0) >= albumCap) continue
+                val piece = pieceKeyById[song.id]?.takeIf { it.isNotBlank() }
+                    ?: versionKeyById[song.id]
+                if (piece != null && piece in piecesUsed) continue
+                val mine = declaredStyles[song.id].orEmpty()
+                if (shelfStyles.isNotEmpty() && separations.clash(shelfStyles, mine)) continue
+                if (piece != null) piecesUsed.add(piece)
+                for (style in mine) if (style !in shelfStyles) shelfStyles.add(style)
+                artistCount[song.artistKey] = artistCount.getOrDefault(song.artistKey, 0) + 1
+                albumCount[song.albumId] = albumCount.getOrDefault(song.albumId, 0) + 1
+                taken.add(song.id)
                 out.add(song)
             }
         }
@@ -1032,10 +1120,11 @@ class Recommender(
         // Speed dial: the handful of tracks actually returned to, first on the
         // page. Held back until there is real listening behind it - a "most
         // played" shelf built from one play each is just a shuffle.
-        val mostPlayed = notDisliked
-            .filter { (stats[it.id]?.playCount ?: 0) >= 3 }
-            .sortedByDescending { stats[it.id]?.playCount ?: 0 }
-            .take(12)
+        val mostPlayed = dedupeVersions(
+            notDisliked
+                .filter { (stats[it.id]?.playCount ?: 0) >= 3 }
+                .sortedByDescending { stats[it.id]?.playCount ?: 0 }
+        ).take(12)
         if (mostPlayed.size >= 4) {
             sections.add(
                 FeedSection(
@@ -1098,6 +1187,32 @@ class Recommender(
                     songs = (liked.shuffled(Random(feedSeed)) + expanded).take(50)
                 )
             )
+        }
+
+        // Songs by an artist the user rated highly and has not rated one by one.
+        //
+        // The gap the whole complaint sits in. The feed had a shelf for songs
+        // rated four and up and a shelf for songs never touched at all, and
+        // nothing in between - so someone who works by rating artists rather
+        // than tracks saw their ratings reflected nowhere, and concluded the
+        // rating did nothing. It very nearly didn't.
+        val lovedArtists = artists.values
+            .filter { it.rating >= 4 }
+            .mapTo(HashSet()) { it.artistKey }
+        if (lovedArtists.isNotEmpty()) {
+            val theirs = notDisliked.filter {
+                it.artistKey in lovedArtists && (stats[it.id]?.rating ?: 0) == 0
+            }
+            if (theirs.size >= 5) {
+                mixes.add(
+                    Mix(
+                        id = "mix:lovedartists",
+                        title = "מהאמנים שדירגת",
+                        subtitle = "${lovedArtists.size} אמנים שנתת להם 4 ומעלה",
+                        songs = pick(theirs, 50, salt = 83L, maxPerArtist = 6, maxPerAlbum = 3)
+                    )
+                )
+            }
         }
 
         // rated songs get their own shelf now that ratings exist per song
@@ -1209,8 +1324,19 @@ class Recommender(
             .take(4)
         for (artist in topArtists) {
             val own = songsByArtist[artist.artistKey].orEmpty()
+            // "Similar to him" has to mean similar within what the user is
+            // willing to hear in one sitting. The neighbours were drawn from
+            // the whole library and only checked against each other, so a
+            // חסידי singer's radio filled its second half with ישראלי - the
+            // one pairing the separation rule exists to prevent.
+            val ownStyles = Styles.parse(artist.styles).ifEmpty {
+                own.firstOrNull()?.let { declaredStyles[it.id] }.orEmpty()
+            }
             val neighbours = pick(
-                notDisliked.filter { it.artistKey != artist.artistKey },
+                notDisliked.filter {
+                    it.artistKey != artist.artistKey &&
+                        !separations.clash(ownStyles, declaredStyles[it.id].orEmpty())
+                },
                 12,
                 salt = artist.artistKey.hashCode().toLong()
             ) { c ->
@@ -1257,10 +1383,13 @@ class Recommender(
                     id = "again",
                     title = "תשמע שוב",
                     kind = SectionKind.SONG_ROW,
-                    songs = heard.sortedByDescending { s ->
-                        val st = stats[s.id]!!
-                        ln(1.0 + st.playCount) * (0.4 + 0.6 * exp(-daysSince(st.lastPlayedAt) / 30.0))
-                    }.take(20)
+                    songs = offered(
+                        heard.sortedByDescending { s ->
+                            val st = stats[s.id]!!
+                            ln(1.0 + st.playCount) *
+                                (0.4 + 0.6 * exp(-daysSince(st.lastPlayedAt) / 30.0))
+                        }
+                    ).take(20)
                 )
             )
         }
@@ -1334,7 +1463,7 @@ class Recommender(
         // A stage recording of a song you already own is a genuinely different
         // listen, so the live takes get a shelf of their own rather than being
         // scattered through the others.
-        val live = dedupeVersions(
+        val live = offered(
             notDisliked.filter { isLiveRecording(it.title) }
                 .sortedByDescending { totalScore(it) }
         )
@@ -1367,7 +1496,9 @@ class Recommender(
                         title = "על הבמה — שירים שאהבת",
                         subtitle = "גרסאות חיות לשירים שסימנת",
                         kind = SectionKind.SONG_ROW,
-                        songs = liveOfLiked.sortedByDescending { totalScore(it) }.take(20)
+                        songs = offered(
+                            liveOfLiked.sortedByDescending { totalScore(it) }
+                        ).take(20)
                     )
                 )
             }
@@ -1386,7 +1517,7 @@ class Recommender(
                     title = "גרסאות כיסוי",
                     subtitle = "ביצועים של אמנים אחרים לשירים שכבר יש לך",
                     kind = SectionKind.SONG_ROW,
-                    songs = alternates.sortedByDescending { totalScore(it) }.take(24)
+                    songs = oneSide(alternates.sortedByDescending { totalScore(it) }).take(24)
                 )
             )
         }
@@ -1404,7 +1535,7 @@ class Recommender(
                     title = "מהספרייה שלך",
                     subtitle = "מה שסימנת ודירגת",
                     kind = SectionKind.SONG_ROW,
-                    songs = yours.sortedByDescending { totalScore(it) }.take(24)
+                    songs = dedupeVersions(yours.sortedByDescending { totalScore(it) }).take(24)
                 )
             )
         }
@@ -1420,10 +1551,11 @@ class Recommender(
         if (engaged.size >= 5 && moodModel.ready) {
             val favourite = favouriteMood(engaged, moodModel)
             if (favourite != null) {
-                val more = notDisliked
-                    .filter { moodModel.matches(favourite, features[it.id]) && it !in engaged }
-                    .sortedByDescending { totalScore(it) }
-                    .take(20)
+                val more = offered(
+                    notDisliked
+                        .filter { moodModel.matches(favourite, features[it.id]) && it !in engaged }
+                        .sortedByDescending { totalScore(it) }
+                ).take(20)
                 if (more.size >= 6) {
                     sections.add(
                         FeedSection(
@@ -1450,12 +1582,16 @@ class Recommender(
                     title = "סרטוני מוזיקה ארוכים",
                     subtitle = "מעל רבע שעה",
                     kind = SectionKind.SONG_ROW,
-                    songs = longForm.sortedByDescending { it.durationMs }.take(20)
+                    songs = dedupeVersions(
+                        longForm.sortedByDescending { it.durationMs }
+                    ).take(20)
                 )
             )
         }
 
-        val recentFiles = playable.sortedByDescending { it.dateAddedSec }.take(20)
+        val recentFiles = dedupeVersions(
+            playable.sortedByDescending { it.dateAddedSec }
+        ).take(20)
         if (recentFiles.size >= 6) {
             sections.add(
                 FeedSection(
