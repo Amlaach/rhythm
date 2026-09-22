@@ -675,7 +675,10 @@ private fun FeedSectionView(
                                     liked = library.stats[song.id]?.liked ?: 0,
                                     selected = song.id in selection,
                                     selectionMode = selectionMode,
-                                    onLongClick = { vm.toggleSelect(song.id) },
+                                    onLongClick = {
+                                        vm.noteSelectionScope(section.songs.map { it.id })
+                                        vm.toggleSelect(song.id)
+                                    },
                                     onClick = {
                                         if (selectionMode) {
                                             vm.toggleSelect(song.id)
@@ -732,7 +735,10 @@ private fun FeedSectionView(
                         song = song,
                         selected = song.id in selection,
                         selectionMode = selectionMode,
-                        onLongClick = { vm.toggleSelect(song.id) },
+                        onLongClick = {
+                            vm.noteSelectionScope(section.songs.map { it.id })
+                            vm.toggleSelect(song.id)
+                        },
                         onClick = {
                             if (selectionMode) {
                                 vm.toggleSelect(song.id)

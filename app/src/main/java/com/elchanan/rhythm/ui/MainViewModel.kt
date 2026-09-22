@@ -34,6 +34,7 @@ import com.elchanan.rhythm.engine.AcousticSpace
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.LearnResult
+import com.elchanan.rhythm.engine.SoundCheck
 import com.elchanan.rhythm.engine.LyricLine
 import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.engine.Mix
@@ -397,6 +398,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _selection = MutableStateFlow<Set<Long>>(emptySet())
     val selection: StateFlow<Set<Long>> = _selection.asStateFlow()
 
+    private val _selectionScope = MutableStateFlow<List<Long>>(emptyList())
+
+    /**
+     * The list a selection was started in - the songs on the screen, the
+     * folder, the album - which is what "select all" means.
+     *
+     * Told by the screen at the moment of the long press rather than worked
+     * out here, because only the screen knows what it is showing: the same
+     * song can be in a folder, an album and a search at once.
+     */
+    val selectionScope: StateFlow<List<Long>> = _selectionScope.asStateFlow()
+
+    fun noteSelectionScope(ids: List<Long>) {
+        _selectionScope.value = ids
+    }
+
+    /** Everything in the list the selection was started in. */
+    fun selectAll() {
+        _selection.value = _selection.value + _selectionScope.value
+    }
+
     /** Ticking the last one off ends selection mode, because empty is the mode. */
     fun toggleSelect(id: Long) {
         _selection.value = _selection.value.let { if (id in it) it - id else it + id }
@@ -417,6 +439,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearSelection() {
         _selection.value = emptySet()
+        _selectionScope.value = emptyList()
     }
 
     /** The selected songs, in the order the library holds them. */
@@ -975,7 +998,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val changed = repo.setStylesForSongs(songs.map { it.id }, styles, replace)
             _message.value =
-                if (changed == 0) "כל השירים בתיקייה כבר מתויגים כך"
+                if (changed == 0) "כל השירים כבר מתויגים כך"
                 else "תויגו $changed שירים"
             refreshFeed()
         }
@@ -1605,6 +1628,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val learnResult: StateFlow<LearnResult?> = _learnResult.asStateFlow()
     private val _learning = MutableStateFlow(false)
     val learning: StateFlow<Boolean> = _learning.asStateFlow()
+    private val _soundCheck = MutableStateFlow<String?>(null)
+
+    /** The last sound print check, in the words the settings screen shows. */
+    val soundCheck: StateFlow<String?> = _soundCheck.asStateFlow()
+
+    /**
+     * Measures whether songs that sound alike share a style, by the current
+     * sound features and by the sound print, on this library. Changes
+     * nothing: it is how a change to the sound model gets judged by results
+     * rather than by argument.
+     */
+    fun runSoundCheck() {
+        viewModelScope.launch {
+            _soundCheck.value = "בודק…"
+            val lib = library.value
+            val features = repo.featureMap()
+            val result = withContext(Dispatchers.Default) {
+                runCatching {
+                    SoundCheck.measure(
+                        lib.songs,
+                        features,
+                        lib.artists.associate { it.key to it.styles }
+                    )
+                }.getOrNull()
+            }
+            _soundCheck.value = SoundCheck.describe(result)
+        }
+    }
+
     private val _learningReport = MutableStateFlow<String?>(null)
     val learningReport: StateFlow<String?> = _learningReport.asStateFlow()
 
@@ -1809,6 +1861,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             repo.bulkAddToPlaylist(playlistId, ids)
             _message.value = "${ids.size} שירים נוספו לרשימה"
         }
+    }
+
+    fun bulkPlayNext(songs: List<SongEntity>) {
+        if (songs.isEmpty()) return
+        player.playNext(songs)
+        QueueMeta.markManual(songs.map { it.id })
+        _message.value = if (songs.size == 1) "יתנגן הבא: ${songs[0].title}"
+        else "${songs.size} שירים יתנגנו הבא"
     }
 
     fun bulkQueue(songs: List<SongEntity>) {

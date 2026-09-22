@@ -79,7 +79,7 @@ fun TagSettingsScreen(
     SettingsScaffold(title = "תגיות ומילות שיר", onBack = onBack) {
         item {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenTagFix).padding(horizontal = gutter, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {

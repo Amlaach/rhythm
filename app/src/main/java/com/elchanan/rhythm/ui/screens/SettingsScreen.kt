@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -141,9 +142,10 @@ internal fun SeparationDialog(
                 Text(
                     "שורה לכל כלל, והסגנונות בתוך השורה מופרדים בפסיק. " +
                         "סגנונות שנמצאים באותה שורה לא יופיעו יחד באותו מיקס, רדיו או המשך תור.\n\n" +
-                        "למשל:\nחסידי, ישראלי\nילדים, חזנות\n\n" +
-                        "הכלל חל על התגיות שאתה נתת — לשיר עצמו או לאמן שלו. " +
-                        "שירים בלי תגיות לא מושפעים.",
+                        "שורה עם סגנון אחד בלבד פירושה שהסגנון הזה מתערבב רק עם עצמו — " +
+                        "לא עם סגנון אחר ולא עם שירים בלי תגיות.\n\n" +
+                        "למשל:\nחסידי, ישראלי\nילדים, חזנות\nרק אנגלית\n\n" +
+                        "הכלל חל על התגיות שאתה נתת — לשיר עצמו או לאמן שלו.",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
@@ -225,7 +227,7 @@ internal fun SectionToggleRow(
     val gutter = rememberMetrics().gutter
     Row(
         modifier = Modifier
-            .fillMaxWidth()
+            .fillMaxWidth().clickable(onClick = onToggle)
             .padding(horizontal = gutter, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

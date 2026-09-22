@@ -178,7 +178,10 @@ fun DetailListScreen(vm: MainViewModel, onBack: () -> Unit) {
                         if (selection.isNotEmpty()) vm.toggleSelect(song.id)
                         else vm.playList(songs, songs.indexOf(song))
                     },
-                    onLongClick = { vm.toggleSelect(song.id) },
+                    onLongClick = {
+                        vm.noteSelectionScope(songs.map { it.id })
+                        vm.toggleSelect(song.id)
+                    },
                     onMore = { sheetSong = song },
                     onLike = { vm.like(song.id) },
                     onDislike = { vm.dislike(song.id) }
@@ -377,7 +380,10 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
                         if (selection.isNotEmpty()) vm.toggleSelect(song.id)
                         else vm.playList(displayedSongs, displayedSongs.indexOf(song))
                     },
-                    onLongClick = { vm.toggleSelect(song.id) },
+                    onLongClick = {
+                        vm.noteSelectionScope(displayedSongs.map { it.id })
+                        vm.toggleSelect(song.id)
+                    },
                     onMore = { sheetSong = song },
                     onLike = { vm.like(song.id) },
                     onDislike = { vm.dislike(song.id) }

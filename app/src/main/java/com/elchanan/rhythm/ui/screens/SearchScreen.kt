@@ -180,7 +180,10 @@ fun SearchScreen(
                             if (selectionMode) vm.toggleSelect(song.id)
                             else vm.playList(results, results.indexOf(song))
                         },
-                        onLongClick = { vm.toggleSelect(song.id) },
+                        onLongClick = {
+                            vm.noteSelectionScope(results.map { it.id })
+                            vm.toggleSelect(song.id)
+                        },
                         onMore = { sheetSong = song },
                         onLike = { vm.like(song.id) },
                         onDislike = { vm.dislike(song.id) }

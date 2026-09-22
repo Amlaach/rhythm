@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -97,7 +98,7 @@ fun PlayerSettingsScreen(
             item {
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .fillMaxWidth().clickable { arrangementOpen = true }
                         .padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -256,7 +257,7 @@ fun PlayerSettingsScreen(
 
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenEqualizer).padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {

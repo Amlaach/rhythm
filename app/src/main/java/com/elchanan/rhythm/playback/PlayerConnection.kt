@@ -142,6 +142,17 @@ class PlayerConnection(
         }
     }
 
+    /** Several songs straight after the current one, in the order given. */
+    fun playNext(songs: List<SongEntity>) {
+        if (songs.isEmpty()) return
+        val c = controller ?: return
+        if (c.mediaItemCount == 0) {
+            play(songs)
+        } else {
+            c.addMediaItems(c.currentMediaItemIndex + 1, items(songs))
+        }
+    }
+
     fun addToQueue(songs: List<SongEntity>) {
         val c = controller ?: return
         if (c.mediaItemCount == 0) {

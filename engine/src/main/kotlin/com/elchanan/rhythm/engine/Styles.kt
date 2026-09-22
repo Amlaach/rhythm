@@ -92,9 +92,27 @@ object Styles {
      * Stored one rule per line, styles within a rule separated by commas.
      * Two styles clash when some rule names both of them.
      */
-    class Separations private constructor(private val rules: List<Set<String>>) {
+    class Separations private constructor(
+        private val rules: List<Set<String>>,
+        /**
+         * Styles that mix only with themselves: a line naming one style.
+         *
+         * The pairwise rules could only keep two named styles apart. They had
+         * nothing to say about everything else, so "אנגלית" kept a mix clear of
+         * "חסידי" if the user had thought to write that pair, and sat happily
+         * next to every untagged song and every style nobody had paired it
+         * with. What was actually wanted was "English with English, and that
+         * is all" - which is a property of one style, not of a pair.
+         *
+         * Untagged songs count as "not this style" here, unlike in the pair
+         * rules. Silence is no conflict between two named styles, but a style
+         * that is to mix only with itself has to keep out the unknown too, or
+         * it keeps out almost nothing in a library that is mostly untagged.
+         */
+        private val isolated: Set<String> = emptySet()
+    ) {
 
-        val isEmpty: Boolean get() = rules.isEmpty()
+        val isEmpty: Boolean get() = rules.isEmpty() && isolated.isEmpty()
 
         /**
          * True when these two sets of styles must not be put together.
@@ -104,6 +122,13 @@ object Styles {
          * in a library that has not been tagged.
          */
         fun clash(a: Collection<String>, b: Collection<String>): Boolean {
+            if (isolated.isNotEmpty()) {
+                val left = a.mapTo(HashSet()) { normalize(it) }
+                val right = b.mapTo(HashSet()) { normalize(it) }
+                for (style in isolated) {
+                    if ((style in left) != (style in right)) return true
+                }
+            }
             if (rules.isEmpty() || a.isEmpty() || b.isEmpty()) return false
             val left = a.map { normalize(it) }
             val right = b.map { normalize(it) }
@@ -123,19 +148,47 @@ object Styles {
 
         companion object {
             fun parse(raw: String): Separations {
-                val rules = raw.split('\n')
+                val lines = raw.split('\n')
                     .map { line ->
                         line.split(',', '|', '،')
-                            .map { normalize(it) }
+                            .map { normalize(it.trim().removePrefix(ONLY).trim()) }
                             .filter { it.isNotEmpty() }
                             .toSet()
                     }
-                    // A rule naming one style separates it from nothing.
-                    .filter { it.size >= 2 }
-                return Separations(rules)
+                // A line naming two or more styles keeps them apart; a line
+                // naming one keeps that style to itself.
+                val rules = lines.filter { it.size >= 2 }
+                val isolated = lines.filter { it.size == 1 }.flatMapTo(HashSet()) { it }
+                return Separations(rules, isolated)
             }
 
-            val NONE = Separations(emptyList())
+            /** The word a single-style line may start with: "רק אנגלית". */
+            private const val ONLY = "רק "
+
+            /**
+             * Thins a group down to what can sit together, keeping the larger
+             * side of every divide and the group's own order.
+             */
+            fun <T> keepTogether(
+                group: List<T>,
+                separations: Separations,
+                stylesOf: (T) -> Collection<String>
+            ): List<T> {
+                if (separations.isEmpty || group.size < 2) return group
+                var kept = group
+                // A style kept to itself splits the group in two: songs that
+                // carry it and songs that do not. The bigger half stays.
+                for (style in separations.isolated) {
+                    val (with, without) = kept.partition { s ->
+                        stylesOf(s).any { normalize(it) == style }
+                    }
+                    if (with.isEmpty() || without.isEmpty()) continue
+                    kept = if (with.size > without.size) with else without
+                }
+                return kept
+            }
+
+            val NONE = Separations(emptyList(), emptySet())
 
             private fun normalize(style: String): String =
                 style.trim().lowercase()

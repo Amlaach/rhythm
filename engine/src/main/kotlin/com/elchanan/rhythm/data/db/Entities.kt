@@ -205,7 +205,13 @@ data class AudioFeatureEntity(
      * before the model arrived. Both cases have to read as "not known" rather
      * than "nothing there".
      */
-    val tags: String = ""
+    val tags: String = "",
+    /**
+     * YAMNet's 1024 channel summary of the recording, packed by [SoundPrint].
+     * Empty means never made; [SoundPrint.TRIED] means attempted and failed,
+     * so the pass that fills these in does not retry it for ever.
+     */
+    val soundPrint: String = ""
 )
 
 /**
