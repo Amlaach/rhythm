@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.elchanan.rhythm.data.AnalysisTransfer
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent
@@ -35,6 +36,12 @@ fun TransferScreen(vm: MainViewModel, onBack: () -> Unit) {
     val busy by vm.busy.collectAsStateWithLifecycle()
     val gutter = rememberMetrics().gutter
     val context = LocalContext.current
+
+    val analysisLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) vm.importAnalysis(uri)
+    }
 
     // Any mime type, because an .m3u exported by another player is served as
     // audio/x-mpegurl, text/plain or application/octet-stream depending on who
@@ -56,6 +63,28 @@ fun TransferScreen(vm: MainViewModel, onBack: () -> Unit) {
     }
 
     SettingsScaffold(title = "ייבוא וייצוא", onBack = onBack) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("ייבוא ניתוח מהמחשב", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "מייבא קובץ ${AnalysisTransfer.EXTENSION} שיצרה Rhythm ב־Windows. " +
+                            "רק התאמות ודאיות נשמרות; שירים שלא נמצאו נשארים לניתוח בטלפון",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+                Button(
+                    onClick = { analysisLauncher.launch(arrayOf("*/*")) },
+                    enabled = !busy,
+                    colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                ) { Text("בחר קובץ") }
+            }
+        }
+
         item {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),

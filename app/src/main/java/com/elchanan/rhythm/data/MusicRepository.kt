@@ -538,6 +538,9 @@ class MusicRepository(
     suspend fun putFeature(feature: AudioFeatureEntity) =
         withContext(Dispatchers.IO) { dao.putFeature(feature) }
 
+    suspend fun putFeatures(features: List<AudioFeatureEntity>) =
+        withContext(Dispatchers.IO) { dao.putFeatures(features) }
+
     // -----------------------------------------------------------------------
     // tag corrections
     // -----------------------------------------------------------------------

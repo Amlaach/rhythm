@@ -118,6 +118,7 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.elchanan.rhythm.data.PlaylistExport
 import com.elchanan.rhythm.data.PlaylistImport
+import com.elchanan.rhythm.data.AnalysisTransfer
 import com.elchanan.rhythm.data.TagFixer
 import com.elchanan.rhythm.data.db.ArtistEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
@@ -1001,6 +1002,25 @@ private fun RhythmApp() {
         }
     }
 
+    /** Exports only completed measurements; music files never enter the bundle. */
+    fun exportAnalysis(file: File) {
+        val songsNow = songs
+        val featuresNow = features
+        scope.launch {
+            status = "מכין קובץ ניתוח…"
+            val written = runCatching {
+                withContext(Dispatchers.IO) {
+                    AnalysisExport.write(file, songsNow, featuresNow)
+                }
+            }.getOrNull()
+            status = if (written == null) {
+                "ייצוא הניתוח נכשל — בדוק הרשאה ומקום פנוי"
+            } else {
+                "יוצאו תוצאות ניתוח עבור $written שירים"
+            }
+        }
+    }
+
     fun openMood(mood: Mood) {
         // Strongest example of the mood first. Matching is a yes or no, and a
         // list of yeses in whatever order they were stored opens on whichever
@@ -1572,6 +1592,7 @@ private fun RhythmApp() {
                     },
                     onImportPlaylist = { choosePlaylistFile()?.let { importPlaylist(it) } },
                     onExportPlaylists = { chooseFolder()?.let { exportPlaylists(it) } },
+                    onExportAnalysis = { chooseAnalysisFile()?.let { exportAnalysis(it) } },
                     busy = busy,
                     engineReport = engineReport,
                     // Cheap enough to derive on the spot: it is a few sums
@@ -3273,6 +3294,24 @@ private fun choosePlaylistFile(): File? {
         fileFilter = FileNameExtensionFilter("רשימות השמעה (m3u, m3u8, pls)", "m3u", "m3u8", "pls")
     }
     return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+        chooser.selectedFile
+    } else {
+        null
+    }
+}
+
+/** Save rather than open: this file is produced here and selected on Android. */
+private fun chooseAnalysisFile(): File? {
+    val chooser = JFileChooser().apply {
+        fileSelectionMode = JFileChooser.FILES_ONLY
+        dialogTitle = "שמור תוצאות ניתוח עבור Android"
+        selectedFile = File("rhythm-library.${AnalysisTransfer.EXTENSION}")
+        fileFilter = FileNameExtensionFilter(
+            "תוצאות ניתוח של Rhythm (*.${AnalysisTransfer.EXTENSION})",
+            AnalysisTransfer.EXTENSION
+        )
+    }
+    return if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
         chooser.selectedFile
     } else {
         null

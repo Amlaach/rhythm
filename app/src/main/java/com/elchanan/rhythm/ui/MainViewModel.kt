@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.elchanan.rhythm.RhythmApp
 import com.elchanan.rhythm.data.AnalysisManager
+import com.elchanan.rhythm.data.AnalysisTransfer
 import com.elchanan.rhythm.data.FileActions
 import com.elchanan.rhythm.data.LibraryWorkService
 import com.elchanan.rhythm.data.LyricsSource
@@ -51,6 +52,7 @@ import com.elchanan.rhythm.engine.Versions
 import com.elchanan.rhythm.playback.PlayerConnection
 import com.elchanan.rhythm.playback.QueueMeta
 import com.elchanan.rhythm.playback.SleepTimer
+import java.io.ByteArrayOutputStream
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -85,6 +87,9 @@ private const val MEDIA_SETTLE_MS = 3_000L
  * not leave the app unable to scan again until it is restarted.
  */
 private const val SCAN_WATCHDOG_MS = 15L * 60L * 1000L
+
+/** Large enough for hundreds of thousands of rows, bounded before parsing. */
+private const val MAX_ANALYSIS_TRANSFER_BYTES = 64 * 1024 * 1024
 
 data class AlbumInfo(
     val albumId: Long,
@@ -1216,6 +1221,77 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 "יובאו ${songs.size} שירים · $missing לא נמצאו"
             } else {
                 "יובאה הרשימה \"$name\" עם ${songs.size} שירים"
+            }
+        }
+    }
+
+    /**
+     * Imports measurements made by the desktop build.
+     *
+     * Parsing, checksum validation and matching all finish before the analyser
+     * is stopped or one database row is touched. The final list insert is one
+     * Room transaction, so a killed process cannot leave half an import.
+     */
+    fun importAnalysis(uri: Uri) {
+        viewModelScope.launch {
+            _busy.value = true
+            val prepared = runCatching {
+                withContext(Dispatchers.IO) {
+                    val bytes = getApplication<Application>().contentResolver
+                        .openInputStream(uri)?.use { input ->
+                            val output = ByteArrayOutputStream()
+                            val buffer = ByteArray(16 * 1024)
+                            var total = 0
+                            while (true) {
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                total += read
+                                require(total <= MAX_ANALYSIS_TRANSFER_BYTES) { "file too large" }
+                                output.write(buffer, 0, read)
+                            }
+                            output.toByteArray()
+                        } ?: throw IllegalArgumentException("empty file")
+                    val bundle = AnalysisTransfer.decode(bytes.toString(Charsets.UTF_8))
+                    val current = repo.featureMap()
+                    bundle to AnalysisTransfer.match(bundle, library.value.songs, current)
+                }
+            }.getOrNull()
+
+            if (prepared == null) {
+                _busy.value = false
+                _message.value = "קובץ הניתוח פגום, חלקי או מגרסה שאינה נתמכת"
+                return@launch
+            }
+            val (bundle, matched) = prepared
+            if (matched.features.isEmpty()) {
+                _busy.value = false
+                _message.value = if (bundle.tracks.isEmpty()) {
+                    "אין בקובץ תוצאות ניתוח"
+                } else {
+                    "לא נמצאה אף התאמה בטוחה לשירים שבטלפון"
+                }
+                return@launch
+            }
+
+            val saved = runCatching {
+                analysis.stopAndWait()
+                repo.putFeatures(matched.features)
+                analysis.refreshCounts()
+            }.isSuccess
+            _busy.value = false
+            if (!saved) {
+                _message.value = "הייבוא נכשל ולא נשמרו תוצאות חלקיות"
+                return@launch
+            }
+
+            val details = buildList {
+                if (matched.unmatched > 0) add("${matched.unmatched} לא נמצאו")
+                if (matched.ambiguous > 0) add("${matched.ambiguous} לא חד־משמעיים")
+                if (matched.invalid > 0) add("${matched.invalid} לא תקינים")
+            }
+            _message.value = buildString {
+                append("יובאו תוצאות ניתוח עבור ${matched.features.size} שירים")
+                if (details.isNotEmpty()) append(" · ").append(details.joinToString(" · "))
             }
         }
     }

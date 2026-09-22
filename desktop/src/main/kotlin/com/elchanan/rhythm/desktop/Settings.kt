@@ -88,6 +88,7 @@ internal fun SettingsScreen(
     onPickLyricsFolder: () -> Unit,
     onImportPlaylist: () -> Unit,
     onExportPlaylists: () -> Unit,
+    onExportAnalysis: () -> Unit,
     busy: Boolean,
     engineReport: String,
     taste: TasteReport?,
@@ -218,6 +219,25 @@ internal fun SettingsScreen(
                     enabled = true,
                     primary = false,
                     onClick = onExportPlaylists
+                )
+            }
+
+            item {
+                SettingSection(
+                    "העברת ניתוח ל־Android",
+                    "הטלפון יקבל את המדידות שכבר נעשו במחשב ולא יצטרך לבצע אותן שוב"
+                )
+                ActionRow(
+                    title = "ייצוא תוצאות הניתוח",
+                    subtitle = if (analysed == 0) {
+                        "עדיין אין תוצאות לייצא — יש להפעיל קודם את ניתוח הספרייה"
+                    } else {
+                        "$analysed שירים מוכנים להעברה · הקובץ אינו כולל את קובצי המוזיקה"
+                    },
+                    action = "שמור קובץ",
+                    enabled = analysed > 0 && !analysing,
+                    primary = true,
+                    onClick = onExportAnalysis
                 )
             }
 

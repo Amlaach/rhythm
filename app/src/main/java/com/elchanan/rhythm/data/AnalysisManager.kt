@@ -6,6 +6,7 @@ import com.elchanan.rhythm.engine.AudioAnalyzer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -116,6 +117,14 @@ class AnalysisManager(
     fun stop() {
         job?.cancel()
         job = null
+        _progress.value = _progress.value.copy(running = false, currentTitle = null)
+    }
+
+    /** Stops the writer and waits until its finally block has released it. */
+    suspend fun stopAndWait() {
+        val active = job
+        job = null
+        active?.cancelAndJoin()
         _progress.value = _progress.value.copy(running = false, currentTitle = null)
     }
 

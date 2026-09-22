@@ -244,6 +244,10 @@ interface MusicDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putFeature(feature: AudioFeatureEntity)
 
+    /** One Room transaction, so an interrupted import is all old or all new. */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putFeatures(features: List<AudioFeatureEntity>)
+
     @Query("SELECT COUNT(*) FROM audio_features")
     suspend fun featureCount(): Int
 
