@@ -1229,6 +1229,86 @@ private fun RhythmApp() {
         }
     }
 
+    // Above the player on purpose.
+    //
+    // The player takes the whole window and returns from this function when
+    // it is open, so anything composed after it is not composed at all while
+    // something is playing full screen - which is exactly where the three
+    // dot menu was, and why it did nothing there.
+
+    // One dialog for the whole app rather than one per list. Opening an
+    // artist or an album from it navigates, so it has to be able to reach the
+    // same stack every screen is drawn from.
+    options?.let { song ->
+        SongOptionsDialog(
+            song = song,
+            stat = stats[song.id],
+            feature = features[song.id],
+            playlists = library.playlists,
+            scoreTerms = remember(song.id, engine) { engine?.explain(song).orEmpty() },
+            totalScore = remember(song.id, engine) { engine?.totalScore(song) ?: 0.0 },
+            // Only when the menu was opened from inside a list, which is the
+            // only place taking a song off one means anything.
+            inPlaylist = (stack.lastOrNull() as? Route.Detail)?.list?.playlistId,
+            onDismiss = { options = null },
+            onRate = { rate(song, it) },
+            onRadio = { startRadio(song) },
+            onMix = { createMix(song) },
+            onRemoveFromPlaylist = {
+                (stack.lastOrNull() as? Route.Detail)?.list?.playlistId?.let {
+                    removeFromPlaylist(it, song)
+                }
+            },
+            onStyles = { setSongStyles(song, it) },
+            onGenre = { setGenre(song, it) },
+            onSpoken = { setSpoken(song, it) },
+            onResetPlays = { resetPlayCount(song) },
+            onDelete = { deleteSong(song) },
+            onOpenArtist = {
+                stack = stack + Route.Artist(song.artistKey)
+                tab = 3
+            },
+            onOpenAlbum = {
+                library.albums.firstOrNull { it.albumId == song.albumId }?.let { album ->
+                    stack = stack + Route.Detail(
+                        DetailList(
+                            title = album.name,
+                            subtitle = album.artistName,
+                            songs = album.songs,
+                            gradientKey = "album:${album.albumId}"
+                        )
+                    )
+                }
+            },
+            onLyrics = {
+                showPlayer = false
+                stack = stack + Route.Lyrics(song.id)
+            },
+            onBookmarks = { bookmarksOpen = true },
+            onAddTo = { addToPlaylist(it, song) },
+            onCreateWith = { createPlaylistWith(it, song) },
+            // Inserted after what is playing, not started: queueing something
+            // for later is the opposite of interrupting, and a menu entry
+            // that says "next" and plays now is one nobody presses twice.
+            onPlayNext = {
+                if (queueIndex < 0) {
+                    play(listOf(song), 0)
+                } else {
+                    queue = queue.toMutableList().also { it.add(queueIndex + 1, song) }
+                    status = "יתנגן אחרי הנוכחי"
+                }
+            },
+            onAddToQueue = {
+                if (queueIndex < 0) {
+                    play(listOf(song), 0)
+                } else {
+                    queue = queue + song
+                    status = "נוסף לתור"
+                }
+            }
+        )
+    }
+
     if (showPlayer && current != null) {
         PlayerScreen(
             song = current,
@@ -1766,78 +1846,6 @@ private fun RhythmApp() {
         }
     }
 
-    // One dialog for the whole app rather than one per list. Opening an
-    // artist or an album from it navigates, so it has to be able to reach the
-    // same stack every screen is drawn from.
-    options?.let { song ->
-        SongOptionsDialog(
-            song = song,
-            stat = stats[song.id],
-            feature = features[song.id],
-            playlists = library.playlists,
-            scoreTerms = remember(song.id, engine) { engine?.explain(song).orEmpty() },
-            totalScore = remember(song.id, engine) { engine?.totalScore(song) ?: 0.0 },
-            // Only when the menu was opened from inside a list, which is the
-            // only place taking a song off one means anything.
-            inPlaylist = (stack.lastOrNull() as? Route.Detail)?.list?.playlistId,
-            onDismiss = { options = null },
-            onRate = { rate(song, it) },
-            onRadio = { startRadio(song) },
-            onMix = { createMix(song) },
-            onRemoveFromPlaylist = {
-                (stack.lastOrNull() as? Route.Detail)?.list?.playlistId?.let {
-                    removeFromPlaylist(it, song)
-                }
-            },
-            onStyles = { setSongStyles(song, it) },
-            onGenre = { setGenre(song, it) },
-            onSpoken = { setSpoken(song, it) },
-            onResetPlays = { resetPlayCount(song) },
-            onDelete = { deleteSong(song) },
-            onOpenArtist = {
-                stack = stack + Route.Artist(song.artistKey)
-                tab = 3
-            },
-            onOpenAlbum = {
-                library.albums.firstOrNull { it.albumId == song.albumId }?.let { album ->
-                    stack = stack + Route.Detail(
-                        DetailList(
-                            title = album.name,
-                            subtitle = album.artistName,
-                            songs = album.songs,
-                            gradientKey = "album:${album.albumId}"
-                        )
-                    )
-                }
-            },
-            onLyrics = {
-                showPlayer = false
-                stack = stack + Route.Lyrics(song.id)
-            },
-            onBookmarks = { bookmarksOpen = true },
-            onAddTo = { addToPlaylist(it, song) },
-            onCreateWith = { createPlaylistWith(it, song) },
-            // Inserted after what is playing, not started: queueing something
-            // for later is the opposite of interrupting, and a menu entry
-            // that says "next" and plays now is one nobody presses twice.
-            onPlayNext = {
-                if (queueIndex < 0) {
-                    play(listOf(song), 0)
-                } else {
-                    queue = queue.toMutableList().also { it.add(queueIndex + 1, song) }
-                    status = "יתנגן אחרי הנוכחי"
-                }
-            },
-            onAddToQueue = {
-                if (queueIndex < 0) {
-                    play(listOf(song), 0)
-                } else {
-                    queue = queue + song
-                    status = "נוסף לתור"
-                }
-            }
-        )
-    }
 }
 
 @Composable

@@ -1557,7 +1557,15 @@ internal fun SongOptionsDialog(
             }
         },
         text = {
-            Column {
+            // Sixteen rows do not fit a laptop screen, and a dialog does not
+            // scroll on its own: everything past "צור מיקס" was simply off the
+            // bottom with no way to reach it. Capped and scrollable, the same
+            // way the playlist picker above already is.
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
                 Text("דירוג", style = MaterialTheme.typography.labelLarge, color = TextSecondary)
                 Spacer(Modifier.height(6.dp))
                 StarRow(rating = stat?.rating ?: 0, onRate = onRate, size = 26)
