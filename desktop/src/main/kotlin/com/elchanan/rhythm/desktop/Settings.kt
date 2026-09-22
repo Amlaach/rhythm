@@ -811,6 +811,7 @@ private fun PlayerActionsDialog(prefs: Prefs, onDismiss: () -> Unit) {
  */
 @Composable
 internal fun AlgorithmSettingsScreen(
+    prefs: Prefs,
     tuning: EngineTuning,
     learning: Boolean,
     learningReport: String?,
@@ -823,6 +824,7 @@ internal fun AlgorithmSettingsScreen(
     onShowGuessed: () -> Unit,
     onBack: () -> Unit
 ) {
+    var autoLearn by remember { mutableStateOf(prefs.autoLearn) }
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = "הגדרות האלגוריתם", onBack = onBack)
         LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
@@ -862,6 +864,23 @@ internal fun AlgorithmSettingsScreen(
                     enabled = !busy && !learning,
                     primary = true,
                     onClick = onLearn
+                )
+                ActionRow(
+                    title = "למידה אוטומטית",
+                    subtitle = if (autoLearn) {
+                        "לומד בעצמו אחרי כל ניתוח אודיו, בלי ללחוץ. הוא עדיין בודק " +
+                            "את עצמו על אמנים שלא אימן עליהם ולא כותב סגנון שאינו " +
+                            "מדייק בו — כך שריצה בלי מה לומר לא משנה כלום"
+                    } else {
+                        "כבויה. הלמידה תרוץ רק כשתלחץ על \"למד\""
+                    },
+                    action = if (autoLearn) "כבה" else "הדלק",
+                    enabled = true,
+                    primary = false,
+                    onClick = {
+                        autoLearn = !autoLearn
+                        prefs.autoLearn = autoLearn
+                    }
                 )
                 learningReport?.let { report ->
                     Text(

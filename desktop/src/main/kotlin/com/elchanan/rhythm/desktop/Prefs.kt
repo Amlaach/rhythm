@@ -34,6 +34,18 @@ class Prefs(private val store: Store) {
         get() = flag("welcomeSeen", false)
         set(value) = set("welcomeSeen", value)
 
+    /**
+     * Learn the styles by itself once the sound has been measured.
+     *
+     * On by default, which is only defensible because of what learning does
+     * before it writes anything: it tests itself on artists it never trained
+     * on and refuses any style it cannot get right four times in five. A run
+     * with nothing trustworthy to say changes nothing at all.
+     */
+    var autoLearn: Boolean
+        get() = flag("autoLearn", true)
+        set(value) = set("autoLearn", value)
+
     /** Measure every new file as soon as the scan finds it. */
     var autoAnalyze: Boolean
         get() = flag("autoAnalyze", true)
