@@ -11,6 +11,7 @@ import com.elchanan.rhythm.RhythmApp
 import com.elchanan.rhythm.data.AnalysisManager
 import com.elchanan.rhythm.data.AnalysisTransfer
 import com.elchanan.rhythm.data.FileActions
+import com.elchanan.rhythm.data.LibraryCatalogExport
 import com.elchanan.rhythm.data.LibraryWorkService
 import com.elchanan.rhythm.data.LyricsSource
 import com.elchanan.rhythm.data.MusicRepository
@@ -1292,6 +1293,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _message.value = buildString {
                 append("יובאו תוצאות ניתוח עבור ${matched.features.size} שירים")
                 if (details.isNotEmpty()) append(" · ").append(details.joinToString(" · "))
+            }
+        }
+    }
+
+    /** Writes a complete, shareable inventory with no listening or file data. */
+    fun exportLibraryCatalog(uri: Uri) {
+        viewModelScope.launch {
+            _busy.value = true
+            val catalog = runCatching {
+                withContext(Dispatchers.IO) {
+                    val result = LibraryCatalogExport.create(repo.allSongsForExport())
+                    getApplication<Application>().contentResolver
+                        .openOutputStream(uri, "wt")?.bufferedWriter(Charsets.UTF_8)?.use {
+                            it.write(result.text)
+                        } ?: throw IllegalStateException("cannot open destination")
+                    result
+                }
+            }.getOrNull()
+            _busy.value = false
+            _message.value = if (catalog == null) {
+                "ייצוא רשימת הספרייה נכשל — בדוק הרשאה ומקום פנוי"
+            } else {
+                buildString {
+                    append("יוצאו ${catalog.artists} אמנים, ${catalog.albums} אלבומים")
+                    append(" ו־${catalog.songs} שירים")
+                    if (catalog.unnamed > 0) {
+                        append(" · ${catalog.unnamed} שמות חסרים סומנו ולא הושמטו")
+                    }
+                }
             }
         }
     }

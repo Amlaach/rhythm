@@ -535,6 +535,10 @@ class MusicRepository(
     suspend fun songsNeedingAnalysis(limit: Int): List<SongEntity> =
         withContext(Dispatchers.IO) { dao.songsNeedingAnalysis(limit) }
 
+    /** Raw inventory, before the UI hides duplicate files. */
+    suspend fun allSongsForExport(): List<SongEntity> =
+        withContext(Dispatchers.IO) { dao.allSongs() }
+
     suspend fun putFeature(feature: AudioFeatureEntity) =
         withContext(Dispatchers.IO) { dao.putFeature(feature) }
 
