@@ -89,6 +89,12 @@ BARE_FUN = {
     "delay", "runBlocking", "coroutineScope", "supervisorScope", "withTimeout",
     "withTimeoutOrNull", "awaitAll", "yield", "channelFlow", "callbackFlow",
     "flowOf", "emptyFlow", "combine", "merge", "produceState", "rememberCoroutineScope",
+    # The Compose state builders. Moving a block of UI from one file to
+    # another takes its `remember { mutableStateOf(...) }` with it and leaves
+    # the import behind, which is the single commonest way this breaks.
+    "remember", "rememberSaveable", "mutableStateOf", "mutableIntStateOf",
+    "mutableLongStateOf", "mutableFloatStateOf", "mutableDoubleStateOf",
+    "mutableStateListOf", "mutableStateMapOf", "derivedStateOf",
 }
 
 # Names that are only ever an extension, wherever they appear.
@@ -141,6 +147,11 @@ def strip_noise(text: str) -> str:
     return text
 
 
+# `val x by ...` / `var x by ...`, the Compose delegate forms.
+DELEGATE_VAR = re.compile(r"\b(?:val|var)\s+\w+\s+by\s+(?:remember|rememberSaveable|vm\.|\w+\.collectAs)")
+DELEGATE_MUTABLE = re.compile(r"\bvar\s+\w+\s+by\s+(?:remember|rememberSaveable)")
+
+
 def scan(roots):
     files = []
     for root in roots:
@@ -172,8 +183,10 @@ def scan(roots):
     problems = []
     for path, (raw, body, pkg, own) in parsed.items():
         imported = set()
+        imports_full = set()
         wildcards = False
         for full, alias in IMPORT.findall(raw):
+            imports_full.add(full)
             if full.endswith(".*"):
                 wildcards = True
                 continue
@@ -206,6 +219,21 @@ def scan(roots):
         for name in sorted(used_ext):
             if name not in available:
                 problems.append((path, name, "extension"))
+
+        # Property delegation, which names nothing.
+        #
+        # `var x by remember { mutableStateOf(0) }` compiles to calls to
+        # getValue and setValue, and those have to be imported - but the
+        # source never writes either word, so nothing above can see the need.
+        # Missing them does not fail where the delegate is: it fails wherever
+        # the property is read, with an error about something else entirely,
+        # which is a long way to walk back from.
+        if DELEGATE_VAR.search(body_no_imports):
+            if "androidx.compose.runtime.getValue" not in imports_full:
+                problems.append((path, "getValue (for `by`)", "delegate"))
+        if DELEGATE_MUTABLE.search(body_no_imports):
+            if "androidx.compose.runtime.setValue" not in imports_full:
+                problems.append((path, "setValue (for `by`)", "delegate"))
     return problems
 
 
