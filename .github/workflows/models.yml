@@ -46,7 +46,9 @@ jobs:
           git add app/src/main/assets/music engine/src/test/resources/effnet_reference.json
           if git diff --cached --quiet; then echo "nothing changed"; exit 0; fi
           git commit -m "Add converted Discogs-EffNet and mood heads (MTG-UPF, CC BY-NC-SA 4.0)"
-          git push
+          # the branch may have moved on while this ran
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - uses: actions/upload-artifact@v4
         if: always()
