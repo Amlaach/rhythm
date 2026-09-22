@@ -131,6 +131,37 @@ class StyleLearningTest {
         assertTrue(result.accepted.isNotEmpty())
     }
 
+    @Test fun aStyleOnOneArtistIsNamedAsSuchRatherThanJustScoringZero() {
+        // Exactly the shape that keeps coming back: plenty of songs, all of
+        // them by one singer. It cannot pass - the split is by artist - and
+        // the screen used to say only "precision 0%", which reads as a bad
+        // style rather than as an impossible test.
+        val examples = mixedQuality().map {
+            if ("rock" in it.labels) it.copy(labels = it.labels + "solo") else it
+        }.map {
+            if ("solo" in it.labels && it.artistKey != "artist-1") {
+                it.copy(labels = it.labels - "solo")
+            } else it
+        }
+        val songs = examples.map { song(it.songId, it.artistKey) }
+        val manual = examples.associate {
+            it.songId to SongStatsEntity(it.songId, styles = Styles.join(it.labels), stylesAuto = 0)
+        }
+        val result = StyleLearning.learn(
+            songs, manual, emptyMap(),
+            examples.associate { it.songId to feature(it.songId, "folk" in it.labels) }
+        )
+        val solo = result.styles.single { it.style == "solo" }
+        assertEquals(1, solo.artists)
+        assertFalse(solo.accepted)
+        assertTrue(solo.reason, solo.reason.contains("אמן אחד"))
+        assertTrue(StyleLearning.report(result).contains("אמנים:"))
+        // And a style spread over several artists is not accused of it.
+        val folk = result.styles.single { it.style == "folk" }
+        assertTrue(folk.artists > 1)
+        assertFalse(folk.reason.contains("אמן אחד"))
+    }
+
     @Test fun everyStyleIsAccountedForInTheReport() {
         val result = mixedLearn()
         val text = StyleLearning.report(result)
