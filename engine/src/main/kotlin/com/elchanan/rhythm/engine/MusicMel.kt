@@ -25,8 +25,13 @@ import kotlin.math.sqrt
  * The model then reads patches of 128 frames, about two seconds.
  */
 class MusicMel(
-    /** Whether the first frame starts at the first sample or is centred on it. */
-    private val startFromZero: Boolean = true,
+    /**
+     * Whether the first frame starts at the first sample or is centred on it.
+     * Centred is what Essentia's EffNet predictor does: with it, the converted
+     * model reproduced Essentia's embeddings to a cosine of 1.00000; starting
+     * from zero, to 0.97 at worst.
+     */
+    private val startFromZero: Boolean = false,
     private val normalisation: Normalisation = Normalisation.UNIT_TRI
 ) {
 

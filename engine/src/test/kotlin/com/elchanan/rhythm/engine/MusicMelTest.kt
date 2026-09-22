@@ -15,10 +15,10 @@ class MusicMelTest {
     @Test fun framesAndPatchesAreCountedAsEssentiaCountsThem() {
         val mel = MusicMel()
         val frames = mel.frames(MusicMel.testSignal())
-        // Essentia, same signal: 1874 frames starting from zero, 29 patches
-        assertEquals(1874, frames.size)
+        // Essentia, same signal: 1876 frames centred, 1874 from zero, 29 patches
+        assertEquals(1876, frames.size)
         assertEquals(29, mel.patches(frames).size)
-        assertEquals(1876, MusicMel(startFromZero = false).frames(MusicMel.testSignal()).size)
+        assertEquals(1874, MusicMel(startFromZero = true).frames(MusicMel.testSignal()).size)
     }
 
     @Test fun aToneLightsTheBandItBelongsTo() {
