@@ -398,6 +398,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _selection = MutableStateFlow<Set<Long>>(emptySet())
     val selection: StateFlow<Set<Long>> = _selection.asStateFlow()
 
+    private val _selectionScope = MutableStateFlow<List<Long>>(emptyList())
+
+    /**
+     * The list a selection was started in - the songs on the screen, the
+     * folder, the album - which is what "select all" means.
+     *
+     * Told by the screen at the moment of the long press rather than worked
+     * out here, because only the screen knows what it is showing: the same
+     * song can be in a folder, an album and a search at once.
+     */
+    val selectionScope: StateFlow<List<Long>> = _selectionScope.asStateFlow()
+
+    fun noteSelectionScope(ids: List<Long>) {
+        _selectionScope.value = ids
+    }
+
+    /** Everything in the list the selection was started in. */
+    fun selectAll() {
+        _selection.value = _selection.value + _selectionScope.value
+    }
+
     /** Ticking the last one off ends selection mode, because empty is the mode. */
     fun toggleSelect(id: Long) {
         _selection.value = _selection.value.let { if (id in it) it - id else it + id }
@@ -418,6 +439,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearSelection() {
         _selection.value = emptySet()
+        _selectionScope.value = emptyList()
     }
 
     /** The selected songs, in the order the library holds them. */
@@ -976,7 +998,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val changed = repo.setStylesForSongs(songs.map { it.id }, styles, replace)
             _message.value =
-                if (changed == 0) "כל השירים בתיקייה כבר מתויגים כך"
+                if (changed == 0) "כל השירים כבר מתויגים כך"
                 else "תויגו $changed שירים"
             refreshFeed()
         }
@@ -1839,6 +1861,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             repo.bulkAddToPlaylist(playlistId, ids)
             _message.value = "${ids.size} שירים נוספו לרשימה"
         }
+    }
+
+    fun bulkPlayNext(songs: List<SongEntity>) {
+        if (songs.isEmpty()) return
+        player.playNext(songs)
+        QueueMeta.markManual(songs.map { it.id })
+        _message.value = if (songs.size == 1) "יתנגן הבא: ${songs[0].title}"
+        else "${songs.size} שירים יתנגנו הבא"
     }
 
     fun bulkQueue(songs: List<SongEntity>) {

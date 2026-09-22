@@ -2,6 +2,7 @@ package com.elchanan.rhythm.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -81,7 +82,7 @@ fun TransferScreen(vm: MainViewModel, onBack: () -> Unit) {
     SettingsScaffold(title = "ייבוא וייצוא", onBack = onBack) {
         item {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth().clickable(enabled = !busy) { analysisLauncher.launch(arrayOf("*/*")) }.padding(horizontal = gutter, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -103,7 +104,7 @@ fun TransferScreen(vm: MainViewModel, onBack: () -> Unit) {
 
         item {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth().clickable(enabled = !busy) { catalogLauncher.launch(LibraryCatalogExport.FILE_NAME) }.padding(horizontal = gutter, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -125,7 +126,7 @@ fun TransferScreen(vm: MainViewModel, onBack: () -> Unit) {
 
         item {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth().clickable(enabled = !busy) { playCountLauncher.launch(arrayOf("*/*")) }.padding(horizontal = gutter, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -149,7 +150,7 @@ fun TransferScreen(vm: MainViewModel, onBack: () -> Unit) {
 
         item {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth().clickable { playlistLauncher.launch(arrayOf("*/*")) }.padding(horizontal = gutter, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -171,7 +172,7 @@ fun TransferScreen(vm: MainViewModel, onBack: () -> Unit) {
         item {
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxWidth().clickable(enabled = !busy) { exportLauncher.launch(null) }
                     .padding(horizontal = gutter, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {

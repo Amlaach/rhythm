@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -153,7 +154,7 @@ fun AlgorithmSettingsScreen(
 
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().clickable(enabled = !busy && !learning) { vm.learnStyles() }.padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -188,7 +189,7 @@ fun AlgorithmSettingsScreen(
 
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth().clickable(enabled = !busy) { vm.runSoundCheck() }.padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -275,7 +276,7 @@ fun AlgorithmSettingsScreen(
             if (guessed.isNotEmpty()) {
                 item {
                     Row(
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().clickable { vm.openGuessed(); onOpenDetail() }
                             .padding(horizontal = gutter, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -409,7 +410,7 @@ fun AlgorithmSettingsScreen(
             item {
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .fillMaxWidth().clickable { separationsOpen = true }
                         .padding(horizontal = gutter, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

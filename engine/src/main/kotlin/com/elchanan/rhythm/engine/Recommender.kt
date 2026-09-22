@@ -295,8 +295,11 @@ class Recommender(
      * songs stay: they clash with nothing, and throwing them out would gut
      * the mixes of anyone who has not tagged their library.
      */
-    private fun withoutSeparated(group: List<SongEntity>): List<SongEntity> {
-        if (separations.isEmpty || group.size < 2) return group
+    private fun withoutSeparated(input: List<SongEntity>): List<SongEntity> {
+        if (separations.isEmpty || input.size < 2) return input
+        // Styles kept to themselves first: the larger side of each stays.
+        val group = Styles.Separations.keepTogether(input, separations) { declaredStyles[it.id].orEmpty() }
+        if (group.size < 2) return group
         val counts = HashMap<String, Int>()
         for (song in group) {
             for (style in declaredStyles[song.id].orEmpty()) {
@@ -455,13 +458,13 @@ class Recommender(
      */
     private fun oneSide(list: List<SongEntity>): List<SongEntity> {
         if (separations.isEmpty) return list
-        val side = ArrayList<String>()
-        return list.filter { song ->
+        val kept = ArrayList<SongEntity>(list.size)
+        for (song in list) {
             val mine = declaredStyles[song.id].orEmpty()
-            if (side.isNotEmpty() && separations.clash(side, mine)) return@filter false
-            for (style in mine) if (style !in side) side.add(style)
-            true
+            if (kept.any { separations.clash(declaredStyles[it.id].orEmpty(), mine) }) continue
+            kept.add(song)
         }
+        return kept
     }
 
     private val artistKeyById: Map<Long, String> = songs.associate { it.id to it.artistKey }
@@ -1283,10 +1286,6 @@ class Recommender(
         // rather than the recording, so somebody else's cover of a song already
         // on the shelf does not count as a second offer either.
         val piecesUsed = HashSet<String>()
-        // Which side of a separation rule this shelf has landed on, filled in
-        // as it goes. The first tagged song to get in pins it; untagged songs
-        // pin nothing and clash with nothing.
-        val shelfStyles = ArrayList<String>()
         val taken = HashSet<Long>()
         val out = ArrayList<SongEntity>(count)
 
@@ -1313,10 +1312,16 @@ class Recommender(
                 val piece = pieceKeyById[song.id]?.takeIf { it.isNotBlank() }
                     ?: versionKeyById[song.id]
                 if (piece != null && piece in piecesUsed) continue
-                val mine = declaredStyles[song.id].orEmpty()
-                if (shelfStyles.isNotEmpty() && separations.clash(shelfStyles, mine)) continue
+                // Against every song already on the shelf, not against a side
+                // the first tagged one pinned. Against a side, an untagged song
+                // that got in before the first tagged one was never checked -
+                // harmless for a rule between two styles, and exactly wrong for
+                // a style that is to mix only with itself.
+                if (!separations.isEmpty) {
+                    val mine = declaredStyles[song.id].orEmpty()
+                    if (out.any { separations.clash(declaredStyles[it.id].orEmpty(), mine) }) continue
+                }
                 if (piece != null) piecesUsed.add(piece)
-                for (style in mine) if (style !in shelfStyles) shelfStyles.add(style)
                 artistCount[song.artistKey] = artistCount.getOrDefault(song.artistKey, 0) + 1
                 albumCount[song.albumId] = albumCount.getOrDefault(song.albumId, 0) + 1
                 taken.add(song.id)

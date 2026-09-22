@@ -29,6 +29,7 @@ import com.elchanan.rhythm.engine.Recap
 import com.elchanan.rhythm.engine.RecapData
 import com.elchanan.rhythm.engine.Recommender
 import com.elchanan.rhythm.engine.TransitionEdge
+import com.elchanan.rhythm.engine.Versions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -711,8 +712,18 @@ class MusicRepository(
         // rows with zero energy are placeholders for files that failed to
         // decode; they must not enter the statistics of the acoustic space
         val featureRows = dao.allFeatures().filter { it.energy > 0f }
-        val allSongs = dao.allSongs()
         val statsById = dao.allStats().associateBy { it.songId }
+        // The same collapse the library applies, and for the same reason: a
+        // copy the user has hidden is hidden. The library dropped them and the
+        // engine was never told, so search - which runs through the engine -
+        // went on listing both copies, and hiding duplicates looked like it
+        // worked everywhere except the one place people check it.
+        val allSongs = dao.allSongs().let { all ->
+            if (!prefs.hideDuplicates) all else {
+                val types = Versions.classify(all) { id -> statsById[id]?.playCount ?: 0 }
+                Versions.withoutDuplicates(all, types)
+            }
+        }
         val featuresById = featureRows.associateBy { it.songId }
         // Worked out here rather than inside the engine, because deciding what
         // is speech needs the tag scores unpacked from their stored form and

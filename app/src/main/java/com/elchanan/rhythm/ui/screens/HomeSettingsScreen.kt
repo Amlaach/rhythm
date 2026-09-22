@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -119,7 +120,7 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
 
         Row(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth().clickable { shelvesOpen = true }
                 .padding(horizontal = gutter, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

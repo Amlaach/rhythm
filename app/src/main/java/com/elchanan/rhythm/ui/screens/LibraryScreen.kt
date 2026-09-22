@@ -512,7 +512,10 @@ fun LibraryScreen(
                                             vm.playList(spoken, spoken.indexOf(song))
                                         }
                                     },
-                                    onLongClick = { vm.toggleSelect(song.id) },
+                                    onLongClick = {
+                                        vm.noteSelectionScope(spoken.map { it.id })
+                                        vm.toggleSelect(song.id)
+                                    },
                                     onMore = { sheetSong = song },
                                     trailing = if (at != null && at.positionMs > 0) {
                                         {
@@ -718,7 +721,10 @@ private fun SongTab(
                         if (selectionMode) onToggleSelect(song.id)
                         else vm.playList(songs, songs.indexOf(song))
                     },
-                    onLongClick = { onToggleSelect(song.id) },
+                    onLongClick = {
+                        vm.noteSelectionScope(songs.map { it.id })
+                        onToggleSelect(song.id)
+                    },
                     onMore = { onMore(song) },
                     onLike = { vm.like(song.id) },
                     onDislike = { vm.dislike(song.id) }
@@ -750,6 +756,8 @@ internal fun SelectionBar(vm: MainViewModel) {
     var genreOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
+    var styleOpen by remember { mutableStateOf(false) }
+    val scope by vm.selectionScope.collectAsStateWithLifecycle()
     val ids = selection.toList()
 
     Row(
@@ -762,22 +770,48 @@ internal fun SelectionBar(vm: MainViewModel) {
         IconButton(onClick = onClear) {
             Icon(Icons.Filled.Close, contentDescription = "בטל", tint = TextSecondary)
         }
+        // The count takes whatever room is left and gives it up first. It was
+        // a fixed width, and the moment it reached three digits - a few
+        // folders' worth - it pushed "more" off the end of a small screen,
+        // taking every action behind it along.
         Text(
             "${selection.size} נבחרו",
             style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.padding(end = 6.dp)
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).padding(end = 6.dp)
         )
-        Spacer(Modifier.weight(1f))
         // Four on the bar and the rest behind the dots. Eight labelled icons
         // do not fit a phone: on a narrow screen they were squeezing each
         // other off the end, and which four survived depended on the device.
         BarAction(Icons.Filled.PlayArrow, "נגן") { vm.playList(songs); onClear() }
+        BarAction(Icons.AutoMirrored.Filled.PlaylistPlay, "הבא") { vm.bulkPlayNext(songs); onClear() }
         BarAction(Icons.AutoMirrored.Filled.QueueMusic, "לתור") { vm.bulkQueue(songs); onClear() }
-        BarAction(Icons.Filled.ThumbUp, "לייק") { vm.bulkLikeSongs(ids, 1); onClear() }
-        BarAction(Icons.AutoMirrored.Filled.PlaylistAdd, "לרשימה") { playlistOpen = true }
         Box {
             BarAction(Icons.Filled.MoreVert, "עוד") { moreOpen = true }
             DropdownMenu(expanded = moreOpen, onDismissRequest = { moreOpen = false }) {
+                if (scope.isNotEmpty() && !selection.containsAll(scope)) {
+                    DropdownMenuItem(
+                        text = { Text("בחר הכל (${scope.size})") },
+                        leadingIcon = { Icon(Icons.Filled.CheckCircle, contentDescription = null) },
+                        onClick = { moreOpen = false; vm.selectAll() }
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text("סגנון") },
+                    leadingIcon = { Icon(Icons.Filled.LocalOffer, contentDescription = null) },
+                    onClick = { moreOpen = false; styleOpen = true }
+                )
+                DropdownMenuItem(
+                    text = { Text("לייק") },
+                    leadingIcon = { Icon(Icons.Filled.ThumbUp, contentDescription = null) },
+                    onClick = { moreOpen = false; vm.bulkLikeSongs(ids, 1); onClear() }
+                )
+                DropdownMenuItem(
+                    text = { Text("הוסף לרשימה") },
+                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, contentDescription = null) },
+                    onClick = { moreOpen = false; playlistOpen = true }
+                )
                 DropdownMenuItem(
                     text = { Text("דרג") },
                     leadingIcon = { Icon(Icons.Filled.Star, contentDescription = null) },
@@ -802,6 +836,16 @@ internal fun SelectionBar(vm: MainViewModel) {
                 )
             }
         }
+    }
+
+    if (styleOpen) {
+        BulkStyleDialog(
+            title = "תגיות ל-${selection.size} שירים",
+            subtitle = "תגית על שיר מחליפה את תגיות האמן עבורו",
+            count = selection.size,
+            onDismiss = { styleOpen = false },
+            onApply = { styles, replace -> vm.tagFolder(songs, styles, replace); onClear() }
+        )
     }
 
     if (genreOpen) {
@@ -1085,7 +1129,10 @@ private fun FolderTreeTab(
                             onClick = {
                                 if (selectionMode) onToggleGroup(inside) else path = child.path
                             },
-                            onLongClick = { onToggleGroup(inside) }
+                            onLongClick = {
+                                vm.noteSelectionScope(Folders.allSongs(here).map { it.id })
+                                onToggleGroup(inside)
+                            }
                         )
                         .background(if (picked) Accent.copy(alpha = 0.16f) else Color.Transparent)
                         .padding(horizontal = gutter, vertical = 7.dp),
@@ -1163,7 +1210,10 @@ private fun FolderTreeTab(
                             vm.playList(here.songs, here.songs.indexOf(song), here.name)
                         }
                     },
-                    onLongClick = { onToggleSong(song.id) },
+                    onLongClick = {
+                        vm.noteSelectionScope(Folders.allSongs(here).map { it.id })
+                        onToggleSong(song.id)
+                    },
                     onMore = { onMore(song) },
                     onLike = { vm.like(song.id) },
                     onDislike = { vm.dislike(song.id) }
@@ -1200,13 +1250,33 @@ private fun FolderStyleDialog(
     count: Int,
     onDismiss: () -> Unit,
     onApply: (List<String>, Boolean) -> Unit
+) = BulkStyleDialog(
+    title = "תגיות לתיקייה",
+    subtitle = "\"$folderName\" · $count שירים, כולל תת־תיקיות",
+    count = count,
+    onDismiss = onDismiss,
+    onApply = onApply
+)
+
+/**
+ * One set of style tags onto many songs: a folder, or whatever is selected.
+ * What a bulk tag may overwrite is BulkTagging's decision, not this dialog's.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BulkStyleDialog(
+    title: String,
+    subtitle: String,
+    count: Int,
+    onDismiss: () -> Unit,
+    onApply: (List<String>, Boolean) -> Unit
 ) {
     var selected by remember { mutableStateOf(emptyList<String>()) }
     var replace by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Surface1,
-        title = { Text("תגיות לתיקייה") },
+        title = { Text(title) },
         text = {
             Column(
                 modifier = Modifier
@@ -1214,7 +1284,7 @@ private fun FolderStyleDialog(
                     .verticalScroll(rememberScrollState())
             ) {
                 Text(
-                    "\"$folderName\" · $count שירים, כולל תת־תיקיות",
+                    subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
