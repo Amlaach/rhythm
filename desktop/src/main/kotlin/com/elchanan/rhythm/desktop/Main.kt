@@ -1572,6 +1572,24 @@ private fun RhythmApp() {
                     onChange = { retune(it) },
                     onLearn = { learnStyles() },
                     onClearLearned = { clearLearnedStyles() },
+                    guessedCount = songs.count { song ->
+                        val own = stats[song.id]
+                        own?.stylesAuto == 1 && own.styles.isNotBlank()
+                    },
+                    onShowGuessed = {
+                        val guessed = songs.filter { song ->
+                            val own = stats[song.id]
+                            own?.stylesAuto == 1 && own.styles.isNotBlank()
+                        }
+                        stack = stack + Route.Detail(
+                            DetailList(
+                                title = "מה האפליקציה ניחשה",
+                                subtitle = "${guessed.size} שירים · פתח שיר כדי לאשר או לתקן",
+                                songs = guessed,
+                                gradientKey = "guessed"
+                            )
+                        )
+                    },
                     onBack = { stack = stack.dropLast(1) }
                 )
 
