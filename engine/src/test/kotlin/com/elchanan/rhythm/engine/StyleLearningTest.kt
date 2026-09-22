@@ -200,6 +200,45 @@ class StyleLearningTest {
         assertFalse(folk.reason.contains("לא נלמד"))
     }
 
+    @Test fun featureNamesLineUpWithTheVectorTheModelIsGiven() {
+        // A name that names the wrong number is worse than no name: it would
+        // say the model listens to a guitar when it listens to tempo, with
+        // nothing on screen to betray it. So the layout is checked against a
+        // real vector rather than trusted.
+        val vector = StyleTraining.featuresFor(
+            Analysis.blankFor(1).copy(energy = 0.5f, bpm = 120f, tags = "271:0.9")
+        )!!
+        assertEquals(AudioTags.ALL.size + 36, vector.size)
+        // The heard classes come first, in their own order.
+        AudioTags.ALL.forEachIndexed { i, group ->
+            assertEquals(group.label, StyleLearner.featureName(i))
+        }
+        // Then the measured acoustics, in the order rawVector writes them.
+        val base = AudioTags.ALL.size
+        assertEquals("קצב", StyleLearner.featureName(base))
+        assertEquals("עוצמה", StyleLearner.featureName(base + 1))
+        assertEquals("צפיפות נגינה", StyleLearner.featureName(base + 5))
+        assertEquals("גוון 1", StyleLearner.featureName(base + 6))
+        assertEquals("הרמוניה 1", StyleLearner.featureName(base + 18))
+        assertEquals("מהלך השיר 1", StyleLearner.featureName(base + 30))
+        assertEquals("מהלך השיר 6", StyleLearner.featureName(base + 35))
+        // Every position in the vector has a name of its own.
+        val names = vector.indices.map { StyleLearner.featureName(it) }
+        assertEquals(names.size, names.distinct().size)
+        assertTrue(names.none { it.startsWith("מדד ") })
+        // And the four moods really are inputs, which is the whole reason
+        // this is shown: a style can be learned as one by accident.
+        assertTrue("רגוע" in names)
+    }
+
+    @Test fun theModelSaysWhatItListensTo() {
+        val result = mixedLearn()
+        val folk = result.styles.single { it.style == "folk" }
+        assertTrue(folk.influences.isNotEmpty())
+        assertEquals(folk.influences, folk.influences.sortedByDescending { kotlin.math.abs(it.second) })
+        assertTrue(StyleLearning.report(result).contains("המודל מקשיב בעיקר ל"))
+    }
+
     @Test fun everyStyleIsAccountedForInTheReport() {
         val result = mixedLearn()
         val text = StyleLearning.report(result)

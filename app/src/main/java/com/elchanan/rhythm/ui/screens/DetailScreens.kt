@@ -159,10 +159,19 @@ fun DetailListScreen(vm: MainViewModel, onBack: () -> Unit) {
                 }
             }
             items(songs, key = { it.id }) { song ->
+                val own = library.stats[song.id]
                 SongRow(
                     song = song,
-                    liked = library.stats[song.id]?.liked ?: 0,
-                    rating = library.stats[song.id]?.rating ?: 0,
+                    liked = own?.liked ?: 0,
+                    rating = own?.rating ?: 0,
+                    // Wherever a guessed song turns up, it says so. The point
+                    // of showing the guesses is that they can be checked, and
+                    // a list of titles with nothing beside them cannot be.
+                    note = if (own?.stylesAuto == 1 && own.styles.isNotBlank()) {
+                        "תויג אוטומטית: ${own.styles}"
+                    } else {
+                        null
+                    },
                     selected = song.id in selection,
                     selectionMode = selection.isNotEmpty(),
                     onClick = {

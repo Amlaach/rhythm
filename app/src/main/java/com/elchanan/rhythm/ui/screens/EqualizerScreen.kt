@@ -1,6 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -8,6 +9,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -15,15 +17,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -38,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,6 +60,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -170,9 +177,22 @@ private fun GraphicEqualizer(gutter: Dp) {
     //
     // So the two controls sit in a fixed region that never scrolls, and only
     // the settings underneath them - presets, preamp, reset, none of which
-    // wants a vertical drag - are in a list. Nothing competes for a gesture
-    // any more, and the curve takes whatever height is left over, which is
-    // also what makes this fit a short window instead of overflowing it.
+    // wants a vertical drag - are in a list.
+    //
+    // Exactly one child of this column is weighted, and it has to stay that
+    // way. The curve used to be weighted as well, capped at a maximum: a
+    // weighted child that declines part of its share does not hand it to the
+    // other one, so on an ordinary phone the curve took its 170dp, the list
+    // was measured for a share it never received, and a hundred and eighty
+    // points of nothing sat at the bottom of the screen - underneath a list
+    // squeezed by the same amount, with its own 150dp of padding below that.
+    //
+    // The curve is given an explicit height instead, worked out from the
+    // window, so it still shrinks where there is no room and the list gets
+    // every point that is left.
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    val curveHeight = (maxHeight * CURVE_SHARE_OF_WINDOW)
+        .coerceIn(CURVE_MIN_HEIGHT, CURVE_MAX_HEIGHT)
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 8.dp),
@@ -202,12 +222,10 @@ private fun GraphicEqualizer(gutter: Dp) {
         ResponseCurve(
             settings = settings,
             gutter = gutter,
-            // Shrinks on a short window rather than pushing the rest off the
-            // bottom. fill = false so it never grows past what the curve is
-            // worth on a tall one.
-            modifier = Modifier
-                .weight(1f, fill = false)
-                .heightIn(min = 96.dp, max = 170.dp),
+            // A share of the window, floored so it stays readable and capped
+            // so it never grows past what a curve is worth. Explicit rather
+            // than weighted, so nothing is left over for a gap.
+            modifier = Modifier.height(curveHeight),
             onDraw = { band, millibels ->
                 settings = settings.withBand(band, millibels)
                 controller.setBand(band, millibels)
@@ -312,7 +330,15 @@ private fun GraphicEqualizer(gutter: Dp) {
             }
         }
     }
+    }
 }
+
+/** How much of the window the response curve may take, before the limits. */
+private const val CURVE_SHARE_OF_WINDOW = 0.22f
+
+/** Below this it stops being readable; above it, it stops being worth more. */
+private val CURVE_MIN_HEIGHT = 96.dp
+private val CURVE_MAX_HEIGHT = 170.dp
 
 // --- the curve ---------------------------------------------------------------
 
@@ -519,26 +545,70 @@ private fun FaderStrip(
     onBandEnd: () -> Unit
 ) {
     val scroll = rememberScrollState()
+    // Measured outside the scrolling, so this is how much of the strip is on
+    // screen rather than how long the strip is.
+    var viewport by remember { mutableIntStateOf(0) }
     // Same reason as the curve: band 0 is 20 Hz and belongs on the left, next
     // to the left hand end of the curve it is drawn under.
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-    Row(
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .onSizeChanged { viewport = it.width }
+                .horizontalScroll(scroll)
+                .padding(horizontal = gutter, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+            for (band in 0 until EqBands.COUNT) {
+                Fader(
+                    millibels = settings.bands[band],
+                    label = EqBands.label(EqBands.FREQUENCIES[band]),
+                    enabled = settings.enabled,
+                    onChange = { onBand(band, it) },
+                    onChangeEnd = onBandEnd
+                )
+            }
+        }
+        ScrollHint(scroll = scroll, viewport = viewport, gutter = gutter)
+    }
+    }
+}
+
+/**
+ * The one thing telling anyone the strip goes on.
+ *
+ * Thirty one bands and about eight of them on screen, with nothing at either
+ * end to say so: the strip looked like the whole equaliser, and the other
+ * twenty three bands may as well not have existed. A scrollbar is the plainest
+ * possible answer - how much of the strip is showing, and where in it you are.
+ *
+ * Hidden when everything already fits, so a wide window gets no furniture it
+ * has no use for.
+ */
+@Composable
+private fun ScrollHint(scroll: ScrollState, viewport: Int, gutter: Dp) {
+    if (scroll.maxValue <= 0 || viewport <= 0) return
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(scroll)
-            .padding(horizontal = gutter, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(1.dp)
+            .padding(start = gutter, end = gutter, bottom = 6.dp)
+            .height(3.dp)
+            .clip(CircleShape)
+            .background(Surface2)
     ) {
-        for (band in 0 until EqBands.COUNT) {
-            Fader(
-                millibels = settings.bands[band],
-                label = EqBands.label(EqBands.FREQUENCIES[band]),
-                enabled = settings.enabled,
-                onChange = { onBand(band, it) },
-                onChangeEnd = onBandEnd
-            )
-        }
-    }
+        // A floor on the thumb, or at thirty one bands it becomes a dot that
+        // says the strip scrolls without saying how far.
+        val portion = (viewport.toFloat() / (viewport + scroll.maxValue)).coerceIn(0.12f, 1f)
+        val progress = (scroll.value.toFloat() / scroll.maxValue).coerceIn(0f, 1f)
+        Box(
+            modifier = Modifier
+                .offset(x = maxWidth * (1f - portion) * progress)
+                .fillMaxWidth(portion)
+                .fillMaxHeight()
+                .clip(CircleShape)
+                .background(Accent.copy(alpha = 0.75f))
+        )
     }
 }
 

@@ -43,6 +43,24 @@ class Prefs(context: Context) {
         get() = sp.getFloat(KEY_ACOUSTIC_WEIGHT, 1.0f)
         set(value) = sp.edit { putFloat(KEY_ACOUSTIC_WEIGHT, value) }
 
+    /**
+     * Learn the styles by itself once the sound has been measured.
+     *
+     * On by default, which is only defensible because of what learning does
+     * before it writes anything: it tests itself on artists it never trained
+     * on and refuses any style it cannot get right four times in five. A run
+     * that has nothing trustworthy to say changes nothing at all, so the
+     * ordinary outcome of leaving this on is either a correct tag or silence.
+     *
+     * It is still visible and still reversible - the settings screen says what
+     * was written and to how many songs, lists them, and clears them on a
+     * button - because a tag that appears in someone's library without being
+     * asked for had better be easy to find.
+     */
+    var autoLearn: Boolean
+        get() = sp.getBoolean(KEY_AUTO_LEARN, true)
+        set(value) = sp.edit { putBoolean(KEY_AUTO_LEARN, value) }
+
     /** Keep analysing new files in the background without being asked. */
     var autoAnalyze: Boolean
         get() = sp.getBoolean(KEY_AUTO_ANALYZE, true)
@@ -471,6 +489,7 @@ class Prefs(context: Context) {
         const val KEY_SEPARATIONS = "style_separations"
         const val KEY_FOLDER_TREE = "folder_tree"
         const val KEY_SKIP_RECORDINGS = "skip_recordings"
+        const val KEY_AUTO_LEARN = "auto_learn"
         const val KEY_PIN_MOODS = "pin_mood_row"
         const val KEY_TAP_ARTWORK = "tap_artwork_toggles"
         const val KEY_RESUME_SPOKEN = "resume_spoken"

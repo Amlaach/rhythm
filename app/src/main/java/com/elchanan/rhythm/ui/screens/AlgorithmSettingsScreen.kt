@@ -78,6 +78,7 @@ fun AlgorithmSettingsScreen(
     var searchPersonal by remember { mutableStateOf(vm.prefs.searchPersonalized) }
     var searchLyrics by remember { mutableStateOf(vm.prefs.searchLyrics) }
     var searchOpen by remember { mutableStateOf(false) }
+    var autoLearn by remember { mutableStateOf(vm.prefs.autoLearn) }
     var separations by remember { mutableStateOf(vm.prefs.styleSeparations) }
     var separationsOpen by remember { mutableStateOf(false) }
 
@@ -178,6 +179,35 @@ fun AlgorithmSettingsScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 12.dp),
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextPrimary
+                    )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("למידה אוטומטית", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "לומד בעצמו אחרי כל ניתוח אודיו, בלי ללחוץ. הוא עדיין " +
+                                "בודק את עצמו על אמנים שלא אימן עליהם ולא כותב סגנון " +
+                                "שאינו מדייק בו — כך שריצה בלי מה לומר לא משנה כלום",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Switch(
+                        checked = autoLearn,
+                        onCheckedChange = {
+                            autoLearn = it
+                            vm.prefs.autoLearn = it
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Accent,
+                            checkedTrackColor = Accent.copy(alpha = 0.4f)
+                        )
                     )
                 }
             }

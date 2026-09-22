@@ -45,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -114,19 +115,52 @@ fun Artwork(
             modifier = Modifier.align(Alignment.Center),
             size = 26.dp
         )
+        // What fills the corner a fitted cover cannot reach.
+        //
+        // Fitting a 16:9 cover into a square leaves two bands, and a band of
+        // flat colour behind an album sleeve reads as a frame around it -
+        // which is not what a cover is supposed to look like. So the bands are
+        // filled with the cover itself, scaled up past the edges and blurred,
+        // and the surround becomes the album's own colours rather than a
+        // border drawn around it.
+        //
+        // Only when fitting. A cropped cover already reaches every edge, and
+        // drawing it twice for corners that do not exist is work for nothing.
+        //
+        // Drawn above the mark and below the cover, so an album with no art at
+        // all is untouched: nothing decodes, nothing paints, and the gradient
+        // and the mark stay exactly as they were. Coil serves the second
+        // request from memory, so the file is decoded once.
+        if (contentScale != ContentScale.Crop) {
+            AsyncImage(
+                model = SongArt(songId, albumId),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                // Blur is honoured from Android 12 and ignored below it, where
+                // this stays a scaled up still of the same artwork - softer
+                // than a hard edge either way, and never a frame.
+                alpha = BACKDROP_ALPHA,
+                modifier = Modifier.fillMaxSize().blur(BACKDROP_BLUR)
+            )
+        }
         AsyncImage(
             model = SongArt(songId, albumId),
             contentDescription = null,
             // Covers that came from video thumbnails are 16:9. On a small
-            // tile, fitting one into a square leaves two thick bands of the
-            // gradient behind it and the artwork itself ends up small, so
-            // those crop; the caller decides, because on the player the
+            // tile, fitting one into a square leaves the artwork itself small,
+            // so those crop; the caller decides, because on the player the
             // whole picture matters more than a filled square.
             contentScale = contentScale,
             modifier = Modifier.fillMaxSize()
         )
     }
 }
+
+/** Enough to read as colour rather than as a second, smaller picture. */
+private val BACKDROP_BLUR = 26.dp
+
+/** Dimmed, so the cover in front of it stays the thing being looked at. */
+private const val BACKDROP_ALPHA = 0.55f
 
 @Composable
 fun SectionHeader(
@@ -188,6 +222,12 @@ fun SongRow(
     onMore: (() -> Unit)? = null,
     onLike: (() -> Unit)? = null,
     onDislike: (() -> Unit)? = null,
+    /**
+     * An extra clause on the second line, for something about this song that
+     * the row would otherwise hide - a tag the app guessed, most of all. A
+     * list of guesses that does not say what was guessed cannot be checked.
+     */
+    note: String? = null,
     trailing: (@Composable () -> Unit)? = null
 ) {
     Row(
@@ -248,6 +288,10 @@ fun SongRow(
                             append(" • ")
                             append(playCount)
                             append(" השמעות")
+                        }
+                        if (!note.isNullOrBlank()) {
+                            append(" • ")
+                            append(note)
                         }
                     },
                     style = MaterialTheme.typography.bodySmall,
