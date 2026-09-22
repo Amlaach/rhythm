@@ -39,7 +39,14 @@ object ArtistStyles {
     data class Seed(val name: String, val style: String, val aliases: List<String> = emptyList())
 
     const val HASIDIC = "חסידי"
-    const val ISRAELI_POP = "פופ ישראלי"
+    /**
+     * The same word the user tags with, and the one the default separation
+     * rule names. It was "פופ ישראלי", which nothing else in the app says: to
+     * the learner it was a different style from the user's own "ישראלי", and
+     * the default rule "חסידי, ישראלי" never once applied to a catalogue
+     * artist.
+     */
+    const val ISRAELI_POP = "ישראלי"
     const val CANTORIAL = "חזנות"
     const val MIZRAHI = "מזרחי"
 
@@ -244,6 +251,32 @@ object ArtistStyles {
      * The style this artist is known for, or null for anyone not in the
      * catalogue - which is almost everyone, and is the normal case.
      */
+    /**
+     * Artist profiles with the catalogue filled in where the user gave none.
+     *
+     * The same rule the library screen shows: a style the user typed wins,
+     * and the catalogue speaks only for an artist with nothing typed. The
+     * library applied it and the engine was never given it, so an artist the
+     * screen showed as ישראלי was untagged as far as the ranking and the
+     * separation rules knew - and mixed freely with everything.
+     */
+    fun withCatalogue(
+        artists: Map<String, com.elchanan.rhythm.data.db.ArtistEntity>,
+        songs: List<com.elchanan.rhythm.data.db.SongEntity>
+    ): Map<String, com.elchanan.rhythm.data.db.ArtistEntity> {
+        val out = HashMap(artists)
+        val nameOf = HashMap<String, String>()
+        for (song in songs) nameOf.putIfAbsent(song.artistKey, song.artistName)
+        for ((key, name) in nameOf) {
+            val stored = artists[key]
+            if (stored != null && stored.styles.isNotBlank()) continue
+            val style = styleFor(stored?.displayName?.takeIf { it.isNotBlank() } ?: name) ?: continue
+            out[key] = stored?.copy(styles = style)
+                ?: com.elchanan.rhythm.data.db.ArtistEntity(artistKey = key, displayName = name, styles = style)
+        }
+        return out
+    }
+
     fun styleFor(artistName: String): String? {
         if (artistName.isBlank()) return null
         // The performer, not the collaboration: a track credited to two

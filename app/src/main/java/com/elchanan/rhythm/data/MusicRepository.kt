@@ -19,6 +19,7 @@ import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.data.db.TransitionEntity
 import com.elchanan.rhythm.data.PlayCountImport
+import com.elchanan.rhythm.engine.ArtistStyles
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.BulkTagging
 import com.elchanan.rhythm.engine.Spoken
@@ -587,8 +588,9 @@ class MusicRepository(
     // audio analysis storage
     // -----------------------------------------------------------------------
 
-    suspend fun songsNeedingAnalysis(limit: Int): List<SongEntity> =
-        withContext(Dispatchers.IO) { dao.songsNeedingAnalysis(limit) }
+    /** Songs still to analyse with an id above [after], in id order. */
+    suspend fun songsNeedingAnalysis(after: Long, limit: Int): List<SongEntity> =
+        withContext(Dispatchers.IO) { dao.songsNeedingAnalysis(after, limit) }
 
     /** Raw inventory, before the UI hides duplicate files. */
     suspend fun allSongsForExport(): List<SongEntity> =
@@ -748,7 +750,9 @@ class MusicRepository(
         Recommender(
             songs = allSongs,
             stats = statsById,
-            artists = dao.allArtists().associateBy { it.artistKey },
+            artists = ArtistStyles.withCatalogue(
+                dao.allArtists().associateBy { it.artistKey }, allSongs
+            ),
             affinity = affinityMap(),
             transitions = transitionMap(),
             features = featuresById,

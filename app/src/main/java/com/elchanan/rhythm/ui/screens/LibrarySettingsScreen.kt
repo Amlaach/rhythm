@@ -193,9 +193,12 @@ fun LibrarySettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                     )
                 } else {
                     Text(
-                        text = if (analysis.remaining > 0)
-                            "נשארו ${analysis.remaining} שירים לניתוח"
-                        else "כל הספרייה נותחה",
+                        text = when {
+                            analysis.remaining > 0 && analysis.unreachable >= analysis.remaining ->
+                                "${analysis.remaining} שירים לא נגישים כרגע — בכרטיס או כונן שלא מחובר"
+                            analysis.remaining > 0 -> "נשארו ${analysis.remaining} שירים לניתוח"
+                            else -> "כל הספרייה נותחה"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )

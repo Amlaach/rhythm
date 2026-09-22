@@ -26,6 +26,13 @@ object SoundCheck {
         val styles: Int,
         /** Neighbours compared per song. */
         val neighbours: Int,
+        /**
+         * Labelled songs left out because their style belongs to one artist
+         * only here. Neighbours come from other artists, so such a song has no
+         * right answer to find; counting it scores zero for every measure and
+         * drowns the comparison - which is how a first run read 2%, 2%, 1%.
+         */
+        val lonely: Int,
         /** What picking neighbours at random would have scored. */
         val chance: Double,
         /** The sound features the engine uses today. */
@@ -53,18 +60,26 @@ object SoundCheck {
             val style = styleOf(song, stylesByArtist) ?: return@mapNotNull null
             Triple(song, style, print)
         }
-        if (labelled.size < MIN_SONGS) return null
-        val styles = labelled.map { it.second }.distinct()
+        val artistsPerStyle = labelled.groupBy({ it.second }, { it.first.artistKey })
+            .mapValues { (_, keys) -> keys.distinct().size }
+        val all = labelled
+        val scorable = all.filter { (artistsPerStyle[it.second] ?: 0) >= 2 }
+        val lonely = all.size - scorable.size
+        if (scorable.size < MIN_SONGS) return null
+        val styles = scorable.map { it.second }.distinct()
         if (styles.size < 2) return null
 
-        val prints = SoundPrint.centred(labelled.associate { it.first.id to it.third })
+        // Centred against every labelled song, and neighbours drawn from all of
+        // them - a lonely style's songs are fair wrong answers - but only the
+        // scorable ones are asked the question.
+        val prints = SoundPrint.centred(all.associate { it.first.id to it.third })
 
         var chance = 0.0
         var current = 0.0
         var print = 0.0
         var counted = 0
-        for ((song, style, _) in labelled) {
-            val others = labelled.filter { it.first.artistKey != song.artistKey }
+        for ((song, style, _) in scorable) {
+            val others = all.filter { it.first.artistKey != song.artistKey }
             if (others.size < NEIGHBOURS) continue
             val k = NEIGHBOURS
             chance += others.count { it.second == style }.toDouble() / others.size
@@ -80,9 +95,10 @@ object SoundCheck {
         if (counted == 0) return null
         return Result(
             songs = counted,
-            artists = labelled.map { it.first.artistKey }.distinct().size,
+            artists = scorable.map { it.first.artistKey }.distinct().size,
             styles = styles.size,
             neighbours = NEIGHBOURS,
+            lonely = lonely,
             chance = chance / counted,
             current = current / counted,
             print = print / counted
@@ -101,7 +117,9 @@ object SoundCheck {
     fun describe(r: Result?): String {
         if (r == null) {
             return "אין עדיין מספיק לבדוק: צריך לפחות $MIN_SONGS שירים שנותחו מחדש, " +
-                "של אמנים מתויגים בסגנון או מהרשימה המובנית, בשני סגנונות לפחות."
+                "בשני סגנונות לפחות, כשלכל סגנון יש לפחות שני אמנים — " +
+                "כי משווים כל שיר לשירים של אמנים אחרים. " +
+                "אם הניתוח עוד רץ, כדאי לחכות שיסתיים."
         }
         fun pct(x: Double) = "${(x * 100).toInt()}%"
         return buildString {
@@ -111,6 +129,10 @@ object SoundCheck {
             append("• מדידת הסאונד הנוכחית: ${pct(r.current)}\n")
             append("• טביעת הצליל החדשה: ${pct(r.print)}\n")
             append("• בחירה אקראית, להשוואה: ${pct(r.chance)}")
+            if (r.lonely > 0) {
+                append("\n\n${r.lonely} שירים לא נבדקו: הסגנון שלהם שייך כאן לאמן אחד בלבד, ")
+                append("ואין להם שכן נכון לחפש אצל אמנים אחרים.")
+            }
         }
     }
 }

@@ -11,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -30,7 +31,13 @@ class AnalysisManager(
         val running: Boolean = false,
         val done: Int = 0,
         val total: Int = 0,
-        val currentTitle: String? = null
+        val currentTitle: String? = null,
+        /**
+         * Songs the last pass could not reach - on storage that is not
+         * attached. Said on the screen, so that a count that will not go down
+         * is explained rather than offered as work the button will do.
+         */
+        val unreachable: Int = 0
     ) {
         val remaining: Int get() = (total - done).coerceAtLeast(0)
         val fraction: Float get() = if (total <= 0) 0f else (done.toFloat() / total).coerceIn(0f, 1f)
@@ -51,26 +58,25 @@ class AnalysisManager(
         // started and does not yet say so, and a watcher that looked during
         // it would conclude there was nothing to wait for and stop the
         // service out from under the work it had just started.
-        _progress.value = _progress.value.copy(running = true)
+        _progress.update { it.copy(running = true, unreachable = 0) }
         job = scope.launch(Dispatchers.Default) {
             try {
                 var total = repo.songCount()
                 var done = repo.analyzedCount()
-                _progress.value = Progress(running = true, done = done, total = total)
+                _progress.update { it.copy(running = true, done = done, total = total) }
 
+                // Where the walk has got to, by song id. See the query.
+                var after = Long.MIN_VALUE
+                var unreachable = 0
                 while (isActive) {
-                    val batch = repo.songsNeedingAnalysis(12)
+                    val batch = repo.songsNeedingAnalysis(after, 12)
                     if (batch.isEmpty()) break
+                    after = batch.last().id
                     // Asked once per batch rather than once per song: the
                     // answer is a file system check per distinct card, and it
                     // cannot change halfway through twelve songs in a way that
                     // matters.
                     val mounted = Volumes.mountedRoots(batch.map { it.path })
-                    // Songs passed over because the card they live on is out.
-                    // Per batch, so the loop can tell "nothing left to do"
-                    // from "nothing reachable to do" - a skipped song gets no
-                    // row, so the same batch comes back next time round.
-                    var skipped = 0
                     for (song in batch) {
                         if (!isActive) break
                         // A file on a card that is not in the device is not a
@@ -80,11 +86,19 @@ class AnalysisManager(
                         // this a card pulled out mid-pass left every song on
                         // it permanently marked unanalysable, and nothing
                         // short of wiping the measurements brought them back.
-                        if (Volumes.rootOf(song.path) !in mounted) {
-                            skipped++
+                        //
+                        // Only a root that is known and absent counts as out.
+                        // A path with no recognisable root - "/sdcard/...",
+                        // anything not under /storage - used to count as out
+                        // too, for ever, so those songs were never once
+                        // analysed. Cards always appear as /storage/XXXX-XXXX;
+                        // a path that is not one is the phone's own storage.
+                        val root = Volumes.rootOf(song.path)
+                        if (root.isNotEmpty() && root !in mounted) {
+                            unreachable++
                             continue
                         }
-                        _progress.value = _progress.value.copy(currentTitle = song.title)
+                        _progress.update { it.copy(currentTitle = song.title) }
                         val feature = runCatching { AudioAnalyzer.analyze(context, song) }.getOrNull()
                         if (feature != null) {
                             repo.putFeature(feature)
@@ -97,22 +111,18 @@ class AnalysisManager(
                             repo.putFeature(Analysis.blankFor(song.id))
                         }
                         done++
-                        _progress.value = _progress.value.copy(done = done, total = total)
+                        _progress.update { it.copy(done = done, total = total) }
                         // give the rest of the app room to breathe
                         delay(15)
                     }
-                    // Every song in this batch was on storage that is not
-                    // attached, so the next batch would be the same twelve for
-                    // ever. Nothing reachable is left to measure until the
-                    // card is back, and spinning on it would be a busy loop.
-                    if (skipped == batch.size) break
                     total = repo.songCount()
                 }
+                _progress.update { it.copy(unreachable = unreachable) }
             } finally {
                 // The model holds its weights and a working arena for as long
                 // as it is open, and the pass is the only thing that uses it.
                 runCatching { AudioAnalyzer.releaseTagger() }
-                _progress.value = _progress.value.copy(running = false, currentTitle = null)
+                _progress.update { it.copy(running = false, currentTitle = null) }
             }
         }
     }
@@ -120,7 +130,7 @@ class AnalysisManager(
     fun stop() {
         job?.cancel()
         job = null
-        _progress.value = _progress.value.copy(running = false, currentTitle = null)
+        _progress.update { it.copy(running = false, currentTitle = null) }
     }
 
     /** Stops the writer and waits until its finally block has released it. */
@@ -128,15 +138,29 @@ class AnalysisManager(
         val active = job
         job = null
         active?.cancelAndJoin()
-        _progress.value = _progress.value.copy(running = false, currentTitle = null)
+        _progress.update { it.copy(running = false, currentTitle = null) }
     }
 
+    /**
+     * Brings the counts up to date while no pass is running.
+     *
+     * It used to take the current state, wait on two database reads, and
+     * write that same state back with the new counts. A pass that started in
+     * the meantime - which is exactly what follows a scan, since the scan's
+     * completion is what calls this - had its "running" overwritten by the
+     * copy taken before it began. The loop carried on analysing; the screen
+     * read "not running", offered "analyse" instead of "stop", and the
+     * service keeping it alive in the background let go of it.
+     *
+     * Counts are read first and applied only if nothing started meanwhile.
+     */
     suspend fun refreshCounts() {
         if (_progress.value.running) return
-        _progress.value = _progress.value.copy(
-            done = repo.analyzedCount(),
-            total = repo.songCount()
-        )
+        val done = repo.analyzedCount()
+        val total = repo.songCount()
+        _progress.update { current ->
+            if (current.running) current else current.copy(done = done, total = total)
+        }
     }
 
     suspend fun reset() {

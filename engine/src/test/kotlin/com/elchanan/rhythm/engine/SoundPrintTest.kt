@@ -112,3 +112,73 @@ class SoundCheckTest {
         assertNull("no prints", SoundCheck.measure(songs, unprinted, styles))
     }
 }
+
+class SoundCheckLonelyTest {
+    private fun song(id: Long, artist: String) = SongEntity(
+        id, "שיר $id", "שיר $id", artist, Names.normalizeKey(artist), "al$id", id,
+        240_000, 1, 2020, null, "/m/$id", "/m/$artist", 0, 1
+    )
+
+    @Test fun aStyleWithOneArtistIsLeftOutRatherThanScoredZero() {
+        // The first run on a real library: 2%, 2% and 1% against chance, because
+        // most of its styles belonged to one artist each and so had no right
+        // answer among other artists' songs.
+        val r = kotlin.random.Random(4)
+        val songs = ArrayList<SongEntity>()
+        val features = HashMap<Long, AudioFeatureEntity>()
+        val styles = HashMap<String, String>()
+        var id = 1L
+        val cast = listOf("א" to "חסידי", "ב" to "חסידי", "ג" to "מזרחי", "ד" to "מזרחי", "ה" to "חזנות")
+        for ((artist, style) in cast) {
+            styles[Names.normalizeKey(artist)] = style
+            repeat(10) {
+                songs.add(song(id, artist))
+                val print = FloatArray(SoundPrint.DIMS) { i ->
+                    2f + (if (i % 3 == listOf("חסידי", "מזרחי", "חזנות").indexOf(style)) 1.5f else 0f) + r.nextFloat()
+                }
+                features[id] = AudioFeatureEntity(
+                    songId = id, analyzedAt = 1L, bpm = 100f, bpmConfidence = 0.9f, musicalKey = 0,
+                    mode = 1, energy = 0.5f, brightness = 0.4f, flatness = 0.1f, dynamics = 0.8f,
+                    onsetRate = 1f, chroma = "1,0,0,0,0,0,0,0,0,0,0,0",
+                    timbre = "0,0,0,0,0,0,0,0,0,0,0,0", timbreVar = "0,0,0,0,0,0,0,0,0,0,0,0",
+                    soundPrint = SoundPrint.pack(print)
+                )
+                id++
+            }
+        }
+        val result = SoundCheck.measure(songs, features, styles)!!
+        assertEquals("the one-artist style is set aside", 10, result.lonely)
+        assertEquals(40, result.songs)
+        // 10 same-style songs among 40 by other artists: exactly a quarter.
+        assertEquals(0.25, result.chance, 1e-9)
+        assertTrue("a print that separates them is seen to", result.print > 0.9)
+    }
+}
+
+class CatalogueInTheEngineTest {
+    private fun song(id: Long, artist: String) = SongEntity(
+        id, "שיר $id", "שיר $id", artist, Names.normalizeKey(artist), "al$id", id,
+        240_000, 1, 2020, null, "/m/$id", "/m/$artist", 0, 1
+    )
+
+    @Test fun whatWasTypedWinsAndTheCatalogueFillsTheRest() {
+        val songs = listOf(song(1, "ישי ריבו"), song(2, "אברהם פריד"), song(3, "פלוני"))
+        val stored = mapOf(
+            Names.normalizeKey("אברהם פריד") to com.elchanan.rhythm.data.db.ArtistEntity(
+                Names.normalizeKey("אברהם פריד"), "אברהם פריד", rating = 4, styles = "ליטאי"
+            )
+        )
+        val merged = ArtistStyles.withCatalogue(stored, songs)
+        assertEquals("ישראלי", merged[Names.normalizeKey("ישי ריבו")]?.styles)
+        assertEquals("the user's own tag is not overridden", "ליטאי", merged[Names.normalizeKey("אברהם פריד")]?.styles)
+        assertNull("an artist the catalogue does not know stays untagged", merged[Names.normalizeKey("פלוני")])
+    }
+
+    @Test fun theCatalogueSpeaksTheUsersWordsSoTheDefaultRuleApplies() {
+        // The default rule is "חסידי, ישראלי". The catalogue used to say
+        // "פופ ישראלי", which the rule never matched.
+        val rule = Styles.Separations.parse(Styles.DEFAULT_SEPARATIONS)
+        assertTrue(rule.clash(listOf(ArtistStyles.HASIDIC), listOf(ArtistStyles.ISRAELI_POP)))
+        assertTrue(ArtistStyles.ISRAELI_POP in Styles.SUGGESTED)
+    }
+}
