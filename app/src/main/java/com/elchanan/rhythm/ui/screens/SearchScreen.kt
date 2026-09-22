@@ -58,6 +58,8 @@ fun SearchScreen(
     val query by vm.searchQuery.collectAsStateWithLifecycle()
     val results by vm.searchResults.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
+    val selection by vm.selection.collectAsStateWithLifecycle()
+    val selectionMode = selection.isNotEmpty()
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
 
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -172,7 +174,13 @@ fun SearchScreen(
                         song = song,
                         liked = library.stats[song.id]?.liked ?: 0,
                         rating = library.stats[song.id]?.rating ?: 0,
-                        onClick = { vm.playList(results, results.indexOf(song)) },
+                        selected = song.id in selection,
+                        selectionMode = selectionMode,
+                        onClick = {
+                            if (selectionMode) vm.toggleSelect(song.id)
+                            else vm.playList(results, results.indexOf(song))
+                        },
+                        onLongClick = { vm.toggleSelect(song.id) },
                         onMore = { sheetSong = song },
                         onLike = { vm.like(song.id) },
                         onDislike = { vm.dislike(song.id) }

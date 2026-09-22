@@ -44,12 +44,39 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 
+; Upgrading over a running copy.
+;
+; Rhythm.exe and the jars under it are held open while the app is running, and
+; an installer that cannot replace a locked file either fails or defers the
+; whole thing to a reboot. Either way the person in front of it concludes that
+; the old version has to be uninstalled first. This offers to close it instead,
+; and does not reopen it afterwards - the last page already has a tick box for
+; that, and starting it twice is worse than not starting it.
+CloseApplications=yes
+RestartApplications=no
+
 [Languages]
 Name: "hebrew"; MessagesFile: "compiler:Languages\Hebrew.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+
+[InstallDelete]
+; Upgrading into the folder an older version is already in.
+;
+; The application image is a tree of jars and a cut down runtime, and some of
+; those names carry versions. Copying a new image over an old one replaces
+; what the two have in common and leaves everything else where it was - so a
+; jar the new version dropped stays on the classpath and breaks it, for a
+; reason nothing on screen will point at. These two directories are rebuilt
+; from scratch by every build, so they are cleared rather than merged.
+;
+; Nothing of the user's is in here. The library, the ratings and the settings
+; live in %LOCALAPPDATA%\Rhythm, which this installer never touches - not on
+; upgrade, and not on uninstall either.
+Type: filesandordirs; Name: "{app}\app"
+Type: filesandordirs; Name: "{app}\runtime"
 
 [Files]
 ; The whole application image, runtime included. recursesubdirs because the

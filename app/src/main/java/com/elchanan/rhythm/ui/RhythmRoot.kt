@@ -58,6 +58,7 @@ import com.elchanan.rhythm.ui.screens.PlayerScreen
 import com.elchanan.rhythm.ui.screens.PlayerSettingsScreen
 import com.elchanan.rhythm.ui.screens.RecapScreen
 import com.elchanan.rhythm.ui.screens.SearchScreen
+import com.elchanan.rhythm.ui.screens.SelectionBar
 import com.elchanan.rhythm.ui.screens.SettingsScreen
 import com.elchanan.rhythm.ui.screens.TagFixScreen
 import com.elchanan.rhythm.ui.screens.TagSettingsScreen
@@ -212,6 +213,14 @@ fun RhythmRoot(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
                 Column(modifier = Modifier.background(BgElevated)) {
+                    // Above the mini player and the tabs, and drawn for the
+                    // whole app rather than by whichever screen started the
+                    // selection. A selection made on the home page is still a
+                    // selection after switching to the library, and the bar
+                    // that acts on it has to follow rather than vanish with
+                    // the screen it was born on. Empty selection draws
+                    // nothing, so this costs a row only while it is wanted.
+                    SelectionBar(vm)
                     // Hidden while the full player is up - it is the same controls.
                     if (currentSong != null && !playerOpen) {
                         val miniState by vm.player.state.collectAsStateWithLifecycle()
@@ -274,8 +283,7 @@ fun RhythmRoot(
                         vm = vm,
                         onOpenDetail = { navController.navigate(Routes.DETAIL) },
                         onOpenArtist = { navController.navigate(Routes.ARTIST) },
-                        onOpenAlbums = { navController.navigate(Routes.ALBUMS) },
-                        onOpenRatings = { navController.navigate(Routes.RATINGS) }
+                        onOpenAlbums = { navController.navigate(Routes.ALBUMS) }
                     )
                 }
                 composable(Routes.RATINGS) {

@@ -1,14 +1,14 @@
 package com.elchanan.rhythm.ui.screens
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,6 +32,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.PostAdd
+import androidx.compose.material.icons.filled.RadioButtonChecked
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,24 +61,25 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.ui.ArtistInfo
 import com.elchanan.rhythm.ui.MainViewModel
-import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.ui.components.Artwork
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.StarRow
+import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.BgElevated
 import com.elchanan.rhythm.ui.theme.Surface1
-import com.elchanan.rhythm.ui.components.rememberMetrics
 import com.elchanan.rhythm.ui.theme.Surface3
 import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
+import com.elchanan.rhythm.ui.theme.TextTertiary
 import com.elchanan.rhythm.ui.theme.gradientFor
-import kotlinx.coroutines.launch
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 private val FILTERS = listOf("הכל", "לא מדורגים", "מדורגים", "בלי סגנון")
 
@@ -89,7 +92,9 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
     var bulkOpen by remember { mutableStateOf(false) }
     var selection by remember { mutableStateOf(setOf<String>()) }
     var groupOpen by remember { mutableStateOf(false) }
+    var mergeOpen by remember { mutableStateOf(false) }
 
+    val merging by vm.mergingArtist.collectAsStateWithLifecycle()
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -169,6 +174,10 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
             contentPadding = PaddingValues(bottom = 40.dp),
             modifier = Modifier.weight(1f)
         ) {
+            // What the app spotted by itself, above what you can do by hand.
+            // The whole list is searched, not the filtered view: a pair is
+            // still a pair when one of the two is hidden by the filter.
+            item { ArtistMergeSuggestions(vm, library.artists) }
             item {
                 Row(
                     modifier = Modifier
@@ -227,11 +236,36 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
                 }
                 Text("${selection.size} אמנים נבחרו", style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.weight(1f))
+                // Exactly two, because merging is a question about a pair:
+                // which of these two names stays. Three at once would need
+                // an answer per pair and is a worse thing to get wrong.
+                if (selection.size == 2) {
+                    TextButton(onClick = { mergeOpen = true }) {
+                        Text("אחד", color = Accent)
+                    }
+                }
                 Button(
                     onClick = { groupOpen = true },
                     colors = ButtonDefaults.buttonColors(containerColor = Accent)
                 ) { Text("דרג ותייג") }
             }
+        }
+    }
+
+    if (mergeOpen && selection.size == 2) {
+        val picked = library.artists.filter { it.key in selection }
+        if (picked.size == 2) {
+            MergeArtistsDialog(
+                first = picked[0],
+                second = picked[1],
+                busy = merging,
+                onDismiss = { mergeOpen = false },
+                onMerge = { source, target ->
+                    vm.mergeArtists(source, target)
+                    mergeOpen = false
+                    selection = emptySet()
+                }
+            )
         }
     }
 
@@ -422,4 +456,106 @@ private fun BulkImportDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) 
             TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
         }
     )
+}
+
+/**
+ * Merging two spellings of one name, chosen by hand.
+ *
+ * The app finds the pairs that are a single letter apart on its own, but a
+ * great deal of what is actually the same artist is further apart than that -
+ * two letters, a transposition, a nickname, a name spelled in Hebrew on one
+ * file and in English on another. Nothing can suggest those; someone who
+ * knows the music has to say so.
+ *
+ * Which name survives is the question this asks, because it cannot be
+ * guessed. Neither "the one with more songs" nor "the first alphabetically"
+ * is right often enough to decide silently: the correct spelling is
+ * frequently the one on two files, not the one on forty.
+ */
+@Composable
+private fun MergeArtistsDialog(
+    first: ArtistInfo,
+    second: ArtistInfo,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onMerge: (ArtistInfo, ArtistInfo) -> Unit
+) {
+    var keepFirst by remember { mutableStateOf(first.songs.size >= second.songs.size) }
+    val target = if (keepFirst) first else second
+    val source = if (keepFirst) second else first
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("איחוד אמנים") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "איזה שם יישאר? כל השירים של השני יעברו אליו.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(10.dp))
+                MergeChoice(first, keepFirst) { keepFirst = true }
+                MergeChoice(second, !keepFirst) { keepFirst = false }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "«${source.displayName}» יוחלף ב־«${target.displayName}» על " +
+                        "${source.songs.size} שירים. הדירוג והסגנונות של " +
+                        "${target.displayName} נשארים כפי שהם.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(6.dp))
+                // Said plainly rather than left to be discovered: this is a
+                // rename inside the app, and the files keep the tags they
+                // came with.
+                Text(
+                    "השינוי נשמר באפליקציה. קובצי המוזיקה עצמם לא משתנים, " +
+                        "ואפשר לבטל את זה מ\"ניקוי התגיות שנוחשו\" בהגדרות.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextTertiary
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !busy, onClick = { onMerge(source, target) }) {
+                Text("אחד", color = Accent)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
+}
+
+@Composable
+private fun MergeChoice(artist: ArtistInfo, chosen: Boolean, onPick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onPick)
+            .background(if (chosen) Accent.copy(alpha = 0.16f) else Color.Transparent)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = if (chosen) Icons.Filled.RadioButtonChecked
+            else Icons.Filled.RadioButtonUnchecked,
+            contentDescription = null,
+            tint = if (chosen) Accent else TextSecondary,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(artist.displayName, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "${artist.songs.size} שירים" +
+                    if (artist.rating > 0) " · ${artist.rating} כוכבים" else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary
+            )
+        }
+    }
 }
