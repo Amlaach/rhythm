@@ -686,6 +686,8 @@ class MusicRepository(
      * so an action started from a screen that is not watching it sees an empty
      * map and wrongly concludes that nothing has been analysed.
      */
+    suspend fun feature(songId: Long): AudioFeatureEntity? = withContext(Dispatchers.IO) { dao.feature(songId) }
+
     suspend fun featureMap(): Map<Long, AudioFeatureEntity> = withContext(Dispatchers.IO) {
         dao.allFeatures().filter { it.energy > 0f }.associateBy { it.songId }
     }

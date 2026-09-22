@@ -99,7 +99,21 @@ class AnalysisManager(
                             continue
                         }
                         _progress.update { it.copy(currentTitle = song.title) }
-                        val feature = runCatching { AudioAnalyzer.analyze(context, song) }.getOrNull()
+                        // A song measured before the music model arrived needs
+                        // only the music model. Running the whole analysis
+                        // again - YAMNet included, the heaviest part of it -
+                        // to add one column cost about five seconds a song,
+                        // hours on a large library, for results it already had.
+                        val existing = runCatching { repo.feature(song.id) }.getOrNull()
+                        val feature = runCatching {
+                            if (existing != null && existing.energy > 0f &&
+                                existing.soundPrint.isNotEmpty() && existing.musicPrint.isEmpty()
+                            ) {
+                                AudioAnalyzer.addMusic(context, song, existing)
+                            } else {
+                                AudioAnalyzer.analyze(context, song)
+                            }
+                        }.getOrNull()
                         if (feature != null) {
                             repo.putFeature(feature)
                         } else if (!repo.markPrintTried(song.id)) {

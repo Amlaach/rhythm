@@ -265,6 +265,9 @@ interface MusicDao {
     @Query("DELETE FROM audio_features")
     suspend fun clearFeatures()
 
+    @Query("SELECT * FROM audio_features WHERE songId = :id")
+    suspend fun feature(id: Long): AudioFeatureEntity?
+
     /**
      * Songs never analysed, then songs analysed before the sound print existed.
      *

@@ -112,6 +112,30 @@ object AudioAnalyzer {
         return music
     }
 
+    /**
+     * Only the music model, for a song whose other measurements are already
+     * stored: the probes are decoded and resampled for it and nothing else is
+     * computed. Null when the file will not decode now.
+     */
+    fun addMusic(context: Context, song: SongEntity, existing: AudioFeatureEntity): AudioFeatureEntity? {
+        if (!musicAvailable(context)) return existing
+        val uri = MediaItems.songUri(song.id)
+        val probes = ArrayList<FloatArray>(Analysis.PROBE_POINTS.size)
+        for (fraction in Analysis.PROBE_POINTS) {
+            val startUs = Analysis.probeStart(song.durationMs, fraction)
+            val decoded = runCatching {
+                decodeMono(context, uri, startUs, Analysis.PROBE_SECONDS)
+            }.getOrNull() ?: continue
+            val (raw, sampleRate) = decoded
+            if (raw.size < Analysis.WINDOW * 8) continue
+            runCatching { probes.add(Analysis.decimate(raw, sampleRate, MusicMel.SAMPLE_RATE).first) }
+        }
+        if (probes.isEmpty()) return null
+        val music = runCatching { musicTagger(context)?.listen(probes) }.getOrNull()
+        val print = music?.let { runCatching { MusicPrint.pack(it.print) }.getOrNull() } ?: MusicPrint.TRIED
+        return existing.copy(musicPrint = print, musicMoods = music?.let { MusicMoods.encode(it.moods) }.orEmpty())
+    }
+
     @Volatile
     private var tagger: AudioTagger? = null
 
