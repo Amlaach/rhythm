@@ -33,9 +33,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.engine.Listening
+import com.elchanan.rhythm.engine.MoodMarks
+import com.elchanan.rhythm.engine.SignalCalibration
 import com.elchanan.rhythm.engine.StyleLearning
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.SectionHeader
@@ -70,6 +73,10 @@ fun AlgorithmSettingsScreen(
     val learning by vm.learning.collectAsStateWithLifecycle()
     val learningReport by vm.learningReport.collectAsStateWithLifecycle()
     val soundCheck by vm.soundCheck.collectAsStateWithLifecycle()
+    val calibration by vm.calibration.collectAsStateWithLifecycle()
+    val calibrating by vm.calibrating.collectAsStateWithLifecycle()
+    val moodReport by vm.moodReport.collectAsStateWithLifecycle()
+    var usingLearned by remember { mutableStateOf(vm.usingLearnedWeights) }
 
     var discovery by remember { mutableFloatStateOf(vm.prefs.discovery) }
     var artistWeight by remember { mutableFloatStateOf(vm.prefs.artistWeight) }
@@ -184,6 +191,80 @@ fun AlgorithmSettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextPrimary
                     )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .clickable(enabled = !calibrating) { vm.runCalibration() }
+                        .padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("תעודת ציונים לאלגוריתם", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "בודק על ההיסטוריה שלך אם האלגוריתם יודע לחזות אילו שירים " +
+                                "תאהב לפני ששמעת אותם, ולומד ממנה כמה לסמוך על כל אות — " +
+                                "אמן, סגנון, סאונד ומצב רוח. " +
+                                (if (usingLearned) "כרגע פעילים משקלים אישיים" else "כרגע פעילים המשקלים הרגילים"),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = { vm.runCalibration() },
+                        enabled = !calibrating,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text(if (calibrating) "בודק…" else "בדוק") }
+                }
+            }
+
+            calibration?.let { report ->
+                item {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 12.dp)) {
+                        Text(
+                            SignalCalibration.describe(report),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextPrimary
+                        )
+                        moodReport?.let { moods ->
+                            Spacer(Modifier.height(10.dp))
+                            Text(
+                                MoodMarks.describe(moods),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextPrimary
+                            )
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Row {
+                            if (report.weights != null) {
+                                Button(
+                                    onClick = {
+                                        vm.applyLearnedWeights()
+                                        usingLearned = true
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (report.accepted) Accent else Surface1,
+                                        contentColor = if (report.accepted) Color.White else TextPrimary
+                                    )
+                                ) { Text("הפעל משקלים אישיים") }
+                                Spacer(Modifier.width(10.dp))
+                            }
+                            if (usingLearned) {
+                                Button(
+                                    onClick = {
+                                        vm.resetLearnedWeights()
+                                        usingLearned = false
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Surface1,
+                                        contentColor = TextPrimary
+                                    )
+                                ) { Text("חזור לרגילים") }
+                            }
+                        }
+                    }
                 }
             }
 

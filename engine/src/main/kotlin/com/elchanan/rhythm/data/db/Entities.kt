@@ -97,7 +97,13 @@ data class SongStatsEntity(
      * fresh each time, because the audio evidence for it only exists while the
      * file is being analysed.
      */
-    val spoken: Int = -1
+    val spoken: Int = -1,
+    /**
+     * Moods the user said this song is, or is not: "CALM,-ENERGETIC". Read by
+     * MoodMarks. What the user said always wins over what the audio suggests,
+     * and the marks are what the mood reading learns this listener's ear from.
+     */
+    val moods: String = ""
 )
 
 /** User supplied artist profile: rating 1..5 and free style tags. */

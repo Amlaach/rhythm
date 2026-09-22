@@ -441,6 +441,14 @@ class MusicRepository(
         ids.chunked(400).forEach { dao.deleteStats(it) }
     }
 
+    /** The user saying a song is, or is not, in a mood - or (null) handing it back to the audio. */
+    suspend fun setMoodMark(songId: Long, mood: com.elchanan.rhythm.engine.Mood, value: Boolean?) =
+        withContext(Dispatchers.IO) {
+            dao.ensureStats(songId)
+            val current = dao.stats(songId)?.moods.orEmpty()
+            dao.setMoods(songId, com.elchanan.rhythm.engine.MoodMarks.with(current, mood, value))
+        }
+
     /** The user overruling the speech detector, either way. */
     suspend fun setSpoken(songId: Long, spoken: Boolean) = withContext(Dispatchers.IO) {
         dao.ensureStats(songId)
@@ -764,7 +772,8 @@ class MusicRepository(
                 repeatGuard = prefs.repeatGuard,
                 acousticWeight = prefs.acousticWeight,
                 separations = prefs.styleSeparations,
-                lastMood = prefs.lastMood
+                lastMood = prefs.lastMood,
+                learned = com.elchanan.rhythm.engine.SignalWeights.decode(prefs.learnedWeights)
             ),
             now = System.currentTimeMillis(),
             feedSeed = prefs.feedSeed.toLong(),

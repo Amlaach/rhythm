@@ -40,11 +40,14 @@ import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.engine.Mix
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.MoodModel
+import com.elchanan.rhythm.engine.MoodMarks
 import com.elchanan.rhythm.engine.Names
 import com.elchanan.rhythm.engine.RecapData
 import com.elchanan.rhythm.engine.Recommender
 import com.elchanan.rhythm.engine.ScoreTerm
 import com.elchanan.rhythm.engine.ShelfKind
+import com.elchanan.rhythm.engine.SignalCalibration
+import com.elchanan.rhythm.engine.SignalWeights
 import com.elchanan.rhythm.engine.Spoken
 import com.elchanan.rhythm.engine.StyleLearner
 import com.elchanan.rhythm.engine.StyleLearning
@@ -819,6 +822,45 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repo.deleteBookmark(id) }
     }
 
+    /** What the user said about songs' moods, from the live stats. */
+    private fun moodMarks(): Map<Long, Map<Mood, Boolean>> = MoodMarks.of(library.value.stats)
+
+    /**
+     * The user correcting the mood reading for one song. A "no" said from
+     * inside that mood's list also takes the song out of the list on screen,
+     * so the correction is visible where it was made.
+     */
+    fun setMoodMark(song: SongEntity, mood: Mood, value: Boolean?) {
+        viewModelScope.launch {
+            repo.setMoodMark(song.id, mood, value)
+            val shown = _detail.value
+            if (value == false && shown != null && shown.gradientKey == "mood:${mood.name}") {
+                _detail.value = shown.copy(songs = shown.songs.filter { it.id != song.id })
+            }
+            _message.value = when (value) {
+                true -> "סומן כ\"${mood.label}\" — האפליקציה תלמד מזה"
+                false -> "סומן כלא \"${mood.label}\" — האפליקציה תלמד מזה"
+                null -> "\"${mood.label}\" חזר לזיהוי האוטומטי"
+            }
+            refreshFeed()
+        }
+    }
+
+    /**
+     * What the audio says about this song's moods, with the user's own marks
+     * on this song left out - so the dialog can show what the automatic
+     * reading would say next to what the user said.
+     */
+    suspend fun moodReading(songId: Long): Map<Mood, Boolean> {
+        val features = runCatching { repo.featureMap() }.getOrDefault(emptyMap())
+        val f = features[songId] ?: return emptyMap()
+        val marks = moodMarks() - songId
+        return withContext(Dispatchers.Default) {
+            val model = MoodModel(features.values, marks)
+            Mood.entries.associateWith { model.matches(it, f) }
+        }
+    }
+
     /** The user correcting the speech detector, in either direction. */
     fun setSpoken(songId: Long, spoken: Boolean) {
         viewModelScope.launch {
@@ -1190,7 +1232,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (songs.isNotEmpty()) {
             val features = repo.featureMap()
             if (features.isNotEmpty()) {
-                val model = MoodModel(features.values)
+                val model = MoodModel(features.values, moodMarks())
                 if (model.ready) {
                     for (mood in Mood.entries) {
                         val matching = songs.filter { model.matches(mood, features[it.id]) }
@@ -1657,6 +1699,62 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private val _calibration = MutableStateFlow<SignalCalibration.Report?>(null)
+
+    /** The last report card, or null before one was asked for. */
+    val calibration: StateFlow<SignalCalibration.Report?> = _calibration.asStateFlow()
+    private val _calibrating = MutableStateFlow(false)
+    val calibrating: StateFlow<Boolean> = _calibrating.asStateFlow()
+
+    private val _moodReport = MutableStateFlow<List<MoodModel.MoodReport>?>(null)
+
+    /** How the mood reading does on the songs the user corrected, per mood. */
+    val moodReport: StateFlow<List<MoodModel.MoodReport>?> = _moodReport.asStateFlow()
+
+    /** Whether weights learned from the listening are in force. */
+    val usingLearnedWeights: Boolean get() = SignalWeights.decode(prefs.learnedWeights) != null
+
+    /**
+     * Scores every song the listening has answered for without its own
+     * history, and learns this listener's own signal weights from it. Measured
+     * with the defaults, so the comparison is always against the same baseline.
+     * Changes nothing until [applyLearnedWeights].
+     */
+    fun runCalibration() {
+        viewModelScope.launch {
+            _calibrating.value = true
+            val report = runCatching {
+                val e = repo.buildRecommender()
+                withContext(Dispatchers.Default) {
+                    val rows = e.calibrationRows()
+                    SignalCalibration.run(rows)
+                }
+            }.getOrNull()
+            _moodReport.value = runCatching {
+                val features = repo.featureMap()
+                withContext(Dispatchers.Default) {
+                    MoodModel(features.values, moodMarks()).report()
+                }
+            }.getOrNull()
+            _calibrating.value = false
+            _calibration.value = report
+            if (report == null) _message.value = "הבדיקה נכשלה"
+        }
+    }
+
+    fun applyLearnedWeights() {
+        val weights = _calibration.value?.weights ?: return
+        prefs.learnedWeights = weights.encode()
+        _message.value = "המשקלים האישיים הופעלו"
+        refreshFeed()
+    }
+
+    fun resetLearnedWeights() {
+        prefs.learnedWeights = ""
+        _message.value = "חזרה למשקלים הרגילים"
+        refreshFeed()
+    }
+
     private val _learningReport = MutableStateFlow<String?>(null)
     val learningReport: StateFlow<String?> = _learningReport.asStateFlow()
 
@@ -1801,7 +1899,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     library.value.songs
                         .filter { (library.value.stats[it.id]?.liked ?: 0) != -1 },
                     features,
-                    mood
+                    mood,
+                    moodMarks()
                 )
             }
             if (list.isEmpty()) {
