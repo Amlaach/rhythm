@@ -1860,6 +1860,19 @@ private fun RhythmApp() {
                                 }
                             }
                         },
+                        onTagFolder = { ids, styles, replace ->
+                            scope.launch {
+                                val changed = withContext(Dispatchers.IO) {
+                                    store.setStylesForSongs(ids, styles, replace)
+                                }
+                                reload()
+                                status = if (changed == 0) {
+                                    "כל השירים בתיקייה כבר מתויגים כך"
+                                } else {
+                                    "תויגו $changed שירים"
+                                }
+                            }
+                        },
                         onBulkDelete = { deleteSongs(it) },
                         onBulkAddTo = { playlistId, ids ->
                             scope.launch {

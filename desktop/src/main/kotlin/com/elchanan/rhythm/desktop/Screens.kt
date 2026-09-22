@@ -253,6 +253,7 @@ internal fun LibraryPane(
     onBulkQueue: (List<SongEntity>) -> Unit,
     onBulkAddTo: (Long, List<Long>) -> Unit,
     onBulkGenre: (List<Long>, String) -> Unit,
+    onTagFolder: (List<Long>, List<String>, Boolean) -> Unit,
     onBulkDelete: (List<SongEntity>) -> Unit
 ) {
     // Opens on whichever tab the settings name, and only reads that setting
@@ -565,6 +566,7 @@ internal fun LibraryPane(
                     songs = library.songs,
                     stats = stats,
                     current = current,
+                    onTagFolder = onTagFolder,
                     onPlay = onPlay,
                     onShuffle = onShuffle,
                     onLike = onLike,
@@ -2159,6 +2161,7 @@ private fun FolderTree(
     songs: List<SongEntity>,
     stats: Map<Long, SongStatsEntity>,
     current: Long?,
+    onTagFolder: (List<Long>, List<String>, Boolean) -> Unit,
     onPlay: (List<SongEntity>, Int) -> Unit,
     onShuffle: (List<SongEntity>) -> Unit,
     onLike: (SongEntity) -> Unit,
@@ -2171,6 +2174,18 @@ private fun FolderTree(
     // longer exists would otherwise show an empty screen with no way out.
     val here = remember(root, path) { Folders.find(root, path) ?: root }
     val trail = remember(root, here) { Folders.trail(root, here.path) }
+    // Which folder the style dialog is about, or null while it is closed.
+    var tagging by remember { mutableStateOf<Folders.Node?>(null) }
+
+    tagging?.let { node ->
+        val inside = remember(node) { Folders.allSongs(node) }
+        FolderStyleDialog(
+            folderName = node.name,
+            count = inside.size,
+            onDismiss = { tagging = null },
+            onApply = { styles, replace -> onTagFolder(inside.map { it.id }, styles, replace) }
+        )
+    }
 
     if (root.total == 0) {
         EmptyState(
@@ -2226,6 +2241,7 @@ private fun FolderTree(
                         Chip(label = "ערבב", selected = false, onClick = {
                             onShuffle(Folders.allSongs(here))
                         })
+                        Chip(label = "תייג סגנון", selected = false, onClick = { tagging = here })
                     }
                 }
             }
@@ -2271,6 +2287,14 @@ private fun FolderTree(
                             maxLines = 1
                         )
                     }
+                    IconButton(onClick = { tagging = child }) {
+                        Icon(
+                            Icons.Filled.LocalOffer,
+                            contentDescription = "תייג סגנון לתיקייה",
+                            tint = TextTertiary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                     Icon(
                         Icons.Filled.ChevronLeft,
                         contentDescription = null,
@@ -2300,6 +2324,90 @@ private fun FolderTree(
             }
         }
     }
+}
+
+/**
+ * Puts one set of style tags on every song in a folder.
+ *
+ * The same dialog the phone shows, for the same reason: a downloaded library
+ * arrives as folders and the folder is usually the answer for everything
+ * inside it, so tagging song by song was most of the manual work the app
+ * asked for.
+ *
+ * Adding is the default and replacing is the opt-in, because the destructive
+ * one is the one that has to be chosen on purpose. A tag the app guessed is
+ * overwritten either way: it was never the user's answer, and this is.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FolderStyleDialog(
+    folderName: String,
+    count: Int,
+    onDismiss: () -> Unit,
+    onApply: (List<String>, Boolean) -> Unit
+) {
+    var selected by remember { mutableStateOf(emptyList<String>()) }
+    var replace by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("תגיות לתיקייה") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    "\"$folderName\" · $count שירים, כולל תת־תיקיות",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(10.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Styles.SUGGESTED.forEach { style ->
+                        val on = selected.any { it.equals(style, ignoreCase = true) }
+                        Chip(label = style, selected = on, onClick = {
+                            selected = if (on) {
+                                selected.filterNot { it.equals(style, ignoreCase = true) }
+                            } else {
+                                selected + style
+                            }
+                        })
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip(label = "הוסף לקיים", selected = !replace, onClick = { replace = false })
+                    Chip(label = "החלף מה שיש", selected = replace, onClick = { replace = true })
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (replace) {
+                        "תגיות שסימנת בעצמך על שירים בתיקייה יימחקו ויוחלפו."
+                    } else {
+                        "תגיות שסימנת בעצמך יישארו. ניחושים של האפליקציה יוחלפו בכל מקרה."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (replace) Accent else TextSecondary
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = selected.isNotEmpty(),
+                onClick = { onApply(selected, replace); onDismiss() }
+            ) {
+                Text("תייג $count שירים", color = if (selected.isEmpty()) TextTertiary else Accent)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
 }
 
 /**

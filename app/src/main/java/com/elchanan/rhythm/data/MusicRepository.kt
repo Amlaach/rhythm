@@ -19,6 +19,7 @@ import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.data.db.TransitionEntity
 import com.elchanan.rhythm.engine.AudioTags
+import com.elchanan.rhythm.engine.BulkTagging
 import com.elchanan.rhythm.engine.Spoken
 import com.elchanan.rhythm.engine.AcousticSpace
 import com.elchanan.rhythm.engine.Loudness
@@ -286,6 +287,32 @@ class MusicRepository(
             val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
             dao.putStats(current.copy(styles = styles, stylesAuto = if (auto) 1 else 0))
         }
+
+    /**
+     * Puts one set of style tags on many songs at once.
+     *
+     * What a folder tag runs on. The decision about what may be overwritten is
+     * [BulkTagging]'s and is shared with the desktop build, because it is the
+     * one place here that can destroy tagging the user cannot get back.
+     *
+     * @return how many songs actually changed.
+     */
+    suspend fun setStylesForSongs(
+        songIds: List<Long>,
+        styles: List<String>,
+        replace: Boolean
+    ): Int = withContext(Dispatchers.IO) {
+        var changed = 0
+        for (id in songIds) {
+            val current = dao.stats(id)
+            val next = BulkTagging.tagsFor(current, styles, replace) ?: continue
+            dao.putStats(
+                (current ?: SongStatsEntity(songId = id)).copy(styles = next, stylesAuto = 0)
+            )
+            changed++
+        }
+        changed
+    }
 
     /**
      * Forgets every style tag the app guessed, keeping every one that was typed.

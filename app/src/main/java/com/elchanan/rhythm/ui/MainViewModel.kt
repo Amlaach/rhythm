@@ -962,6 +962,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Tags every song in a folder, subfolders included.
+     *
+     * The shortcut the app was missing. A library arrives as folders and the
+     * folder is usually the answer for everything in it, so tagging one by one
+     * was the bulk of the manual work - and the reason a library in use for
+     * months still had too few labels for the learner to fit anything.
+     */
+    fun tagFolder(songs: List<SongEntity>, styles: List<String>, replace: Boolean) {
+        viewModelScope.launch {
+            val changed = repo.setStylesForSongs(songs.map { it.id }, styles, replace)
+            _message.value =
+                if (changed == 0) "כל השירים בתיקייה כבר מתויגים כך"
+                else "תויגו $changed שירים"
+            refreshFeed()
+        }
+    }
+
     /** Score breakdown for the "why was this picked" sheet. */
     fun explain(song: SongEntity): List<ScoreTerm> = engine?.explain(song).orEmpty()
 

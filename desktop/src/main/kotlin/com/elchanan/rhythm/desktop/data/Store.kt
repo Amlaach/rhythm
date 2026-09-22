@@ -12,6 +12,7 @@ import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.engine.EngineTuning
 import com.elchanan.rhythm.engine.Names
 import com.elchanan.rhythm.engine.Recommender
+import com.elchanan.rhythm.engine.BulkTagging
 import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.engine.TransitionEdge
 import java.io.File
@@ -1389,6 +1390,44 @@ class Store private constructor(private val conn: Connection) {
             ps.setInt(3, if (auto) 1 else 0)
             ps.executeUpdate()
         }
+    }
+
+    /**
+     * Puts one set of style tags on many songs at once, for a folder tag.
+     *
+     * What may be overwritten is [BulkTagging]'s decision, shared with the
+     * phone, because it is the one operation here that can destroy tagging the
+     * user cannot get back.
+     *
+     * @return how many songs actually changed.
+     */
+    @Synchronized
+    fun setStylesForSongs(songIds: List<Long>, styles: List<String>, replace: Boolean): Int {
+        if (songIds.isEmpty()) return 0
+        var changed = 0
+        val read = conn.prepareStatement(
+            "SELECT styles, stylesAuto FROM song_stats WHERE songId = ?"
+        )
+        read.use { ps ->
+            for (id in songIds) {
+                ps.setLong(1, id)
+                val rs = ps.executeQuery()
+                val current = if (rs.next()) {
+                    SongStatsEntity(
+                        songId = id,
+                        styles = rs.getString("styles").orEmpty(),
+                        stylesAuto = rs.getInt("stylesAuto")
+                    )
+                } else {
+                    null
+                }
+                rs.close()
+                val next = BulkTagging.tagsFor(current, styles, replace) ?: continue
+                setSongStyles(id, next, auto = false)
+                changed++
+            }
+        }
+        return changed
     }
 
     /**
