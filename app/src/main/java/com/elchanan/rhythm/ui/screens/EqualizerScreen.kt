@@ -26,7 +26,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -103,7 +103,7 @@ fun EqualizerScreen(vm: MainViewModel, onBack: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "חזור", tint = TextSecondary)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "חזור", tint = TextSecondary)
             }
             Spacer(Modifier.width(4.dp))
             Text("אקולייזר", style = MaterialTheme.typography.titleLarge)
@@ -136,14 +136,14 @@ fun EqualizerScreen(vm: MainViewModel, onBack: () -> Unit) {
             )
         }
 
-        if (useGraphic) GraphicEqualizer(vm, gutter) else SystemEqualizer(vm, gutter)
+        if (useGraphic) GraphicEqualizer(gutter) else SystemEqualizer(vm, gutter)
     }
 }
 
 // --- the app's own thirty one bands -----------------------------------------
 
 @Composable
-private fun GraphicEqualizer(vm: MainViewModel, gutter: Dp) {
+private fun GraphicEqualizer(gutter: Dp) {
     val controller = EqBridge.graphic
     if (controller == null) {
         EmptyState(

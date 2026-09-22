@@ -19,16 +19,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
@@ -98,7 +98,7 @@ jobs:
 
       - name: Upload APKs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           # Numbered, so a download sitting in a folder still says which build
           # it is. A file called rhythm-apk tells you nothing a month later,
@@ -125,16 +125,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
       # jpackage builds the application image - Rhythm.exe, the cut down
       # runtime and the jars - and stops there. It cannot be told to launch
@@ -190,7 +190,7 @@ jobs:
 
       - name: Upload the installer
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rhythm-windows-${{ github.run_number }}
           path: desktop/build/installer/*.exe

@@ -5,31 +5,33 @@ import android.content.Intent
 import android.database.ContentObserver
 import android.media.AudioManager
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
-import androidx.media3.session.CommandButton
-import androidx.media3.session.SessionCommand
-import androidx.media3.session.SessionResult
 import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import com.elchanan.rhythm.MainActivity
-import com.elchanan.rhythm.RhythmApp
 import com.elchanan.rhythm.R
+import com.elchanan.rhythm.RhythmApp
 import com.elchanan.rhythm.data.MusicRepository
 import com.elchanan.rhythm.engine.Spoken
-import android.os.Bundle
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
@@ -50,6 +52,14 @@ import kotlinx.coroutines.withContext
  * engine learns about listening behaviour is measured here, because this is
  * the only component that stays alive when the UI is gone.
  */
+/**
+ * Accepts media3's unstable API for this class.
+ *
+ * DefaultRenderersFactory, DefaultAudioSink and the AudioProcessor chain
+ * are all unstable. They are what the equaliser is built on, and there is
+ * no stable equivalent.
+ */
+@OptIn(markerClass = [UnstableApi::class])
 class PlaybackService : MediaSessionService() {
 
     companion object {

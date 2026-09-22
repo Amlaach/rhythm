@@ -72,14 +72,16 @@ object Id3Writer {
         if (input.read(header) != HEADER) return false
 
         val kept = ArrayList<Frame>(16)
-        var major = 3
 
         val hasTag = header[0] == 'I'.code.toByte() &&
             header[1] == 'D'.code.toByte() &&
             header[2] == '3'.code.toByte()
 
         if (hasTag) {
-            major = header[3].toInt()
+            // Read, used and finished with inside this block: a file with no
+            // tag has no version to speak of, and the tag this writes is
+            // always version 3 whatever it found.
+            val major = header[3].toInt()
             // Unsynchronisation and extended headers are rare and fiddly; a file
             // using either is left alone rather than guessed at.
             if (major != 3 && major != 4) return false

@@ -38,12 +38,12 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PlaylistAdd
-import androidx.compose.material.icons.filled.PlaylistPlay
-import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.AlertDialog
@@ -461,7 +461,7 @@ fun LibraryScreen(
                                     .background(Brush.linearGradient(listOf(c1, c2))),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Filled.PlaylistPlay, contentDescription = null, tint = Color.White)
+                                Icon(Icons.AutoMirrored.Filled.PlaylistPlay, contentDescription = null, tint = Color.White)
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
@@ -553,8 +553,7 @@ fun LibraryScreen(
                                 selection = if (id in selection) selection - id
                                 else selection + id
                             },
-                            onMore = { sheetSong = it },
-                            onOpenDetail = onOpenDetail
+                            onMore = { sheetSong = it }
                         )
                     } else {
                         FolderListTab(
@@ -715,7 +714,7 @@ private fun SongTab(
                             modifier = Modifier.clickable(onClick = onSort).padding(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Filled.Sort, contentDescription = null, tint = TextSecondary)
+                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = null, tint = TextSecondary)
                             Spacer(Modifier.width(4.dp))
                             Text(sortLabel, style = MaterialTheme.typography.labelMedium, color = TextSecondary)
                         }
@@ -786,10 +785,10 @@ internal fun SelectionBar(
         )
         Spacer(Modifier.weight(1f))
         BarAction(Icons.Filled.PlayArrow, "נגן") { vm.playList(songs); onClear() }
-        BarAction(Icons.Filled.QueueMusic, "לתור") { vm.bulkQueue(songs); onClear() }
+        BarAction(Icons.AutoMirrored.Filled.QueueMusic, "לתור") { vm.bulkQueue(songs); onClear() }
         BarAction(Icons.Filled.ThumbUp, "לייק") { vm.bulkLikeSongs(ids, 1); onClear() }
         BarAction(Icons.Filled.Star, "דרג") { rateOpen = true }
-        BarAction(Icons.Filled.PlaylistAdd, "לרשימה") { playlistOpen = true }
+        BarAction(Icons.AutoMirrored.Filled.PlaylistAdd, "לרשימה") { playlistOpen = true }
         BarAction(Icons.Filled.LocalOffer, "ז'אנר") { genreOpen = true }
         BarAction(Icons.Filled.Share, "שתף") { vm.shareSongs(songs); onClear() }
         BarAction(Icons.Filled.Delete, "מחק") { deleteOpen = true }
@@ -976,8 +975,7 @@ private fun FolderTreeTab(
     selection: Set<Long>,
     onToggleGroup: (List<SongEntity>) -> Unit,
     onToggleSong: (Long) -> Unit,
-    onMore: (SongEntity) -> Unit,
-    onOpenDetail: () -> Unit
+    onMore: (SongEntity) -> Unit
 ) {
     val selectionMode = selection.isNotEmpty()
     val root = remember(library.songs) { Folders.build(library.songs) }

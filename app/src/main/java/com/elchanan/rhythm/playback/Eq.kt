@@ -178,10 +178,10 @@ class EqController(private val prefs: Prefs) {
             }
             val levels = prefs.eqBands
             for (band in 0 until eq.numberOfBands) {
-                val wanted = levels.getOrNull(band) ?: 0
+                val level = levels.getOrNull(band) ?: 0
                 eq.setBandLevel(
                     band.toShort(),
-                    wanted.coerceIn(minLevel.toInt(), maxLevel.toInt()).toShort()
+                    level.coerceIn(minLevel.toInt(), maxLevel.toInt()).toShort()
                 )
             }
         }

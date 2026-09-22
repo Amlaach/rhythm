@@ -293,7 +293,6 @@ fun RhythmRoot(
                 }
                 composable(Routes.SETTINGS) {
                     SettingsScreen(
-                        vm = vm,
                         onBack = { navController.popBackStack() },
                         onOpenHomeSettings = { navController.navigate(Routes.HOME_SETTINGS) },
                         onOpenPlayerSettings = { navController.navigate(Routes.PLAYER_SETTINGS) },

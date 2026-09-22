@@ -56,7 +56,6 @@ internal fun displayNameOf(context: android.content.Context, uri: android.net.Ur
 
 @Composable
 fun SettingsScreen(
-    vm: MainViewModel,
     onBack: () -> Unit,
     onOpenHomeSettings: () -> Unit = {},
     onOpenPlayerSettings: () -> Unit = {},

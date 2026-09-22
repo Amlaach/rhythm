@@ -89,7 +89,13 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
-        freeCompilerArgs = freeCompilerArgs + "-opt-in=androidx.media3.common.util.UnstableApi"
+        // No -opt-in for media3's UnstableApi here.
+        //
+        // That flag takes a Kotlin @RequiresOptIn marker, and media3's is
+        // androidx's, which the Kotlin compiler does not recognise - it
+        // answered "not an opt-in requirement marker" on every build and did
+        // nothing else. The opt-in is declared where it is actually used,
+        // with the annotation that means something for an androidx marker.
     }
     buildFeatures {
         compose = true
@@ -141,6 +147,10 @@ dependencies {
 
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
+    // Carries @OptIn for androidx's own opt-in markers, which is how the
+    // media3 unstable APIs below are accepted. It arrives with media3 anyway;
+    // naming it says why it is on the classpath.
+    implementation("androidx.annotation:annotation-experimental:1.4.1")
     implementation("androidx.media3:media3-exoplayer:1.3.1")
     implementation("androidx.media3:media3-session:1.3.1")
     implementation("androidx.media3:media3-common:1.3.1")

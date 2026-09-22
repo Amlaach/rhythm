@@ -24,13 +24,13 @@ import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlaylistRemove
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.ThumbDown
@@ -98,7 +98,6 @@ fun SongOptionsSheet(
     val playlists by vm.playlists.collectAsStateWithLifecycle()
     val features by vm.featuresById.collectAsStateWithLifecycle()
     val stats = library.stats[song.id]
-    val liked = stats?.liked ?: 0
     val rating = stats?.rating ?: 0
     var showWhy by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
@@ -178,7 +177,7 @@ fun SongOptionsSheet(
             // that would do nothing useful.
             if (!forCurrentSong) {
                 OptionRow(Icons.Filled.SkipNext, "נגן הבא") { vm.playNext(song); onDismiss() }
-                OptionRow(Icons.Filled.QueueMusic, "הוסף לתור") { vm.addToQueue(song); onDismiss() }
+                OptionRow(Icons.AutoMirrored.Filled.QueueMusic, "הוסף לתור") { vm.addToQueue(song); onDismiss() }
             }
             if (onOpenDetail != null) {
                 OptionRow(Icons.Filled.AutoAwesome, "צור מיקס מהשיר הזה") {
@@ -199,7 +198,7 @@ fun SongOptionsSheet(
             )
             OptionRow(Icons.Filled.Add, "רשימה חדשה", tint = Accent) { newPlaylist = true }
             playlists.forEach { info ->
-                OptionRow(Icons.Filled.PlaylistAdd, info.playlist.name) {
+                OptionRow(Icons.AutoMirrored.Filled.PlaylistAdd, info.playlist.name) {
                     vm.addToPlaylist(info.playlist.id, song.id)
                     onDismiss()
                 }
