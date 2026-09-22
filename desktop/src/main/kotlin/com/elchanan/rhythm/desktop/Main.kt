@@ -324,12 +324,13 @@ private fun RhythmApp() {
             // engine's input that does not come from the files.
             val aff = store.affinityMap()
             val trans = store.transitionMap()
+            val heard = store.lastHeard()
             val eng = if (s.isEmpty()) {
                 null
             } else {
                 Feed.engine(
                     filterLibrary(applyOverrides(s, store.overrides()), st, prefs),
-                    st, ar, ft, sd, tn, aff, trans
+                    st, ar, ft, sd, tn, aff, trans, heard
                 )
             }
             // The corrections are applied to the rows on the way out, so

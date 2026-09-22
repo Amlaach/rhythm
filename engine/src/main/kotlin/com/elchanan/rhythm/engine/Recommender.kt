@@ -166,7 +166,20 @@ class Recommender(
      * library, because being spoken is a reason not to mix something into an
      * evening's listening, not a reason to hide it.
      */
-    private val spoken: Set<Long> = emptySet()
+    private val spoken: Set<Long> = emptySet(),
+    /**
+     * When each song was last actually heard, from the play history.
+     *
+     * `lastPlayedAt` in the stats is when a song was last touched, and a skip
+     * touches it. Read as "heard lately" that turned every skip into an
+     * endorsement: skip a song you loved months ago and it became your most
+     * recent favourite, anchoring "sounds like" on the very track you had just
+     * turned off, and five skips in a row set the session's sound to the one
+     * you were running away from. The history table records plays and never
+     * skips, so it is the honest source. See [heardAt] for what happens to a
+     * song older than the history reaches.
+     */
+    private val lastHeard: Map<Long, Long> = emptyMap()
 ) {
 
     /**
@@ -178,6 +191,34 @@ class Recommender(
      */
     private val playable: List<SongEntity> =
         if (spoken.isEmpty()) songs else songs.filterNot { it.id in spoken }
+
+    /**
+     * When a song was last heard - played, not skipped - or 0 when unknown.
+     *
+     * The history is capped, so a song can be missing from it. When it has
+     * never been skipped its last touch was a play and `lastPlayedAt` is
+     * exact; when it has, that touch may have been the skip, and unknown is
+     * the honest answer - it only costs a song the recency boost that a play
+     * old enough to have fallen out of the history would not earn anyway.
+     */
+    private fun heardAt(songId: Long): Long {
+        lastHeard[songId]?.let { return it }
+        val st = stats[songId] ?: return 0L
+        return if (st.skipCount == 0) st.lastPlayedAt else 0L
+    }
+
+    /**
+     * Never played and never skipped: the only honest meaning of "not heard yet".
+     *
+     * Plays alone were counted, so a song skipped six times read as undiscovered
+     * - it collected the discovery bonus and was offered in the discovery mix
+     * as "a song you have not heard yet", to someone who had heard it enough
+     * to turn it off six times.
+     */
+    private fun untouched(songId: Long): Boolean {
+        val st = stats[songId] ?: return true
+        return st.playCount == 0 && st.skipCount == 0
+    }
 
     private val hourBucket: Int = bucketOf(now)
     private val weekendNow: Boolean = isWeekend(now)
@@ -261,11 +302,16 @@ class Recommender(
      */
     private val sessionCentre: DoubleArray? = run {
         val cutoff = now - 45 * 60 * 1000L
+        // What was heard in the last three quarters of an hour, not what was
+        // touched. Skips count as touches, so five skips in a row used to set
+        // the session's centre to the sound being skipped, and the feed leaned
+        // towards exactly what was being rejected.
         val recent = stats.values
-            .filter { it.lastPlayedAt >= cutoff }
-            .sortedByDescending { it.lastPlayedAt }
+            .map { it.songId to heardAt(it.songId) }
+            .filter { it.second >= cutoff }
+            .sortedByDescending { it.second }
             .take(5)
-            .mapNotNull { features[it.songId] }
+            .mapNotNull { features[it.first] }
             .filter { it.energy > 0f }
         if (recent.size < 3) null else doubleArrayOf(
             recent.map { it.bpm.toDouble() }.average(),
@@ -600,7 +646,9 @@ class Recommender(
         var w = 0.0
         val st = stats[songId] ?: return w
         if (st.playCount > 0) {
-            val recency = if (st.lastPlayedAt == 0L) 0.0 else exp(-daysSince(st.lastPlayedAt) / 45.0)
+            // Recency of the last play, not the last touch - see [heardAt].
+            val heard = heardAt(songId)
+            val recency = if (heard == 0L) 0.0 else exp(-daysSince(heard) / 45.0)
             w += ln(1.0 + st.playCount) * (0.55 + 0.45 * recency)
         }
         w += when (st.liked) {
@@ -776,7 +824,7 @@ class Recommender(
         score += 0.6 * sessionFit(song.id)
         score -= 2.6 * tuning.repeatGuard * exp(-hoursSince(st?.lastPlayedAt ?: 0L) / 9.0)
         score += 0.35 * exp(-daysSince(song.dateAddedSec * 1000L) / 21.0)
-        if (plays == 0) score += 1.1 * effectiveDiscovery
+        if (untouched(song.id)) score += 1.1 * effectiveDiscovery
 
         return score
     }
@@ -904,7 +952,7 @@ class Recommender(
                 if (hours > 100_000) "לא הושמע לאחרונה" else "הושמע לפני ${hours.toInt()} שעות"
             )
         )
-        if (plays == 0) {
+        if (untouched(song.id)) {
             out.add(ScoreTerm("גילוי", 1.1 * effectiveDiscovery, "עוד לא הושמע"))
         }
         return out.sortedByDescending { abs(it.value) }
@@ -1248,7 +1296,7 @@ class Recommender(
             )
         )
 
-        val unheard = notDisliked.filter { (stats[it.id]?.playCount ?: 0) == 0 }
+        val unheard = notDisliked.filter { untouched(it.id) }
         if (unheard.size >= 6) {
             mixes.add(
                 Mix(
@@ -1483,7 +1531,17 @@ class Recommender(
             )
         }
 
-        val heard = notDisliked.filter { (stats[it.id]?.playCount ?: 0) >= 2 }
+        // Songs the listening vouches for that have not been on for a while.
+        // It was ranked by play count times the recency of the last touch, so
+        // it opened on whatever was heard ten minutes ago - not "again" in any
+        // sense - followed by a song skipped thirty times, whose plays and
+        // fresh skip both counted in its favour.
+        val heard = notDisliked.filter {
+            val st = stats[it.id]
+            (st?.playCount ?: 0) >= 2 &&
+                hoursSince(st?.lastPlayedAt ?: 0L) >= AGAIN_AFTER_HOURS &&
+                (behaviour[it.id] ?: 0.0) > 0.35
+        }
         if (heard.size >= 6) {
             sections.add(
                 FeedSection(
@@ -1491,11 +1549,7 @@ class Recommender(
                     title = "תשמע שוב",
                     kind = SectionKind.SONG_ROW,
                     songs = offered(
-                        heard.sortedByDescending { s ->
-                            val st = stats[s.id]!!
-                            ln(1.0 + st.playCount) *
-                                (0.4 + 0.6 * exp(-daysSince(st.lastPlayedAt) / 30.0))
-                        }
+                        heard.sortedByDescending { behaviour[it.id] ?: 0.0 }
                     ).take(20)
                 )
             )
@@ -1533,13 +1587,18 @@ class Recommender(
         // The one artist the listening actually points at, with their strongest
         // tracks. Deliberately a single artist: a home page carrying three of
         // these stops being a recommendation and becomes a directory.
+        //
+        // Measured by the same endorsement the rest of the engine uses, which
+        // subtracts skips. Plays alone were summed, so under shuffle - where
+        // plays follow file count - the singer with the most files won even
+        // when he was skipped twice for every play, over one played eighty
+        // times to the end. And over music only: shiurim played daily used to
+        // win the shelf, find fewer than five songs to fill it, and take it
+        // off the page altogether.
         val engagement = HashMap<String, Double>()
-        for (s in songs) {
-            val st = stats[s.id] ?: continue
-            var w = ln(1.0 + st.playCount)
-            if (st.liked == 1) w += 1.5
-            if (st.liked == -1) w -= 1.5
-            if (st.rating >= 4) w += 1.0
+        for (s in playable) {
+            val w = behaviour[s.id] ?: continue
+            if (w == 0.0) continue
             engagement.merge(s.artistKey, w) { x, y -> x + y }
         }
         val favouriteKey = engagement.entries
@@ -1633,7 +1692,10 @@ class Recommender(
         // merely sits on the device.
         val yours = notDisliked.filter {
             val st = stats[it.id]
-            (st?.liked ?: 0) == 1 || (st?.rating ?: 0) > 0
+            // Three and up. A one or two star rating is a statement against
+            // the song, and a shelf of what you have claimed was opening on
+            // songs you had marked as bad.
+            (st?.liked ?: 0) == 1 || (st?.rating ?: 0) >= 3
         }
         if (yours.size >= 6) {
             sections.add(
@@ -2138,6 +2200,9 @@ class Recommender(
          * puts the midpoint where an ordinary strong pair lands.
          */
         private const val AFFINITY_HALF = 0.6
+
+        /** How long a song must have been off before "listen again" offers it. */
+        private const val AGAIN_AFTER_HOURS = 48.0
 
         /**
          * Below this many songs the listening says something about, rated

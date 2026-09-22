@@ -517,7 +517,7 @@ class MusicRepository(
             )
         )
         dao.insertHistory(HistoryEntity(songId = songId, playedAt = now, completed = completed, listenedMs = listenedMs))
-        dao.trimHistory(2000)
+        dao.trimHistory(HISTORY_FOR_RECENCY)
 
         // co-occurrence: the closer two songs were played, the heavier the edge
         sessionTail.forEachIndexed { index, other ->
@@ -723,6 +723,13 @@ class MusicRepository(
                 statsById[song.id]?.spoken ?: -1
             )
         }.mapTo(HashSet()) { it.id }
+        // When each song was last actually heard. The history records plays
+        // and never skips, where lastPlayedAt in the stats is also moved by a
+        // skip. Newest first, so the first row seen per song is its latest.
+        val lastHeard = HashMap<Long, Long>()
+        for (row in dao.recentHistory(HISTORY_FOR_RECENCY)) {
+            lastHeard.putIfAbsent(row.songId, row.playedAt)
+        }
         Recommender(
             songs = allSongs,
             stats = statsById,
@@ -742,7 +749,8 @@ class MusicRepository(
             ),
             now = System.currentTimeMillis(),
             feedSeed = prefs.feedSeed.toLong(),
-            spoken = spokenIds
+            spoken = spokenIds,
+            lastHeard = lastHeard
         )
     }
 
@@ -1002,6 +1010,13 @@ class MusicRepository(
          * enough never to lose anything that matters.
          */
         private const val EDGE_LIMIT = 20_000
+
+        /**
+         * How much history the engine reads recency from. The whole of it:
+         * recordPlay trims it to this size, so asking for more finds nothing.
+         */
+        private const val HISTORY_FOR_RECENCY = 2000
+
         private const val TRIM_EVERY = 200
 
         /**

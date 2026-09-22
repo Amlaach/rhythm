@@ -51,7 +51,8 @@ object Feed {
         seed: Long,
         tuning: EngineTuning = EngineTuning(),
         affinity: Map<Long, Map<Long, Double>> = emptyMap(),
-        transitions: Map<Long, Map<Long, TransitionEdge>> = emptyMap()
+        transitions: Map<Long, Map<Long, TransitionEdge>> = emptyMap(),
+        lastHeard: Map<Long, Long> = emptyMap()
     ) = Recommender(
         songs = songs,
         stats = stats,
@@ -79,7 +80,8 @@ object Feed {
                 feature?.tags?.let { AudioTags.pick(it, AudioTags.SPEECH_INDICES) },
                 stats[song.id]?.spoken ?: -1
             )
-        }.mapTo(HashSet()) { it.id }
+        }.mapTo(HashSet()) { it.id },
+        lastHeard = lastHeard
     )
 
 }
