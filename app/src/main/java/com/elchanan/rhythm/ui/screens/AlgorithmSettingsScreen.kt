@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.elchanan.rhythm.engine.Listening
 import com.elchanan.rhythm.engine.StyleLearning
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.SectionHeader
@@ -79,6 +80,7 @@ fun AlgorithmSettingsScreen(
     var searchLyrics by remember { mutableStateOf(vm.prefs.searchLyrics) }
     var searchOpen by remember { mutableStateOf(false) }
     var autoLearn by remember { mutableStateOf(vm.prefs.autoLearn) }
+    var minPlay by remember { mutableFloatStateOf(vm.prefs.minPlaySeconds.toFloat()) }
     var separations by remember { mutableStateOf(vm.prefs.styleSeparations) }
     var separationsOpen by remember { mutableStateOf(false) }
 
@@ -181,6 +183,25 @@ fun AlgorithmSettingsScreen(
                         color = TextPrimary
                     )
                 }
+            }
+
+            item {
+                TuningSlider(
+                    label = if (minPlay < 1f) {
+                        "נספר כהשמעה: מיד"
+                    } else {
+                        "נספר כהשמעה אחרי ${minPlay.toInt()} שניות"
+                    },
+                    value = minPlay / Listening.MAX_MINIMUM_SEC,
+                    hint = "מי שמדפדף באוזן נוגע בעשרה שירים כדי למצוא אחד. " +
+                        "מתחת לזה לא נרשם כלום — לא השמעה ולא דילוג — כדי ששיר " +
+                        "שרק הוצץ בו לא ייחשב אהוב ולא ייקבר",
+                    onChange = {
+                        minPlay = (it * Listening.MAX_MINIMUM_SEC)
+                            .coerceIn(0f, Listening.MAX_MINIMUM_SEC.toFloat())
+                    },
+                    onDone = { vm.prefs.minPlaySeconds = minPlay.toInt() }
+                )
             }
 
             item {

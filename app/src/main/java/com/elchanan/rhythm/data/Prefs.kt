@@ -3,6 +3,7 @@ package com.elchanan.rhythm.data
 import android.content.Context
 import androidx.core.content.edit
 import com.elchanan.rhythm.engine.EqBands
+import com.elchanan.rhythm.engine.Listening
 import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.engine.Styles
 
@@ -60,6 +61,25 @@ class Prefs(context: Context) {
     var autoLearn: Boolean
         get() = sp.getBoolean(KEY_AUTO_LEARN, true)
         set(value) = sp.edit { putBoolean(KEY_AUTO_LEARN, value) }
+
+    /**
+     * How long a track must be heard before it is counted at all.
+     *
+     * Someone browsing by ear touches a dozen songs looking for one. Counting
+     * those as plays teaches the recommender that they are liked; counting
+     * them as skips buries songs nobody rejected. Neither is true, so below
+     * this nothing is recorded either way.
+     */
+    var minPlaySeconds: Int
+        get() = sp.getInt(KEY_MIN_PLAY_SECONDS, Listening.DEFAULT_MINIMUM_SEC)
+        set(value) = sp.edit {
+            putInt(
+                KEY_MIN_PLAY_SECONDS,
+                value.coerceIn(Listening.MIN_MINIMUM_SEC, Listening.MAX_MINIMUM_SEC)
+            )
+        }
+
+    val minPlayMs: Long get() = Listening.minimumMsOf(minPlaySeconds)
 
     /** Keep analysing new files in the background without being asked. */
     var autoAnalyze: Boolean
@@ -489,6 +509,7 @@ class Prefs(context: Context) {
         const val KEY_SEPARATIONS = "style_separations"
         const val KEY_FOLDER_TREE = "folder_tree"
         const val KEY_SKIP_RECORDINGS = "skip_recordings"
+        const val KEY_MIN_PLAY_SECONDS = "min_play_seconds"
         const val KEY_AUTO_LEARN = "auto_learn"
         const val KEY_PIN_MOODS = "pin_mood_row"
         const val KEY_TAP_ARTWORK = "tap_artwork_toggles"

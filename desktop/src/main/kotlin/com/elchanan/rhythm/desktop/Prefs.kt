@@ -4,6 +4,7 @@ import com.elchanan.rhythm.desktop.data.Store
 import com.elchanan.rhythm.engine.EqBands
 import com.elchanan.rhythm.engine.PlayerAction
 import com.elchanan.rhythm.engine.ShelfKind
+import com.elchanan.rhythm.engine.Listening
 
 /**
  * Every setting the Windows build remembers, as a typed property.
@@ -45,6 +46,23 @@ class Prefs(private val store: Store) {
     var autoLearn: Boolean
         get() = flag("autoLearn", true)
         set(value) = set("autoLearn", value)
+
+    /**
+     * How long a track must be heard before it is counted at all.
+     *
+     * Someone browsing by ear touches a dozen songs looking for one. Counting
+     * those as plays teaches the recommender that they are liked; counting
+     * them as skips buries songs nobody rejected. Neither is true, so below
+     * this nothing is recorded either way.
+     */
+    var minPlaySeconds: Int
+        get() = number("minPlaySeconds", Listening.DEFAULT_MINIMUM_SEC)
+        set(value) = store.put(
+            "minPlaySeconds",
+            value.coerceIn(Listening.MIN_MINIMUM_SEC, Listening.MAX_MINIMUM_SEC).toString()
+        )
+
+    val minPlayMs: Long get() = Listening.minimumMsOf(minPlaySeconds)
 
     /** Measure every new file as soon as the scan finds it. */
     var autoAnalyze: Boolean

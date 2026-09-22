@@ -69,6 +69,17 @@ class AudioPlayer {
     @Volatile private var stopRequested = false
     @Volatile private var paused = false
     @Volatile private var seekRequestMs = -1L
+
+    /**
+     * The length of what is playing, so a seek can be kept inside it.
+     *
+     * Seeking is a skip over the decoded stream, and a skip that runs past
+     * the end leaves nothing to read - which the loop below could only read
+     * as the track having finished, so it moved to the next one. Asking for
+     * the last moment of a song and being given the next song is the bug
+     * that was reported; the margin is what stops it.
+     */
+    @Volatile private var trackDurationMs = 0L
     @Volatile private var volume = 1.0f
     @Volatile private var trackGain = 1.0f
 
@@ -82,6 +93,7 @@ class AudioPlayer {
         stopRequested = false
         paused = false
         seekRequestMs = -1L
+        trackDurationMs = durationMs
         _state.value = PlayerState(file = file, playing = true, durationMs = durationMs)
         worker = Thread({ run(file, durationMs) }, "rhythm-audio").apply {
             isDaemon = true
@@ -105,11 +117,19 @@ class AudioPlayer {
     fun togglePause() = if (_state.value.playing) pause() else resume()
 
     fun seekTo(ms: Long) {
-        seekRequestMs = ms.coerceAtLeast(0L)
+        // Never the very end. A tag's duration and what the decoder can
+        // actually produce disagree by a frame or two, and on a VBR file the
+        // skip below lands approximately anyway, so asking for the last
+        // instant reliably overshoots into nothing.
+        val end = trackDurationMs - END_MARGIN_MS
+        seekRequestMs = if (end > 0) ms.coerceIn(0L, end) else ms.coerceAtLeast(0L)
         // A seek while paused has to wake the thread or nothing happens until
         // the user presses play, which looks like the seek was ignored.
         synchronized(pauseLock) { pauseLock.notifyAll() }
     }
+
+    /** How far from the end a seek is allowed to land. */
+    private val END_MARGIN_MS = 400L
 
     /** Linear 0..1, as a volume slider means it. */
     fun setVolume(value: Float) {
@@ -161,6 +181,11 @@ class AudioPlayer {
                 pcm = opened.second
                 val offset = startMs
                 val buffer = ByteArray(16 * 1024)
+                // Whether this pass ever produced sound. A pass that produces
+                // none did not reach the end of anything - it was handed a
+                // stream already exhausted by an overshooting skip - and
+                // treating that as the end is what moved the player on.
+                var produced = false
                 line.start()
 
                 while (!stopRequested) {
@@ -185,9 +210,14 @@ class AudioPlayer {
 
                     val read = pcm.read(buffer, 0, buffer.size)
                     if (read <= 0) {
-                        finished = true
+                        // Only the end when something was heard first. An
+                        // empty pass after a seek means the seek missed, and
+                        // the honest answer is to stay on this track rather
+                        // than to advance off it.
+                        finished = produced || startMs <= 0L
                         break
                     }
+                    produced = true
                     equalizer.process(buffer, read)
                     applyVolume(line)
                     line.write(buffer, 0, read)
@@ -256,10 +286,21 @@ class AudioPlayer {
 
         if (fromMs > 0) {
             var remaining = (fromMs / 1000.0 * target.frameRate).toLong() * target.frameSize
+            // Read and discard rather than InputStream.skip.
+            //
+            // There is no cheap seek here: the position of a given moment in
+            // an encoded file is not written down, so getting there means
+            // decoding everything before it. skip() does exactly that, and on
+            // the SPI decoders it does it in whatever small pieces it likes -
+            // which is why dragging the scrubber stopped the player for
+            // seconds. A sixty four kilobyte buffer decodes the same audio in
+            // a fraction of the calls.
+            val scratch = ByteArray(64 * 1024)
             while (remaining > 0) {
-                val skipped = pcm.skip(remaining)
-                if (skipped <= 0) break
-                remaining -= skipped
+                val want = minOf(remaining, scratch.size.toLong()).toInt()
+                val read = runCatching { pcm.read(scratch, 0, want) }.getOrDefault(-1)
+                if (read <= 0) break
+                remaining -= read
             }
         }
 

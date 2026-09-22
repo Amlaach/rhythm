@@ -42,6 +42,7 @@ import com.elchanan.rhythm.engine.ActionPlacement
 import com.elchanan.rhythm.engine.EngineTuning
 import com.elchanan.rhythm.engine.PlayerAction
 import com.elchanan.rhythm.engine.ShelfKind
+import com.elchanan.rhythm.engine.Listening
 import com.elchanan.rhythm.engine.StyleLearning
 import com.elchanan.rhythm.engine.TasteReport
 import com.elchanan.rhythm.ui.theme.Accent
@@ -884,6 +885,23 @@ internal fun AlgorithmSettingsScreen(
                     enabled = !busy && !learning,
                     primary = true,
                     onClick = onLearn
+                )
+                var minPlay by remember { mutableStateOf(prefs.minPlaySeconds.toFloat()) }
+                Knob(
+                    label = if (minPlay < 1f) {
+                        "נספר כהשמעה: מיד"
+                    } else {
+                        "נספר כהשמעה אחרי ${minPlay.toInt()} שניות"
+                    },
+                    value = minPlay,
+                    range = 0f..Listening.MAX_MINIMUM_SEC.toFloat(),
+                    hint = "מי שמדפדף באוזן נוגע בעשרה שירים כדי למצוא אחד. " +
+                        "מתחת לזה לא נרשם כלום — לא השמעה ולא דילוג — כדי ששיר " +
+                        "שרק הוצץ בו לא ייחשב אהוב ולא ייקבר",
+                    onDone = {
+                        minPlay = it
+                        prefs.minPlaySeconds = it.toInt()
+                    }
                 )
                 ActionRow(
                     title = "למידה אוטומטית",
