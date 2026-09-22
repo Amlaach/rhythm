@@ -592,7 +592,7 @@ private fun ScrollHint(scroll: ScrollState, viewport: Int, gutter: Dp) {
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = gutter, bottom = 6.dp)
+            .padding(start = gutter, end = gutter, bottom = 6.dp)
             .height(3.dp)
             .clip(CircleShape)
             .background(Surface2)
