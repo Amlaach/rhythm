@@ -448,16 +448,26 @@ class Recommender(
 
     init {
         val space = acoustic
-        acousticPositives = behaviour.entries
+        val listenedFor = behaviour.entries
             .filter { it.value > 0.35 && space?.has(it.key) == true }
             .sortedByDescending { it.value }
             .take(60)
             .map { it.key }
-        acousticNegatives = behaviour.entries
+        val listenedAgainst = behaviour.entries
             .filter { it.value < -0.35 && space?.has(it.key) == true }
             .sortedBy { it.value }
             .take(30)
             .map { it.key }
+        // Listening is the evidence about sound; an artist rating only fills
+        // in where there is too little of it, and then a few tracks per artist
+        // so that no single rating can become the whole neighbourhood.
+        acousticPositives = listenedFor + artistSeeds(
+            loved = true, room = ARTIST_SEED_FLOOR - listenedFor.size, taken = listenedFor.toSet()
+        )
+        acousticNegatives = listenedAgainst + artistSeeds(
+            loved = false, room = ARTIST_SEED_FLOOR / 2 - listenedAgainst.size,
+            taken = listenedAgainst.toSet()
+        )
 
         acousticFitById = if (space == null || acousticPositives.isEmpty()) {
             emptyMap()
@@ -471,6 +481,38 @@ class Recommender(
         }
 
         baseScores = songs.associate { it.id to computeBase(it) }
+    }
+
+    /**
+     * Songs by rated artists, to seed the sound model when listening is thin.
+     *
+     * Someone who rates artists and has barely listened yet would otherwise
+     * have no acoustic neighbourhood at all. At most [SEEDS_PER_ARTIST] per
+     * artist, taken round the artists in rating order, so a rating counts once
+     * per artist however many files that artist has.
+     */
+    private fun artistSeeds(loved: Boolean, room: Int, taken: Set<Long>): List<Long> {
+        val space = acoustic ?: return emptyList()
+        if (room <= 0) return emptyList()
+        val rated = artists.values
+            .filter { if (loved) it.rating >= 4 else it.rating in 1..2 }
+            .sortedWith(
+                if (loved) compareByDescending<ArtistEntity> { it.rating }.thenBy { it.artistKey }
+                else compareBy<ArtistEntity> { it.rating }.thenBy { it.artistKey }
+            )
+        if (rated.isEmpty()) return emptyList()
+        val byArtist = playable
+            .filter { space.has(it.id) && it.id !in taken }
+            .groupBy { it.artistKey }
+            .mapValues { (_, list) -> list.sortedBy { it.id }.take(SEEDS_PER_ARTIST) }
+        val out = ArrayList<Long>(room)
+        for (round in 0 until SEEDS_PER_ARTIST) {
+            for (artist in rated) {
+                if (out.size >= room) return out
+                byArtist[artist.artistKey]?.getOrNull(round)?.let { out.add(it.id) }
+            }
+        }
+        return out
     }
 
     // -----------------------------------------------------------------------
@@ -540,24 +582,22 @@ class Recommender(
      * endorses it. Reused by the taste vector and by the acoustic kNN seeds so
      * the two never disagree about what "liked" means.
      */
+    /**
+     * What the user's own behaviour says about one song: plays, likes, the
+     * song's own rating, skips.
+     *
+     * Deliberately nothing about the artist. An artist rating was once added
+     * here, per song, and that multiplied one statement by however many files
+     * the artist happened to have: rate a singer with a hundred downloads five
+     * stars and you had said something a hundred times, loudly enough to
+     * outvote a hundred and twenty real plays of somebody else. The taste
+     * vector swung to the rated artist's style, the sound model moved to his
+     * sound, and "sounds like this" anchored on a track never once played.
+     * Artist ratings reach those models once per artist instead - see
+     * [buildTasteVector] and [artistSeeds].
+     */
     private fun behaviourWeight(songId: Long): Double {
         var w = 0.0
-        // An artist rating is a statement about every song by that artist, and
-        // it was the one statement this never heard. It reached the ranking as
-        // a flat bonus on the song's own score and stopped there - so it never
-        // seeded the acoustic neighbourhood, never weighted the taste vector,
-        // and never picked the anchor for "sounds like this". Someone who had
-        // rated thirty artists and few individual songs was, as far as every
-        // model in here was concerned, someone who had said nothing at all,
-        // and the feed fell back on what it does with a silent user: offer the
-        // unheard. Which is exactly the complaint - rate an artist, nothing
-        // moves.
-        //
-        // Weighted below a play: rating an artist says you like them, playing
-        // a song says you like it, and the second is the better evidence about
-        // the track in hand.
-        val artistRating = artists[artistKeyById[songId]]?.rating ?: 0
-        if (artistRating > 0) w += (artistRating - 3) * 0.9
         val st = stats[songId] ?: return w
         if (st.playCount > 0) {
             val recency = if (st.lastPlayedAt == 0L) 0.0 else exp(-daysSince(st.lastPlayedAt) / 45.0)
@@ -577,15 +617,36 @@ class Recommender(
     private fun buildTasteVector(): Map<String, Double> {
         val acc = HashMap<String, Double>()
 
-        // (a) explicit artist ratings - useful from the very first minute
+        // (a) explicit artist ratings - useful from the very first minute.
+        // Once per artist, whatever the number of files: a rating is one
+        // statement, and letting it scale with a download count is how a
+        // singer nobody had played came to outweigh one played a hundred
+        // times.
+        val songsOfArtist = playable.groupBy { it.artistKey }
         for (artist in artists.values) {
             if (artist.rating == 0) continue
-            val styles = Styles.parse(artist.styles)
-            if (styles.isEmpty()) continue
             val w = (artist.rating - 3) * 1.1
+            if (w == 0.0) continue
+            val styles = Styles.parse(artist.styles)
             // Through the same weighting the songs get, or the two sides of
             // the cosine would be measuring on different scales.
-            for ((k, value) in unitVector(styles.map { it.lowercase(Locale.ROOT) })) {
+            val direction: Map<String, Double> = if (styles.isNotEmpty()) {
+                unitVector(styles.map { it.lowercase(Locale.ROOT) })
+            } else {
+                // No words from the user, so the artist's own measured tokens
+                // stand in: the average of their songs, which is one vector
+                // of length at most one however many songs went into it.
+                val theirs = songsOfArtist[artist.artistKey].orEmpty()
+                if (theirs.isEmpty()) continue
+                val sum = HashMap<String, Double>()
+                for (song in theirs) {
+                    for ((k, v) in unitVector(tokensBySong[song.id].orEmpty())) {
+                        sum[k] = (sum[k] ?: 0.0) + v
+                    }
+                }
+                sum.mapValues { it.value / theirs.size }
+            }
+            for ((k, value) in direction) {
                 acc[k] = (acc[k] ?: 0.0) + w * value
             }
         }
@@ -1069,9 +1130,13 @@ class Recommender(
         // through, which is the single most jarring thing an automatic queue
         // can do. Seeding a radio *from* a medley is still allowed - that was a
         // deliberate choice.
+        // Not the seed in another costume either. The most acoustically similar
+        // song to anything is its own second copy or its live take, so a radio
+        // with only the seed's id excluded opened, reliably, on the same song
+        // again - which is exactly the duplicate that was reported.
         val pool = playable.filter {
             it.id != seed.id && (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title) &&
-                !separated(seed.id, it.id)
+                !separated(seed.id, it.id) && !samePiece(seed.id, it.id)
         }
         val chosen = pick(
             candidates = pool,
@@ -1096,8 +1161,16 @@ class Recommender(
     fun continuation(recent: List<Long>, exclude: Set<Long>, size: Int = 20): List<SongEntity> {
         val seedIds = recent.take(5)
         val last = seedIds.firstOrNull()
+        // What was just heard, as pieces rather than ids: another copy of the
+        // track that just ended is the nearest thing to it by every measure
+        // below, and queued next it is the same song twice in a row.
+        // The queue itself counts too: a copy of something already waiting in
+        // it is the same song twice, only further apart.
+        val heardPieces = (seedIds + exclude)
+            .mapNotNullTo(HashSet()) { id -> pieceKeyById[id]?.takeIf { it.isNotBlank() } }
         val pool = playable.filter {
             it.id !in exclude && (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title) &&
+                pieceKeyById[it.id] !in heardPieces &&
                 // Against the track just played, not the whole of `recent`: a
                 // continuation follows what is happening now, and a sitting
                 // that moved from one style to another should be allowed to
@@ -1187,20 +1260,32 @@ class Recommender(
             )
         }
 
-        val liked = playable.filter { (stats[it.id]?.liked ?: 0) == 1 }
+        val liked = playable.filter { (stats[it.id]?.liked ?: 0) == 1 && !isMedley(it.title) }
         if (liked.size >= 4) {
-            val likedIds = liked.map { it.id }
-            val likedSet = likedIds.toSet()
-            val pool = notDisliked.filter { it.id !in likedSet }
+            // The liked half went straight in, untouched by any rule: two
+            // liked takes of one song both appeared, and liked songs from two
+            // styles the user keeps apart sat in the same mix. And the "and
+            // their surroundings" half was picked on its own, so it could land
+            // on the opposite side of a separation from the liked half it was
+            // meant to surround.
+            val kept = offered(liked.shuffled(Random(feedSeed)))
+            val keptIds = kept.map { it.id }
+            val keptSet = keptIds.toSet()
+            val side = kept.flatMap { declaredStyles[it.id].orEmpty() }.distinct()
+            val pool = notDisliked.filter { c ->
+                c.id !in keptSet &&
+                    kept.none { samePiece(it.id, c.id) } &&
+                    !separations.clash(side, declaredStyles[c.id].orEmpty())
+            }
             val expanded = pick(pool, 30, salt = 41L, maxPerArtist = 3) { c ->
-                1.9 * affinityTo(likedIds.take(12), c.id)
+                1.9 * affinityTo(keptIds.take(12), c.id)
             }
             mixes.add(
                 Mix(
                     id = "mix:liked",
                     title = "על בסיס האהובים",
                     subtitle = "מהשירים שסימנת בלייק והסביבה שלהם",
-                    songs = (liked.shuffled(Random(feedSeed)) + expanded).take(50)
+                    songs = (kept + expanded).take(50)
                 )
             )
         }
@@ -1299,7 +1384,13 @@ class Recommender(
                 ?.let { id -> songs.firstOrNull { it.id == id } }
             if (anchor != null && acousticPositives.isNotEmpty()) {
                 val neighbours = pick(
-                    notDisliked.filter { it.id != anchor.id },
+                    // Not the anchor's other copies: they are what it sounds
+                    // most like, and "sounds like X" opening with X again is
+                    // the one answer that is certainly not what was meant.
+                    notDisliked.filter {
+                        it.id != anchor.id && !samePiece(anchor.id, it.id) &&
+                            !separated(anchor.id, it.id)
+                    },
                     35,
                     salt = 79L,
                     maxPerArtist = 3
@@ -1706,7 +1797,9 @@ class Recommender(
      */
     fun dailyMixes(maxMixes: Int = 6): List<Mix> {
         val space = acoustic ?: return emptyList()
-        val entries = playable.filter { space.has(it.id) }
+        // Medleys stay out, as they do of every other generated mix: landing on
+        // one unasked sounds like a song that started halfway through.
+        val entries = playable.filter { space.has(it.id) && !isMedley(it.title) }
         if (entries.size < 40) return emptyList()
 
         val dims = AcousticSpace.DIMS
@@ -1737,7 +1830,7 @@ class Recommender(
         if (centres.size < 2) return emptyList()
 
         val assignment = IntArray(points.size)
-        repeat(14) {
+        for (iteration in 0 until 14) {
             var moved = false
             for (i in points.indices) {
                 var best = 0
@@ -1765,7 +1858,9 @@ class Recommender(
                 }
                 if (count > 0) for (d in 0 until dims) centres[c][d] = sums[d] / count
             }
-            if (!moved) return@repeat
+            // A real stop. This was `return@repeat`, which only ends the
+            // current round of a repeat, so every call ran all fourteen.
+            if (!moved) break
         }
 
         val out = ArrayList<Mix>(centres.size)
@@ -2004,7 +2099,17 @@ class Recommender(
                 ).maxOrNull() ?: return@mapNotNull null
                 textScore += best
             }
-            song to textScore + personal * (baseScores[song.id] ?: 0.0)
+            // Bounded, so taste can only reorder songs the text already ranks
+            // alike. The raw score was added straight in, and it runs from
+            // about -10 to +6 - wide enough to jump a whole tier of text match.
+            // So the exact title someone typed came second to a loved song
+            // that merely contained the word, whenever the exact one had been
+            // played a minute ago and the repeat guard was holding it down:
+            // a feed concern, leaking into the one place it has no business.
+            // tanh keeps the order among equals and caps the reach below half
+            // the smallest gap between text tiers.
+            val taste = kotlin.math.tanh((baseScores[song.id] ?: 0.0) / 4.0)
+            song to textScore + personal * taste
         }.sortedByDescending { it.second }.take(limit).map { it.first }
     }
 
@@ -2033,6 +2138,16 @@ class Recommender(
          * puts the midpoint where an ordinary strong pair lands.
          */
         private const val AFFINITY_HALF = 0.6
+
+        /**
+         * Below this many songs the listening says something about, rated
+         * artists top the sound model up. Above it they are left out: plays
+         * are better evidence about sound than an opinion of a singer.
+         */
+        private const val ARTIST_SEED_FLOOR = 12
+
+        /** How many of one rated artist's songs may seed the sound model. */
+        private const val SEEDS_PER_ARTIST = 3
 
         /**
          * Strength of the prior on the skip rate, in observations.
