@@ -328,7 +328,11 @@ fun RhythmRoot(
                     AboutScreen(vm = vm, onBack = { navController.popBackStack() })
                 }
                 composable(Routes.ALGORITHM_SETTINGS) {
-                    AlgorithmSettingsScreen(vm = vm, onBack = { navController.popBackStack() })
+                    AlgorithmSettingsScreen(
+                        vm = vm,
+                        onBack = { navController.popBackStack() },
+                        onOpenDetail = { navController.navigate(Routes.DETAIL) }
+                    )
                 }
                 composable(Routes.HOME_SETTINGS) {
                     HomeSettingsScreen(vm = vm, onBack = { navController.popBackStack() })

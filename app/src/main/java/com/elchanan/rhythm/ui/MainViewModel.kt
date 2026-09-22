@@ -1656,6 +1656,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun openMix(mix: Mix) = openList(mix.title, mix.subtitle, mix.songs, mix.id)
 
+    /** Songs carrying a tag the app guessed rather than one the user typed. */
+    fun guessedSongs(): List<SongEntity> {
+        val lib = library.value
+        return lib.songs.filter { song ->
+            val own = lib.stats[song.id]
+            own?.stylesAuto == 1 && own.styles.isNotBlank()
+        }
+    }
+
+    /**
+     * Opens what learning wrote, so it can be read and corrected.
+     *
+     * The report could say how many songs it had tagged and nothing about
+     * which, which left the one question anyone actually has - "is it right?"
+     * - with no way to answer it short of opening every song in the library
+     * one at a time. A guess nobody can find is a guess nobody can check.
+     *
+     * Correcting one from here is permanent: a typed tag is never overwritten
+     * by a later run, and it becomes a training example for the next one.
+     */
+    fun openGuessed() {
+        val songs = guessedSongs()
+        openList(
+            "מה האפליקציה ניחשה",
+            "${songs.size} שירים · פתח שיר כדי לאשר או לתקן",
+            songs,
+            "guessed"
+        )
+    }
+
     fun openArtist(info: ArtistInfo) {
         _artistDetail.value = info
     }

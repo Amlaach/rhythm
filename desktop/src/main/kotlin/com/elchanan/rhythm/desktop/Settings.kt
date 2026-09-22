@@ -818,6 +818,9 @@ internal fun AlgorithmSettingsScreen(
     onChange: (EngineTuning) -> Unit,
     onLearn: () -> Unit,
     onClearLearned: () -> Unit,
+    /** How many songs carry a tag the app guessed rather than one you typed. */
+    guessedCount: Int,
+    onShowGuessed: () -> Unit,
     onBack: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
@@ -866,6 +869,19 @@ internal fun AlgorithmSettingsScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER, vertical = 12.dp),
                         color = TextPrimary,
                         style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                // Between learning and clearing: it tagged something, what did
+                // it tag, and only then is throwing it away worth offering.
+                if (guessedCount > 0) {
+                    ActionRow(
+                        title = "מה האפליקציה ניחשה",
+                        subtitle = "$guessedCount שירים קיבלו תגית מהלמידה. פתח שיר כדי " +
+                            "לראות ולתקן — תגית שתקליד בעצמך לא תידרס בריצה הבאה",
+                        action = "הצג",
+                        enabled = true,
+                        primary = false,
+                        onClick = onShowGuessed
                     )
                 }
                 ActionRow(

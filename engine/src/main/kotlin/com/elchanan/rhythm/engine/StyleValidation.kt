@@ -194,6 +194,47 @@ object StyleValidation {
         return folds
     }
 
+    /**
+     * Per style, the most training examples any fold can offer it while also
+     * holding some of it back to be tested on.
+     *
+     * The number that says whether a style had a chance. Eligibility is
+     * checked on the whole set and then the model is fitted on four fifths of
+     * it, so a style can clear the headline requirement and still fall under
+     * it inside every fold - nine songs across two artists passes "at least
+     * eight" and leaves five once an artist is held out, which is not enough
+     * to fit. The style is then never learned in exactly the folds where it
+     * could have been scored, and reports zero correct for a test it was
+     * never actually given.
+     *
+     * A style is only ever scorable above zero when this number reaches
+     * [StyleLearner.DEFAULT_MIN_PER_STYLE].
+     */
+    internal fun trainableCounts(examples: List<StyleExample>): Map<String, Int> {
+        val folds = folds(examples)
+        if (folds.isEmpty()) return emptyMap()
+
+        fun tally(rows: List<StyleExample>): Map<String, Int> {
+            val out = HashMap<String, Int>()
+            for (row in rows) for (label in row.labels.distinct()) {
+                out[label] = (out[label] ?: 0) + 1
+            }
+            return out
+        }
+
+        val totals = tally(examples)
+        val best = HashMap<String, Int>()
+        for (fold in folds) {
+            for ((style, held) in tally(fold)) {
+                // Only folds that actually test the style count: training for
+                // a fold with none of it can never produce a correct answer.
+                val training = (totals[style] ?: 0) - held
+                best[style] = maxOf(best[style] ?: 0, training)
+            }
+        }
+        return best
+    }
+
     fun evaluate(
         examples: List<StyleExample>,
         minPrecision: Double = StyleLearning.MIN_PRECISION

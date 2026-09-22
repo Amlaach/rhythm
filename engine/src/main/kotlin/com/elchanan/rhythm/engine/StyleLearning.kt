@@ -21,6 +21,24 @@ data class StyleOutcome(
     val style: String,
     /** Labelled songs carrying this style, which is what it was fitted on. */
     val examples: Int,
+    /**
+     * How many different artists carry it.
+     *
+     * The number that decides whether a style could ever have worked. The test
+     * splits by artist, so a style living in one artist is absent from
+     * training exactly when it is present in the test - it scores zero however
+     * many songs it has, and no amount of tagging more songs by that same
+     * artist changes it.
+     */
+    val artists: Int,
+    /**
+     * The most examples any fold could train on while still testing it.
+     *
+     * Below [StyleLearner.DEFAULT_MIN_PER_STYLE] the style was never fitted
+     * in a fold that could score it, so its zero is the absence of a test
+     * rather than the result of one.
+     */
+    val trainable: Int,
     /** How it did on artists it never trained on, or null if never fitted. */
     val score: StyleScore?,
     /** What guessing the commonest style would have scored on this one. */
@@ -70,6 +88,16 @@ object StyleLearning {
     const val MIN_F1 = 0.70
     const val MIN_PRECISION = 0.80
     const val MIN_BASELINE_GAIN = 0.05
+
+    /**
+     * Artists a style needs before it can be tested at all.
+     *
+     * Two is the arithmetic minimum and three is the number that actually
+     * works: the folds are balanced by song count and know nothing about
+     * styles, so two artists can land in the same fold and leave the style
+     * missing from a training set again.
+     */
+    const val MIN_ARTISTS_PER_STYLE = 2
 
     /**
      * Whether the run as a whole cleared the bar, averaged over every style.
@@ -165,6 +193,16 @@ object StyleLearning {
         // hundred are not the same claim.
         val counts = StyleLearner.styleCounts(rows.map { it.trainingRow() }).toMap()
         val fitted = StyleLearner.eligibleStyles(rows.map { it.trainingRow() }).toSet()
+        // Distinct artists per style. Counted here because it is the one
+        // diagnosis the scores themselves cannot give: a style with a hundred
+        // songs by one singer and a style with a hundred songs by ten singers
+        // look identical in every column except this one, and only the second
+        // can be learned.
+        val trainable = StyleValidation.trainableCounts(rows)
+        val artistsPerStyle = rows
+            .flatMap { row -> row.labels.distinct().map { it to row.artistKey } }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, keys) -> keys.distinct().size }
 
         fun outcomes(applied: Map<String, Int> = emptyMap()): List<StyleOutcome> {
             val seen = validation.metrics.byStyle.keys + counts.keys
@@ -173,14 +211,32 @@ object StyleLearning {
             ).map { style ->
                 val score = validation.metrics.byStyle[style]
                 val baseline = validation.baseline.byStyle[style]
+                val artists = artistsPerStyle[style] ?: 0
+                val reachable = trainable[style] ?: 0
                 val (ok, why) = when {
+                    // Before anything about scores: a style on one artist
+                    // cannot pass, whatever it scored, and the fix is a
+                    // different one - another singer with the same sound, not
+                    // more songs by the one already there.
+                    artists in 1 until MIN_ARTISTS_PER_STYLE ->
+                        false to "רק אצל אמן אחד — הבדיקה מחלקת לפי אמנים, " +
+                            "אז סגנון כזה נכשל תמיד. תייג בו עוד אמן"
                     style !in fitted && counts.containsKey(style) ->
                         false to "רק ${counts[style]} דוגמאות — צריך ${StyleLearner.DEFAULT_MIN_PER_STYLE} וגם דוגמאות נגד"
+                    // Passed the headline count and still never got fitted.
+                    // Said plainly, because the score underneath it is not a
+                    // judgement of the style - there was no test to fail.
+                    counts.containsKey(style) && reachable < StyleLearner.DEFAULT_MIN_PER_STYLE ->
+                        false to "${counts[style]} דוגמאות ב-$artists אמנים — " +
+                            "כשמסירים אמן לבדיקה נשארות $reachable בלבד לאימון, " +
+                            "פחות מ-${StyleLearner.DEFAULT_MIN_PER_STYLE}. הסגנון לא נלמד כלל"
                     else -> verdict(style, score, baseline)
                 }
                 StyleOutcome(
                     style = style,
                     examples = counts[style] ?: 0,
+                    artists = artists,
+                    trainable = reachable,
                     score = score,
                     baseline = baseline,
                     threshold = validation.thresholds[style],
@@ -298,7 +354,10 @@ object StyleLearning {
             append("\n\nלפי סגנון — כל אחד נבחן בנפרד:")
             for (o in r.styles) {
                 append("\n\n${if (o.accepted) "✓" else "✗"} ${o.style} — ${o.reason}")
-                append("\n    דוגמאות מתויגות: ${o.examples}")
+                append("\n    דוגמאות מתויגות: ${o.examples} · אמנים: ${o.artists}")
+                if (o.examples > 0 && o.trainable < StyleLearner.DEFAULT_MIN_PER_STYLE) {
+                    append("\n    זמינות לאימון כשאמן מוחזק לבדיקה: ${o.trainable}")
+                }
                 val score = o.score
                 if (score != null) {
                     append("\n    F1 ${percent(score.f1)} · דיוק ${percent(score.precision)}")
@@ -317,6 +376,27 @@ object StyleLearning {
         if (r.candidates > 0 || r.applied > 0) {
             append("\n\nמה נכתב: ${r.applied} שירים מתוך ${r.candidates} מועמדים")
             append(" (שירים עם נתוני צליל שאין להם תגית ידנית או תגית אמן).")
+        }
+
+        val starved = r.styles.filter {
+            it.examples > 0 && it.trainable < StyleLearner.DEFAULT_MIN_PER_STYLE &&
+                it.artists >= MIN_ARTISTS_PER_STYLE
+        }
+        if (starved.isNotEmpty()) {
+            append("\n\nשים לב: ${starved.joinToString(", ") { it.style }} לא נלמדו כלל. ")
+            append("הדרישה של ${StyleLearner.DEFAULT_MIN_PER_STYLE} דוגמאות נבדקת על כל הספרייה, ")
+            append("אבל האימון רץ על חלק ממנה בכל פעם — ואחרי שמוציאים אמן לבדיקה ")
+            append("לא נשארו מספיק. הציון שלהם אינו שיפוט של הסגנון; לא היה מבחן להיכשל בו. ")
+            append("צריך עוד שירים בסגנון, או עוד אמן שנושא אותו.")
+        }
+
+        val thin = r.styles.filter { it.artists in 1 until MIN_ARTISTS_PER_STYLE }
+        if (thin.isNotEmpty()) {
+            append("\n\nשים לב: ${thin.joinToString(", ") { it.style }} ")
+            append(if (thin.size == 1) "קיים" else "קיימים")
+            append(" רק אצל אמן אחד. הבדיקה מחלקת לפי אמנים כדי למדוד למידה ולא שינון,")
+            append(" ולכן סגנון שיש לו אמן אחד בלבד נכשל תמיד — גם אם יש לו מאה שירים.")
+            append(" מה שיעזור הוא אמן נוסף שנשמע דומה, לא עוד שירים של אותו אמן.")
         }
 
         append("\n\nכל סגנון נבחן לחוד ויש לו סף משלו, ")

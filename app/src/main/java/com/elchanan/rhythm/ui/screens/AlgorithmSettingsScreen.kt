@@ -56,7 +56,11 @@ import com.elchanan.rhythm.ui.theme.TextTertiary
  * side by side than scattered through the settings.
  */
 @Composable
-fun AlgorithmSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
+fun AlgorithmSettingsScreen(
+    vm: MainViewModel,
+    onBack: () -> Unit,
+    onOpenDetail: () -> Unit = {}
+) {
     // Every row on this screen shares the page margin, so a narrow phone gets
     // its content back instead of spending it on empty edges.
     val gutter = rememberMetrics().gutter
@@ -175,6 +179,40 @@ fun AlgorithmSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextPrimary
                     )
+                }
+            }
+
+            // Between learning and clearing, because that is the order the
+            // questions arrive in: it tagged something, what did it tag, and
+            // only then is throwing it away a sensible thing to offer.
+            val guessed = vm.guessedSongs()
+            if (guessed.isNotEmpty()) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = gutter, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "מה האפליקציה ניחשה",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                "${guessed.size} שירים קיבלו תגית מהלמידה. פתח שיר כדי " +
+                                    "לראות ולתקן — תגית שתקליד בעצמך לא תידרס בריצה הבאה",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                        }
+                        Button(
+                            onClick = { vm.openGuessed(); onOpenDetail() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Surface1,
+                                contentColor = TextPrimary
+                            )
+                        ) { Text("הצג") }
+                    }
                 }
             }
 

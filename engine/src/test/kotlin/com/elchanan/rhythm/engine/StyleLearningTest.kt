@@ -131,6 +131,75 @@ class StyleLearningTest {
         assertTrue(result.accepted.isNotEmpty())
     }
 
+    @Test fun aStyleOnOneArtistIsNamedAsSuchRatherThanJustScoringZero() {
+        // Exactly the shape that keeps coming back: plenty of songs, all of
+        // them by one singer. It cannot pass - the split is by artist - and
+        // the screen used to say only "precision 0%", which reads as a bad
+        // style rather than as an impossible test.
+        val examples = mixedQuality().map {
+            if ("rock" in it.labels) it.copy(labels = it.labels + "solo") else it
+        }.map {
+            if ("solo" in it.labels && it.artistKey != "artist-1") {
+                it.copy(labels = it.labels - "solo")
+            } else it
+        }
+        val songs = examples.map { song(it.songId, it.artistKey) }
+        val manual = examples.associate {
+            it.songId to SongStatsEntity(it.songId, styles = Styles.join(it.labels), stylesAuto = 0)
+        }
+        val result = StyleLearning.learn(
+            songs, manual, emptyMap(),
+            examples.associate { it.songId to feature(it.songId, "folk" in it.labels) }
+        )
+        val solo = result.styles.single { it.style == "solo" }
+        assertEquals(1, solo.artists)
+        assertFalse(solo.accepted)
+        assertTrue(solo.reason, solo.reason.contains("אמן אחד"))
+        assertTrue(StyleLearning.report(result).contains("אמנים:"))
+        // And a style spread over several artists is not accused of it.
+        val folk = result.styles.single { it.style == "folk" }
+        assertTrue(folk.artists > 1)
+        assertFalse(folk.reason.contains("אמן אחד"))
+    }
+
+    @Test fun aStyleTooThinToSurviveTheSplitSaysSoRatherThanScoringZero() {
+        // Nine songs over two artists: clears "at least eight" on the whole
+        // set, and leaves four or five once an artist is held out - under the
+        // eight needed to fit. It is never learned in any fold that could
+        // score it, so its zero is the absence of a test, not the result of
+        // one. Exactly the shape a real library produced.
+        val base = mixedQuality()
+        val thin = (base.filter { it.artistKey == "artist-1" }.take(5) +
+            base.filter { it.artistKey == "artist-3" }.take(4))
+            .map { it.songId }.toSet()
+        val examples = base.map {
+            if (it.songId in thin) it.copy(labels = it.labels + "rare") else it
+        }
+        val songs = examples.map { song(it.songId, it.artistKey) }
+        val manual = examples.associate {
+            it.songId to SongStatsEntity(it.songId, styles = Styles.join(it.labels), stylesAuto = 0)
+        }
+        val result = StyleLearning.learn(
+            songs, manual, emptyMap(),
+            examples.associate { it.songId to feature(it.songId, "folk" in it.labels) }
+        )
+        val rare = result.styles.single { it.style == "rare" }
+        assertEquals(9, rare.examples)
+        assertTrue("two artists, so not the single-artist case", rare.artists >= 2)
+        assertTrue(
+            "only ${rare.trainable} left to train on",
+            rare.trainable < StyleLearner.DEFAULT_MIN_PER_STYLE
+        )
+        assertFalse(rare.accepted)
+        assertTrue(rare.reason, rare.reason.contains("לא נלמד"))
+        assertTrue(StyleLearning.report(result).contains("זמינות לאימון"))
+
+        // A style with room to spare is not accused of it.
+        val folk = result.styles.single { it.style == "folk" }
+        assertTrue(folk.trainable >= StyleLearner.DEFAULT_MIN_PER_STYLE)
+        assertFalse(folk.reason.contains("לא נלמד"))
+    }
+
     @Test fun everyStyleIsAccountedForInTheReport() {
         val result = mixedLearn()
         val text = StyleLearning.report(result)
