@@ -41,6 +41,26 @@ class AcousticSpace(features: Collection<AudioFeatureEntity>) {
             }
         }
         private val WEIGHT_SUM = WEIGHTS.sum()
+
+        internal fun rawVector(f: AudioFeatureEntity): DoubleArray {
+            val out = DoubleArray(DIMS)
+            out[0] = if (f.bpm > 20f) ln(f.bpm.toDouble()) else ln(100.0)
+            out[1] = ln(f.energy.toDouble() + 1e-6)
+            out[2] = f.brightness.toDouble()
+            out[3] = f.flatness.toDouble()
+            out[4] = f.dynamics.toDouble()
+            out[5] = f.onsetRate.toDouble()
+
+            val timbre = Features.parseVector(f.timbre, TIMBRE)
+            for (i in 0 until TIMBRE) out[CORE + i] = timbre[i]
+
+            val chroma = Features.parseVector(f.chroma, HARMONY)
+            for (i in 0 until HARMONY) out[CORE + TIMBRE + i] = chroma[i]
+
+            val shape = Features.parseVector(f.shape, SHAPE)
+            for (i in 0 until SHAPE) out[CORE + TIMBRE + HARMONY + i] = shape[i]
+            return out
+        }
     }
 
     private val raw = HashMap<Long, DoubleArray>(features.size)
@@ -77,26 +97,6 @@ class AcousticSpace(features: Collection<AudioFeatureEntity>) {
         vectors = raw.mapValues { (_, v) ->
             DoubleArray(DIMS) { d -> ((v[d] - means[d]) / deviations[d]).coerceIn(-4.0, 4.0) }
         }
-    }
-
-    private fun rawVector(f: AudioFeatureEntity): DoubleArray {
-        val out = DoubleArray(DIMS)
-        out[0] = if (f.bpm > 20f) ln(f.bpm.toDouble()) else ln(100.0)
-        out[1] = ln(f.energy.toDouble() + 1e-6)
-        out[2] = f.brightness.toDouble()
-        out[3] = f.flatness.toDouble()
-        out[4] = f.dynamics.toDouble()
-        out[5] = f.onsetRate.toDouble()
-
-        val timbre = Features.parseVector(f.timbre, TIMBRE)
-        for (i in 0 until TIMBRE) out[CORE + i] = timbre[i]
-
-        val chroma = Features.parseVector(f.chroma, HARMONY)
-        for (i in 0 until HARMONY) out[CORE + TIMBRE + i] = chroma[i]
-
-        val shape = Features.parseVector(f.shape, SHAPE)
-        for (i in 0 until SHAPE) out[CORE + TIMBRE + HARMONY + i] = shape[i]
-        return out
     }
 
     /** Key invariant chroma only: the notes, ignoring how they were recorded. */

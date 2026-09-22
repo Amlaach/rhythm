@@ -1,7 +1,8 @@
 package com.elchanan.rhythm.engine
 
+import com.elchanan.rhythm.data.db.AudioFeatureEntity
+import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.data.db.SongEntity
-import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.sqrt
 
@@ -82,26 +83,8 @@ class StyleLearner private constructor(
         /** Examples a style needs before it is worth fitting at all. */
         const val DEFAULT_MIN_PER_STYLE = 8
 
-        /**
-         * Labelled songs [crossValidate] needs before it will answer.
-         *
-         * It splits the set in half and needs each half to stand on its
-         * own, so the whole is four times what one style needs. Named
-         * rather than buried, because the screen has to be able to say
-         * how far off the user is.
-         */
+        /** Minimum examples before attempting validation on held-out artists. */
         const val MIN_ROWS_TO_VALIDATE = DEFAULT_MIN_PER_STYLE * 4
-
-        /** How hard to hold the weights down, and how well that did. */
-        data class Validation(val accuracy: Double, val l2: Double)
-
-        /**
-         * Regularisation strengths to try, weakest first.
-         *
-         * Spread wide because the right answer moves with the number of
-         * examples, which here ranges from a few dozen to a few thousand.
-         */
-        private val L2_CANDIDATES = doubleArrayOf(0.02, 0.1, 0.5, 2.0)
 
         /**
          * How many labelled songs carry each style, most common first.
@@ -155,16 +138,17 @@ class StyleLearner private constructor(
             minPerStyle: Int = DEFAULT_MIN_PER_STYLE,
             epochs: Int = 220,
             learningRate: Double = 0.35,
-            l2: Double = 0.02
+            l2: Double = 0.1
         ): StyleLearner? {
             if (labelled.size < minPerStyle * 2) return null
+            if (labelled.any { (x, _) -> x.isEmpty() || x.size != labelled.first().first.size || x.any { !it.isFinite() } }) return null
 
             val styles = eligibleStyles(labelled, minPerStyle)
             if (styles.isEmpty()) return null
 
             val dimension = labelled.first().first.size
             val mean = DoubleArray(dimension)
-            val scale = DoubleArray(dimension) { 1.0 }
+            val scale = DoubleArray(dimension)
 
             for ((scores, _) in labelled) {
                 for (i in 0 until dimension) mean[i] += scores[i].toDouble()
@@ -225,125 +209,39 @@ class StyleLearner private constructor(
             return StyleLearner(styles, weights, bias, mean, scale)
         }
 
-        /**
-         * Splits the labelled set, fits on one half and reports how well it did
-         * on the other.
-         *
-         * Without this there is no way to tell a model that learned something
-         * from one that memorised the examples, and the difference is invisible
-         * from the inside - both fit the training data perfectly well. The
-         * number this returns is what decides whether the predictions are used
-         * at all.
-         *
-         * It also chooses how hard to regularise. That was a fixed 0.02, which
-         * cannot be right for both a library with forty labelled songs and one
-         * with four hundred - the first needs to be held down hard or it
-         * memorises, the second is only blunted by it. The held-out half is
-         * already here and is exactly the thing qualified to decide, so it
-         * tries a few strengths and keeps the one that generalises best.
-         *
-         * @return the best accuracy on the held-out half and the strength that
-         *   achieved it, or null if there was too little to split.
-         */
-        fun crossValidate(
-            labelled: List<Pair<FloatArray, List<String>>>,
-            minPerStyle: Int = DEFAULT_MIN_PER_STYLE
-        ): Validation? {
-            if (labelled.size < minPerStyle * 4) return null
-            // Deterministic split, so the same library gives the same answer.
-            val shuffled = labelled.sortedBy { abs(it.first.sum().hashCode()) }
-            val cut = shuffled.size / 2
-            val train = shuffled.take(cut)
-            val test = shuffled.drop(cut)
-
-            var best: Validation? = null
-            for (l2 in L2_CANDIDATES) {
-                val model = fit(train, minPerStyle = minPerStyle / 2, l2 = l2) ?: continue
-                var correct = 0
-                var counted = 0
-                for ((scores, truth) in test) {
-                    if (truth.isEmpty()) continue
-                    counted++
-                    val predicted = model.predict(scores, minimum = 0.5, limit = 2)
-                    if (predicted.any { it in truth }) correct++
-                }
-                if (counted == 0) continue
-                val accuracy = correct.toDouble() / counted
-                if (best == null || accuracy > best.accuracy) {
-                    best = Validation(accuracy, l2)
-                }
-            }
-            return best
-        }
     }
 }
 
 /**
- * Turns a library into training rows.
- *
- * The labels come from the artist a song belongs to, not the song, because
- * that is where the user actually does the tagging - one artist rated covers
- * every track they have by them, which is how a few minutes of tagging becomes
- * a few hundred labelled examples.
+ * Raw acoustic measurements and frozen YAMNet scores. User artist labels are
+ * supervision, not objective genre truth. Manual song labels override them.
+ * Automatically inferred labels are never fed back into training.
  */
 object StyleTraining {
-
-    /**
-     * What the classifier sees for one song: what the model heard, and what
-     * the analyser measured.
-     *
-     * The tag scores alone were the whole input, and they are the half of the
-     * evidence that knows least about this repertoire. AudioSet was labelled
-     * from YouTube, where this music is thin on the ground, so its 521 classes
-     * describe a niggun only indirectly - some choir, some chant, a balance of
-     * instruments.
-     *
-     * The measured half knows things AudioSet has no word for. The mode is the
-     * clearest of them: [MusicalMode] separates Ahavah Rabbah and Mi Sheberach
-     * from plain major, and that distinction is most of what "חסידי" and
-     * "מזרחי" sound like. Tempo, brightness and the shape of the track over
-     * its length are in there too. None of it costs anything - every number is
-     * already measured and stored for each song.
-     *
-     * @return null when the model never ran on this song, which is the one
-     *   case there is nothing to learn from.
-     */
-    fun featuresFor(songId: Long, tags: String, space: AcousticSpace?): FloatArray? {
-        val measured = space?.vectors?.get(songId)
-        // Either half is enough on its own. Requiring the tags rejected every
-        // song on a device where the model will not load, and every song
-        // analysed before the model arrived, while the thirty six measured
-        // numbers sat there being ignored.
-        if (tags.isBlank() && measured == null) return null
-        // Twenty five group strengths, not all 521 classes. See
-        // AudioTags.groupStrengths: with a few dozen labelled songs, 521
-        // inputs is far more freedom than the evidence can pay for.
-        val heard = AudioTags.groupStrengths(tags)
+    fun featuresFor(feature: AudioFeatureEntity?): FloatArray? {
+        val f = feature ?: return null
+        val measured = if (f.energy > 0f && f.energy.isFinite()) AcousticSpace.rawVector(f) else null
+        if (f.tags.isBlank() && measured == null) return null
+        val heard = AudioTags.groupStrengths(f.tags)
         val out = FloatArray(heard.size + AcousticSpace.DIMS)
         System.arraycopy(heard, 0, out, 0, heard.size)
-        // Left at zero when a song is not in the acoustic space. Those vectors
-        // are z-scores against the user's own library, so zero is the mean -
-        // which is the right thing to say about a value that is not known.
-        if (measured == null) return out
-        for (i in 0 until AcousticSpace.DIMS) {
-            out[heard.size + i] = measured[i].toFloat()
+        if (measured != null) {
+            for (i in measured.indices) out[heard.size + i] = measured[i].toFloat()
         }
-        return out
+        return out.takeIf { vector -> vector.all { it.isFinite() } }
     }
 
     fun rows(
         songs: List<SongEntity>,
-        tagsBySong: Map<Long, String>,
+        features: Map<Long, AudioFeatureEntity>,
         stylesByArtistKey: Map<String, String>,
-        space: AcousticSpace? = null
-    ): List<Pair<FloatArray, List<String>>> {
-        val out = ArrayList<Pair<FloatArray, List<String>>>()
-        for (song in songs) {
-            val styles = Styles.parse(stylesByArtistKey[song.artistKey].orEmpty())
-            if (styles.isEmpty()) continue
-            val x = featuresFor(song.id, tagsBySong[song.id].orEmpty(), space) ?: continue
-            out.add(x to styles)
-        }
-        return out
+        stats: Map<Long, SongStatsEntity> = emptyMap()
+    ): List<StyleExample> = songs.mapNotNull { song ->
+        val own = stats[song.id]
+        val manual = if (own?.stylesAuto == 0) Styles.parse(own.styles) else emptyList()
+        val labels = manual.ifEmpty { Styles.parse(stylesByArtistKey[song.artistKey].orEmpty()) }
+        if (labels.isEmpty() || song.artistKey.isBlank()) return@mapNotNull null
+        val x = featuresFor(features[song.id]) ?: return@mapNotNull null
+        StyleExample(song.id, song.artistKey, x, labels.distinct())
     }
 }

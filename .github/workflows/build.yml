@@ -40,6 +40,19 @@ jobs:
       - name: Check every name used is imported
         run: python3 tools/check_imports.py
 
+      - name: Test the music engine
+        run: ./gradlew --no-daemon :engine:test
+
+      - name: Upload engine test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-test-reports-${{ github.run_number }}
+          path: |
+            engine/build/reports/tests/test/
+            engine/build/test-results/test/
+          if-no-files-found: warn
+
       - name: Prepare signing key (optional)
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then

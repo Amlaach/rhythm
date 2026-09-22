@@ -291,6 +291,8 @@ private fun RhythmApp() {
     // Learning scores the whole library twice and can take a while on a big
     // one, so the buttons that would start it again are off while it runs.
     var busy by remember { mutableStateOf(false) }
+    var learning by remember { mutableStateOf(false) }
+    var learningReport by remember { mutableStateOf<String?>(null) }
     var shuffling by remember { mutableStateOf(false) }
     var engineReport by remember { mutableStateOf("") }
     var repeat by remember { mutableStateOf(RepeatMode.OFF) }
@@ -867,26 +869,39 @@ private fun RhythmApp() {
      * both, and a difference there would be a bug nobody could see.
      */
     fun learnStyles() {
+        if (busy || learning) return
         busy = true
+        learning = true
+        learningReport = "הלמידה מתבצעת — בודק על אמנים שלא השתתפו באימון…"
+        val songsSnapshot = library.songs
+        val statsSnapshot = stats
+        val stylesSnapshot = library.artists.associate { it.key to it.styles }
+        val featuresSnapshot = features
         scope.launch {
-            val outcome = withContext(Dispatchers.Default) {
-                runCatching {
-                    StyleLearning.learn(
-                        songs = library.songs,
-                        stats = stats,
-                        stylesByArtist = library.artists.associate { it.key to it.styles },
-                        features = features
-                    )
-                }.getOrNull()
-            }
-            withContext(Dispatchers.IO) {
-                for ((songId, styles) in outcome?.predictions.orEmpty()) {
-                    store.setSongStyles(songId, styles, auto = true)
+            var saved = 0
+            try {
+                val outcome = withContext(Dispatchers.Default) {
+                    StyleLearning.learn(songsSnapshot, statsSnapshot, stylesSnapshot, featuresSnapshot)
                 }
+                withContext(Dispatchers.IO) {
+                    for ((songId, styles) in outcome.predictions) {
+                        store.setSongStyles(songId, styles, auto = true)
+                        saved++
+                    }
+                }
+                learningReport = StyleLearning.report(outcome)
+                status = StyleLearning.message(outcome)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                learningReport = "הלמידה הופסקה. נשמרו עד כה תגיות ל-$saved שירים."
+                throw cancelled
+            } catch (_: Exception) {
+                learningReport = "הלמידה לא הושלמה. נשמרו תגיות ל-$saved שירים לפני השגיאה. נסה שוב."
+                status = learningReport.orEmpty()
+            } finally {
+                learning = false
+                busy = false
+                if (saved > 0) reload()
             }
-            busy = false
-            status = StyleLearning.message(outcome)
-            if (outcome != null && outcome.applied > 0) reload()
         }
     }
 
@@ -1551,6 +1566,8 @@ private fun RhythmApp() {
 
                 Route.Algorithm -> AlgorithmSettingsScreen(
                     tuning = tuning,
+                    learning = learning,
+                    learningReport = learningReport,
                     busy = busy,
                     onChange = { retune(it) },
                     onLearn = { learnStyles() },

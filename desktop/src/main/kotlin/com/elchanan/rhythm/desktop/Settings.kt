@@ -810,6 +810,8 @@ private fun PlayerActionsDialog(prefs: Prefs, onDismiss: () -> Unit) {
 @Composable
 internal fun AlgorithmSettingsScreen(
     tuning: EngineTuning,
+    learning: Boolean,
+    learningReport: String?,
     busy: Boolean,
     onChange: (EngineTuning) -> Unit,
     onLearn: () -> Unit,
@@ -849,12 +851,20 @@ internal fun AlgorithmSettingsScreen(
                     title = "למידת סגנונות מהספרייה",
                     subtitle = "לומד איך הסגנונות שהגדרת נשמעים — מהשירים של האמנים " +
                         "שתייגת — ומשלים תגיות לשירים שלא תויגו. האפליקציה בודקת " +
-                        "את עצמה על חצי מהספרייה, ואם הדיוק נמוך היא לא משנה כלום",
-                    action = "למד",
-                    enabled = !busy,
+                        "על אמנים שלא השתתפו באימון, וסופרת גם תגיות שגויות וחסרות. אם הבדיקה אינה מספקת, לא משתנות תגיות",
+                    action = if (learning) "לומד…" else "למד",
+                    enabled = !busy && !learning,
                     primary = true,
                     onClick = onLearn
                 )
+                learningReport?.let { report ->
+                    Text(
+                        report,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER, vertical = 12.dp),
+                        color = TextPrimary,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
                 ActionRow(
                     title = "ניקוי התגיות שנוחשו",
                     subtitle = "מוחק רק תגיות שהאפליקציה הוסיפה בעצמה. התגיות שהקלדת " +
