@@ -65,8 +65,35 @@ import java.util.Locale
  * phone, and the two deeper screens - the player and the algorithm - open
  * from here rather than sitting in the bar.
  */
+/**
+ * Which group of settings is on screen.
+ *
+ * The phone's settings are a short list of doors, each opening onto one
+ * subject, and this side was a single column with everything in it - shelves
+ * next to audio analysis next to what the engine knows about you. The same
+ * seven doors now, and the same words on them.
+ *
+ * One screen with a page rather than five screens, because the settings share
+ * a great deal of state and every one of them would otherwise need the same
+ * two dozen parameters threaded into it.
+ */
+internal enum class SettingsPage { DOORS, HOME, LIBRARY, ENGINE, TAGS, PORTING, ABOUT }
+
+/** The title above each page, and the words on the door that opens it. */
+internal fun titleOf(page: SettingsPage): String = when (page) {
+    SettingsPage.DOORS -> "הגדרות"
+    SettingsPage.HOME -> "דף הבית ותצוגה"
+    SettingsPage.LIBRARY -> "ספרייה וסריקה"
+    SettingsPage.ENGINE -> "המנוע"
+    SettingsPage.TAGS -> "תגיות ומילות שיר"
+    SettingsPage.PORTING -> "ייבוא וייצוא"
+    SettingsPage.ABOUT -> "מידע ואבחון"
+}
+
 @Composable
 internal fun SettingsScreen(
+    page: SettingsPage = SettingsPage.DOORS,
+    onOpenPage: (SettingsPage) -> Unit = {},
     prefs: Prefs,
     songs: Int,
     analysed: Int,
@@ -119,10 +146,70 @@ internal fun SettingsScreen(
     val lyricsFolder = prefs.lyricsFolder
 
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
-        DetailTopBar(title = "הגדרות", onBack = onBack)
+        DetailTopBar(title = titleOf(page), onBack = onBack)
         LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
 
-            item {
+            // The doors. Short on purpose: the point of a list of subjects is
+            // that it fits on one screen, so what you are looking for is
+            // found by reading seven lines rather than by scrolling past
+            // everything you are not looking for.
+            if (page == SettingsPage.DOORS) {
+                item {
+                    LinkRow(
+                        "דף הבית ותצוגה",
+                        "אילו מדפים מופיעים, מה נפתח ראשון, איך מוצגות התיקיות"
+                    ) { onOpenPage(SettingsPage.HOME) }
+                    LinkRow(
+                        "ספרייה וסריקה",
+                        "אילו קבצים נכנסים לספרייה, וניתוח האודיו"
+                    ) { onOpenPage(SettingsPage.LIBRARY) }
+                    LinkRow(
+                        "נגן ושמע",
+                        "אקולייזר, רדיו אינסופי, סידור הכפתורים, עוצמה",
+                        onOpenPlayerSettings
+                    )
+                    LinkRow(
+                        "המנוע",
+                        "מה עולה למעלה בפיד ובחיפוש, ומה לא יתערבב"
+                    ) { onOpenPage(SettingsPage.ENGINE) }
+                    LinkRow(
+                        "תגיות ומילות שיר",
+                        "תיקון שמות אמנים, וכתיבה לתוך הקבצים"
+                    ) { onOpenPage(SettingsPage.TAGS) }
+                    LinkRow(
+                        "ייבוא וייצוא",
+                        "רשימות השמעה, והעברת הניתוח לטלפון"
+                    ) { onOpenPage(SettingsPage.PORTING) }
+                    LinkRow(
+                        "מידע ואבחון",
+                        "גרסה, מה הסריקה מצאה, ומה המנוע יודע עליך"
+                    ) { onOpenPage(SettingsPage.ABOUT) }
+                }
+            }
+
+            // The weights themselves keep their own screen, reached from the
+            // engine page rather than from the top, so the door list stays
+            // seven lines long.
+            if (page == SettingsPage.ENGINE) {
+                item {
+                    LinkRow(
+                        "משקולות האלגוריתם",
+                        "חמש המשקולות שקובעות מה עולה למעלה, ולמידת הסגנונות",
+                        onOpenAlgorithm
+                    )
+                }
+            }
+            if (page == SettingsPage.TAGS) {
+                item {
+                    LinkRow(
+                        "תיקון תגיות",
+                        "מסדר שמות של קבצים שהורדו מהאינטרנט",
+                        onOpenTags
+                    )
+                }
+            }
+
+            if (page == SettingsPage.HOME) item {
                 SettingSection("הגדרות דף הבית", "אילו מדפים מופיעים, ובאיזה סדר הם נבנים")
                 ActionRow(
                     title = "מדפים במסך הבית",
@@ -135,7 +222,7 @@ internal fun SettingsScreen(
                 )
             }
 
-            item {
+            if (page == SettingsPage.HOME) item {
                 SettingSection("הגדרות הספרייה", "מה נפתח ראשון, וכפילויות")
                 Text(
                     "מה נפתח ראשון",
@@ -172,7 +259,7 @@ internal fun SettingsScreen(
                 }
             }
 
-            item {
+            if (page == SettingsPage.ENGINE) item {
                 SettingSection("הגדרות החיפוש", "איך תוצאות מסודרות")
                 SwitchRow(
                     title = "התאמה אישית בתוצאות",
@@ -184,25 +271,7 @@ internal fun SettingsScreen(
                 }
             }
 
-            item {
-                LinkRow(
-                    title = "הגדרות הנגן והשמע",
-                    subtitle = "אקולייזר, רדיו אינסופי, פתיחת הנגן",
-                    onClick = onOpenPlayerSettings
-                )
-                LinkRow(
-                    title = "הגדרות האלגוריתם",
-                    subtitle = "חמש המשקולות שקובעות מה עולה למעלה",
-                    onClick = onOpenAlgorithm
-                )
-                LinkRow(
-                    title = "תיקון תגיות",
-                    subtitle = "מסדר שמות של קבצים שהורדו מהאינטרנט",
-                    onClick = onOpenTags
-                )
-            }
-
-            item {
+            if (page == SettingsPage.PORTING) item {
                 SettingSection("רשימות השמעה", "m3u ו־pls, כמו בטלפון")
                 ActionRow(
                     title = "ייבוא רשימת השמעה",
@@ -223,7 +292,7 @@ internal fun SettingsScreen(
                 )
             }
 
-            item {
+            if (page == SettingsPage.PORTING) item {
                 SettingSection(
                     "העברת ניתוח ל־Android",
                     "הטלפון יקבל את המדידות שכבר נעשו במחשב ולא יצטרך לבצע אותן שוב"
@@ -242,7 +311,10 @@ internal fun SettingsScreen(
                 )
             }
 
-            item {
+            // No section header of its own, which is how these two nearly
+            // ended up on every page: the pass that sorted the settings into
+            // doors keyed on the headers.
+            if (page == SettingsPage.TAGS) item {
                 SwitchRow(
                     title = "הסרת טקסט באנגלית",
                     subtitle = "מוריד קרדיטים בסוגריים ושאריות של כותרת מיוטיוב " +
@@ -263,7 +335,7 @@ internal fun SettingsScreen(
                 }
             }
 
-            item {
+            if (page == SettingsPage.LIBRARY) item {
                 SettingSection("ניתוח אודיו", "מדידת קצב, סולם, אנרגיה וגוון — הכל על המחשב")
                 SwitchRow(
                     title = "ניתוח אוטומטי",
@@ -294,7 +366,7 @@ internal fun SettingsScreen(
                 }
             }
 
-            item {
+            if (page == SettingsPage.LIBRARY) item {
                 SettingSection("הספרייה", null)
                 Text(
                     text = if (folders.isEmpty()) {
@@ -389,7 +461,7 @@ internal fun SettingsScreen(
                 }
             }
 
-            item {
+            if (page == SettingsPage.TAGS) item {
                 SettingSection("מילות שיר", "נקראות מתגיות הקובץ, ומקבצי LRC אם נבחרה תיקייה")
                 Text(
                     text = lyricsFolder.ifEmpty { "לא נבחרה תיקייה" },
@@ -411,7 +483,7 @@ internal fun SettingsScreen(
                 }
             }
 
-            item {
+            if (page == SettingsPage.ENGINE) item {
                 SettingSection(
                     "סגנונות שלא יתערבבו",
                     "מה שלא נשמע טוב אחד אחרי השני, שורה לכל כלל"
@@ -440,7 +512,7 @@ internal fun SettingsScreen(
                 }
             }
 
-            item {
+            if (page == SettingsPage.ABOUT) item {
                 SettingSection("בדיקת המנוע", "כמה טוב הוא מנחש מה באמת הושמע אחר כך")
                 Text(
                     text = engineReport.ifBlank {
@@ -460,7 +532,7 @@ internal fun SettingsScreen(
                 }
             }
 
-            item {
+            if (page == SettingsPage.ABOUT) item {
                 SettingSection("על האפליקציה", null)
                 Text(
                     "Rhythm — נגן מוזיקה עם מנוע המלצות מקומי.\n" +
@@ -471,14 +543,14 @@ internal fun SettingsScreen(
                 )
             }
 
-            item {
+            if (page == SettingsPage.ABOUT) item {
                 SettingSection("הסריקה האחרונה", "כמה קבצים נמצאו, ומתי")
                 Fact("קבצים שנמצאו", "${prefs.lastScanCount}")
                 Fact("שירים בספרייה אחרי סינון", "$songs")
                 Fact("נסרק לאחרונה", lastScanLabel(prefs.lastScanAt))
             }
 
-            item {
+            if (page == SettingsPage.ABOUT) item {
                 SettingSection("מה המנוע יודע עליך", null)
                 Fact("שירים בספרייה", "$songs")
                 Fact("שירים שנותחו", "$analysed מתוך $songs")

@@ -775,7 +775,7 @@ private fun RhythmApp() {
     }
 
     fun openSettings() {
-        stack = stack + Route.Settings
+        stack = stack + Route.Settings()
     }
 
     fun loadRecap() {
@@ -1558,7 +1558,9 @@ private fun RhythmApp() {
                     }
                 )
 
-                Route.Settings -> SettingsScreen(
+                is Route.Settings -> SettingsScreen(
+                    page = top.page,
+                    onOpenPage = { stack = stack + Route.Settings(it) },
                     prefs = prefs,
                     songs = songs.size,
                     analysed = features.size,
@@ -1984,7 +1986,15 @@ private sealed interface Route {
     data class Detail(val list: DetailList) : Route
     data class Artist(val key: String) : Route
     data object Albums : Route
-    data object Settings : Route
+    /**
+     * The settings, at one of their pages.
+     *
+     * A page rather than a screen per subject: the settings share a great deal
+     * of state, and five screens would each need the same two dozen
+     * parameters. Pushed onto the stack like anything else, so the back arrow
+     * walks out of a subject to the list of subjects and then out of settings.
+     */
+    data class Settings(val page: SettingsPage = SettingsPage.DOORS) : Route
     data object PlayerSettings : Route
     data object Equalizer : Route
     data object Algorithm : Route
