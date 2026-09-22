@@ -52,11 +52,15 @@ class AcousticSpace(
 
         /**
          * How much of a similarity the sound print is, where both songs have
-         * one. Most of it: on the first library measured, the print found a
-         * song's style among its nearest neighbours 30% of the time, the
-         * hand-made features 12%, and picking at random 25%.
+         * one: all of it. Measured on a real library - how often a song's
+         * nearest neighbours by other artists share its style - the print
+         * scored 30%, the hand-made features 12%, picking at random 25%, and
+         * a 60/40 blend of the two 22%. The features were not merely weaker,
+         * they pulled the blend below chance: their similarities spread wider,
+         * so even at 40% they decided the order. They remain for songs that
+         * have no print yet.
          */
-        const val PRINT_SHARE = 0.6
+        const val PRINT_SHARE = 1.0
 
         /** The print folded to this many dimensions, to keep a library of them small in memory. */
         const val PRINT_DIMS = 128
@@ -172,15 +176,15 @@ class AcousticSpace(
      * bounded 0..1 similarity rather than an unbounded distance.
      */
     fun similarity(a: Long, b: Long): Double {
-        val hand = featureSimilarity(a, b)
-        val pa = prints[a] ?: return hand
-        val pb = prints[b] ?: return hand
+        val pa = prints[a] ?: return featureSimilarity(a, b)
+        val pb = prints[b] ?: return featureSimilarity(a, b)
         var dot = 0.0
         for (i in 0 until PRINT_DIMS) dot += pa[i] * pb[i]
         // The same curve as the features: for unit vectors the squared distance
         // is 2(1 - cos), so a pair of unrelated songs lands where it does there.
         val print = exp(-(1.0 - dot.coerceIn(-1.0, 1.0)) / 0.8)
-        return (1.0 - PRINT_SHARE) * hand + PRINT_SHARE * print
+        if (PRINT_SHARE >= 1.0) return print
+        return (1.0 - PRINT_SHARE) * featureSimilarity(a, b) + PRINT_SHARE * print
     }
 
     /**
