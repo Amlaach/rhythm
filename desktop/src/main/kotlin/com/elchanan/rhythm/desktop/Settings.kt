@@ -48,6 +48,7 @@ import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface2
+import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import java.text.SimpleDateFormat
 import java.util.Date
