@@ -41,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -88,7 +89,22 @@ internal fun formatDuration(ms: Long): String {
  * carry artwork, and most files in a library of downloads do not.
  */
 @Composable
-internal fun Art(song: SongEntity?, size: Dp, corner: Dp, modifier: Modifier = Modifier) {
+internal fun Art(
+    song: SongEntity?,
+    size: Dp,
+    corner: Dp,
+    modifier: Modifier = Modifier,
+    /**
+     * Show the whole picture rather than filling the square with part of it.
+     *
+     * True on the player, where the sleeve is the thing being looked at and
+     * cropping cuts the artwork someone chose the record for - a wide live
+     * shot loses its sides, a tall poster loses its title. False everywhere
+     * else, where a cover is an identifier and a cropped one is still
+     * recognisable at forty pixels.
+     */
+    fit: Boolean = false
+) {
     val image = rememberArtwork(song)
     val (c1, c2) = gradientFor(song?.artistKey.orEmpty())
     Box(
@@ -99,19 +115,39 @@ internal fun Art(song: SongEntity?, size: Dp, corner: Dp, modifier: Modifier = M
             .background(Brush.linearGradient(listOf(c1, c2)))
     ) {
         if (image != null) {
-            // Covers taken from video thumbnails are 16:9. Fitting one into a
-            // square leaves two thick bands of gradient behind it and makes
-            // the artwork small; cropping fills the tile, which is what a
-            // cover is for.
+            // What fills the corner a fitted cover cannot reach.
+            //
+            // Covers taken from video thumbnails are 16:9, and fitting one
+            // into a square leaves two bands. A band of flat colour beside an
+            // album sleeve reads as a frame drawn around it, so the bands get
+            // the cover itself instead - scaled past the edges, dimmed and
+            // blurred - and the surround becomes the record's own colours.
+            //
+            // Only when fitting. A cropped cover already reaches every edge.
+            if (fit) {
+                Image(
+                    bitmap = image,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    alpha = BACKDROP_ALPHA,
+                    modifier = Modifier.fillMaxSize().blur(BACKDROP_BLUR)
+                )
+            }
             Image(
                 bitmap = image,
                 contentDescription = null,
-                contentScale = ContentScale.Crop,
+                contentScale = if (fit) ContentScale.Fit else ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
         }
     }
 }
+
+/** Enough to read as colour rather than as a second, smaller picture. */
+private val BACKDROP_BLUR = 26.dp
+
+/** Dimmed, so the cover in front of it stays the thing being looked at. */
+private const val BACKDROP_ALPHA = 0.55f
 
 /**
  * A cover for a whole album, picked from the record's own tracks.
@@ -147,6 +183,12 @@ internal fun SongRow(
     onLike: (() -> Unit)? = null,
     onDislike: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    /**
+     * An extra clause on the second line, for something about this song the
+     * row would otherwise hide - a tag the app guessed, most of all. A list of
+     * guesses that does not say what was guessed cannot be checked.
+     */
+    note: String? = null,
     /** Given, the row shows a tick box and this is what pressing it does. */
     leading: (() -> Unit)? = null
 ) {
@@ -206,6 +248,10 @@ internal fun SongRow(
                             append(" • ")
                             append(playCount)
                             append(" השמעות")
+                        }
+                        if (!note.isNullOrBlank()) {
+                            append(" • ")
+                            append(note)
                         }
                     },
                     style = MaterialTheme.typography.bodySmall,

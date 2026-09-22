@@ -185,13 +185,22 @@ internal fun SongList(
     ) {
         itemsIndexed(songs, key = { _, song -> song.id }) { index, song ->
             val selecting = selection.isNotEmpty()
+            val own = stats[song.id]
             SongRow(
                 song = song,
                 isCurrent = song.id == current,
-                liked = stats[song.id]?.liked ?: 0,
-                rating = stats[song.id]?.rating ?: 0,
-                playCount = stats[song.id]?.playCount ?: 0,
+                liked = own?.liked ?: 0,
+                rating = own?.rating ?: 0,
+                playCount = own?.playCount ?: 0,
                 selected = song.id in selection,
+                // Wherever a guessed song turns up, it says so. The point of
+                // showing the guesses is that they can be checked, and a list
+                // of titles with nothing beside them cannot be.
+                note = if (own?.stylesAuto == 1 && own.styles.isNotBlank()) {
+                    "תויג אוטומטית: ${own.styles}"
+                } else {
+                    null
+                },
                 // Once anything is ticked, a tap ticks rather than plays. A
                 // list that plays a song while you are selecting twenty of
                 // them is a list you have to start over.

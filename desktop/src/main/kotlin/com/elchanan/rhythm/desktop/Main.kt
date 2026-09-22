@@ -868,7 +868,13 @@ private fun RhythmApp() {
      * the same library and the same tags have to produce the same model on
      * both, and a difference there would be a bug nobody could see.
      */
-    fun learnStyles() {
+    /**
+     * @param automatic true when nothing was pressed. It then speaks only when
+     *   it has something to say: a status line reading "no new tags confident
+     *   enough" every time a few files are measured is noise about a decision
+     *   that was made correctly.
+     */
+    fun learnStyles(automatic: Boolean = false) {
         if (busy || learning) return
         busy = true
         learning = true
@@ -890,19 +896,38 @@ private fun RhythmApp() {
                     }
                 }
                 learningReport = StyleLearning.report(outcome)
-                status = StyleLearning.message(outcome)
+                // The report is kept either way; only the status line is held.
+                if (!automatic || saved > 0) status = StyleLearning.message(outcome)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 learningReport = "הלמידה הופסקה. נשמרו עד כה תגיות ל-$saved שירים."
                 throw cancelled
             } catch (_: Exception) {
                 learningReport = "הלמידה לא הושלמה. נשמרו תגיות ל-$saved שירים לפני השגיאה. נסה שוב."
-                status = learningReport.orEmpty()
+                if (!automatic) status = learningReport.orEmpty()
             } finally {
                 learning = false
                 busy = false
                 if (saved > 0) reload()
             }
         }
+    }
+
+    // Learning follows analysis, when it is left on.
+    //
+    // Watched here rather than called from analyse(), which is declared
+    // further up this composable and cannot see a function defined below it.
+    // The edge is what matters - the moment a pass stops - so a run that is
+    // still working is never interrupted and starting the app learns nothing
+    // by itself.
+    //
+    // After analysis and not after a scan: a scan finds files, and analysis is
+    // what turns them into the measurements a style is learned from. A stopped
+    // pass still counts, because what it did measure is already on disk.
+    var wasAnalysing by remember { mutableStateOf(false) }
+    LaunchedEffect(analysing) {
+        val finished = wasAnalysing && !analysing
+        wasAnalysing = analysing
+        if (finished && prefs.autoLearn) learnStyles(automatic = true)
     }
 
     fun clearLearnedStyles() {
@@ -1565,6 +1590,7 @@ private fun RhythmApp() {
                 )
 
                 Route.Algorithm -> AlgorithmSettingsScreen(
+                    prefs = prefs,
                     tuning = tuning,
                     learning = learning,
                     learningReport = learningReport,
@@ -2360,6 +2386,10 @@ private fun PlayerScreen(
                     song = song,
                     size = 300.dp,
                     corner = 12.dp,
+                    // The one place the whole picture matters more than a
+                    // filled square: this is the cover being looked at, not a
+                    // tile identifying a row.
+                    fit = true,
                     modifier = Modifier
                         .pointerInput(song.id, tapArtwork) {
                             if (!tapArtwork) return@pointerInput

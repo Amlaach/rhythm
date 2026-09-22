@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -398,22 +400,37 @@ private fun FaderStrip(
     // Same reason as the curve: band 0 is 20 Hz and belongs on the left,
     // under the left hand end of the curve it is drawn beneath.
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(scroll)
-                .padding(horizontal = GUTTER, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(1.dp)
-        ) {
-            for (band in 0 until EqBands.COUNT) {
-                Fader(
-                    millibels = settings.bands[band],
-                    label = EqBands.label(EqBands.FREQUENCIES[band]),
-                    enabled = settings.enabled,
-                    onChange = { onBand(band, it) },
-                    onChangeEnd = onBandEnd
-                )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(scroll)
+                    .padding(horizontal = GUTTER, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                for (band in 0 until EqBands.COUNT) {
+                    Fader(
+                        millibels = settings.bands[band],
+                        label = EqBands.label(EqBands.FREQUENCIES[band]),
+                        enabled = settings.enabled,
+                        onChange = { onBand(band, it) },
+                        onChangeEnd = onBandEnd
+                    )
+                }
             }
+            // The one thing saying the strip goes on.
+            //
+            // Thirty one bands and a handful of them in view, with nothing at
+            // either end to say so: the strip looked like the whole equaliser
+            // and the rest of the bands may as well not have existed.
+            //
+            // The desktop scrollbar rather than the drawn one the phone uses,
+            // because here it is also a control - it takes a drag and a click,
+            // which is how someone with a mouse expects to cross a long strip.
+            HorizontalScrollbar(
+                adapter = rememberScrollbarAdapter(scroll),
+                modifier = Modifier.fillMaxWidth().padding(start = GUTTER, end = GUTTER, bottom = 6.dp)
+            )
         }
     }
 }

@@ -5,6 +5,7 @@ import com.elchanan.rhythm.data.db.PlaylistEntity
 import com.elchanan.rhythm.data.db.PlaylistItemEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.SongStatsEntity
+import com.elchanan.rhythm.engine.ArtistStyles
 import com.elchanan.rhythm.engine.Names
 import java.util.Locale
 
@@ -91,12 +92,19 @@ data class LibraryModel(
             }
             val artists = byArtist.map { (key, list) ->
                 val profile = profileMap[key]
+                val name = profile?.displayName?.takeIf { it.isNotBlank() }
+                    ?: nameForKey[key].orEmpty()
                 ArtistInfo(
                     key = key,
-                    displayName = profile?.displayName?.takeIf { it.isNotBlank() }
-                        ?: nameForKey[key].orEmpty(),
+                    displayName = name,
                     rating = profile?.rating ?: 0,
-                    styles = profile?.styles.orEmpty(),
+                    // The shipped catalogue fills in only where nothing was
+                    // typed, read here rather than written to the database, so
+                    // a correction is permanent and a later version's
+                    // catalogue arrives without a migration. Same rule as the
+                    // phone, because the same person uses both.
+                    styles = profile?.styles?.takeIf { it.isNotBlank() }
+                        ?: ArtistStyles.styleFor(name).orEmpty(),
                     note = profile?.note.orEmpty(),
                     songs = list.distinctBy { it.id }.sortedBy { it.titleLower }
                 )
