@@ -24,6 +24,25 @@ enum class Mood(val label: String, val subtitle: String) {
             val model = MoodModel(features.values)
             return songs.filter { model.matches(mood, features[it.id]) }
         }
+
+        /**
+         * The same songs, the ones that express the mood most first.
+         *
+         * Matching is a yes or no, and a list of yeses in whatever order they
+         * were stored opens on whichever of them happens to sort first. Asking
+         * for קצבי and being handed the quietest track that still cleared the
+         * bar is a correct answer to the wrong question - the point of the
+         * chip is the mood, so the strongest example of it leads.
+         */
+        fun strongest(
+            songs: List<SongEntity>,
+            features: Map<Long, AudioFeatureEntity>,
+            mood: Mood
+        ): List<SongEntity> {
+            val model = MoodModel(features.values)
+            return songs.filter { model.matches(mood, features[it.id]) }
+                .sortedByDescending { model.strength(mood, features[it.id]) }
+        }
     }
 }
 
@@ -146,7 +165,24 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
         val pulse = between(f.onsetRate.toDouble(), CALM_ONSETS, BUSY_ONSETS)
         val measured = if (f.bpm > 0f) {
             val tempo = between(f.bpm.toDouble(), SLOW_BPM, FAST_BPM)
-            0.65 * tempo + 0.35 * pulse
+            // The tempo gets its say in proportion to how sure the detector
+            // was, and the onset rate takes whatever it gives up.
+            //
+            // A tempo estimate is an inference and an onset rate is a
+            // measurement, and this music is full of material the inference
+            // has nothing to work with: a niggun in free time, a cantorial
+            // piece, a rubato ballad. The detector still answers - it always
+            // answers - and a sparse pulse aliases upward readily, so one beat
+            // every two seconds can come back as a confident sounding hundred
+            // and twenty. Weighted equally with a real measurement, that put
+            // the calmest recordings in a library at the top of קצבי.
+            //
+            // So the confidence decides how much of the answer the tempo is
+            // allowed to be. Certain, and this is what it always was; unsure,
+            // and it falls back to counting onsets, which cannot be fooled the
+            // same way because it is not guessing at a period.
+            val trusted = TEMPO_SHARE * f.bpmConfidence.toDouble().coerceIn(0.0, 1.0)
+            trusted * tempo + (1.0 - trusted) * pulse
         } else {
             // No tempo estimate, so the onset rate carries it alone rather
             // than a missing value being scored as average.
@@ -268,6 +304,35 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
         }
     }
 
+    /**
+     * How strongly a track expresses a mood, rather than whether it clears it.
+     *
+     * The same quantities [matches] tests, read as a degree instead of a
+     * threshold, so a list can lead with its best example. Only meaningful
+     * among songs that already matched: a track far outside a mood scores
+     * low here too, but nothing asks it to.
+     */
+    fun strength(mood: Mood, f: AudioFeatureEntity?): Double {
+        val feature = f ?: return 0.0
+        if (feature.energy <= 0f) return 0.0
+        val a = arousal(feature)
+        val v = valence(feature)
+        val bright = rank(brightScale, feature.brightness.toDouble())
+        val steady = rank(dynamicsScale, feature.dynamics.toDouble())
+        val loud = rank(energyScale, feature.energy.toDouble())
+        return when (mood) {
+            Mood.CALM -> 1.0 - a
+            Mood.ENERGETIC -> a
+            // Loudness counts here as it does in the test: a fast piece played
+            // quietly is not what anyone means by a workout track.
+            Mood.WORKOUT -> 0.6 * a + 0.4 * loud
+            Mood.BRIGHT -> v
+            Mood.DEEP -> 1.0 - v
+            Mood.FOCUS -> 1.0 - steady
+            Mood.NIGHT -> 0.5 * (1.0 - a) + 0.5 * (1.0 - bright)
+        }
+    }
+
     private fun rankTag(heard: FloatArray, slot: Int): Double =
         rank(tagScales[slot], heard[slot].toDouble())
 
@@ -285,6 +350,12 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
          */
         const val SLOW_BPM = 62.0
         const val FAST_BPM = 150.0
+        /**
+         * The most of the arousal estimate a tempo may account for, before
+         * its confidence is taken into account.
+         */
+        const val TEMPO_SHARE = 0.65
+
         const val CALM_ONSETS = 1.2
         const val BUSY_ONSETS = 5.5
 

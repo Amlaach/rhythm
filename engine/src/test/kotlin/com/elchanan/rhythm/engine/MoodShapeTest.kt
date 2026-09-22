@@ -105,6 +105,80 @@ class MoodShapeTest {
         assertTrue("the lift alone leaves it under the calm bar", lifted <= 0.40)
     }
 
+    @Test fun aGuessedTempoDoesNotMakeAFreeRhythmPieceEnergetic() {
+        // The reported bug. A niggun in free time gives the detector nothing
+        // to lock onto, it answers anyway, and a sparse pulse aliases upward -
+        // one beat every two seconds comes back as a confident sounding 120.
+        // Weighted equally with a real measurement, that put the calmest
+        // recordings in a library at the top of קצבי.
+        val freeRhythm = tempo(1, bpm = 124f, confidence = 0.08f, onsets = 0.9f)
+        val reallyFast = tempo(2, bpm = 138f, confidence = 0.85f, onsets = 4.4f)
+        val library = listOf(freeRhythm, reallyFast) + List(12) { i ->
+            tempo(10L + i, bpm = 72f + i, confidence = 0.7f, onsets = 1.2f + i * 0.05f)
+        }
+        val model = MoodModel(library)
+
+        assertTrue("a genuinely fast track is still energetic", model.matches(Mood.ENERGETIC, reallyFast))
+        assertFalse(
+            "a guessed tempo must not carry a free rhythm piece into קצבי",
+            model.matches(Mood.ENERGETIC, freeRhythm)
+        )
+        // And the unsure one scores lower than the sure one on the axis itself.
+        assertTrue(model.arousal(freeRhythm) < model.arousal(reallyFast))
+    }
+
+    @Test fun aMoodListLeadsWithItsStrongestExample() {
+        // Matching is a yes or no. Asking for קצבי and being handed the
+        // quietest track that cleared the bar is a correct answer to the wrong
+        // question.
+        val songs = (0 until 12).map { song(it.toLong(), "artist-$it") }
+        val features = songs.associate { s ->
+            val i = s.id.toInt()
+            s.id to tempo(s.id, bpm = 120f + i * 4, confidence = 0.9f, onsets = 3.5f + i * 0.2f)
+        }
+        val ordered = Mood.strongest(songs, features, Mood.ENERGETIC)
+        assertTrue(ordered.isNotEmpty())
+        val model = MoodModel(features.values)
+        val strengths = ordered.map { model.strength(Mood.ENERGETIC, features[it.id]) }
+        assertEquals(strengths.sortedDescending(), strengths)
+        // The same songs, just in a useful order.
+        assertEquals(
+            Mood.filter(songs, features, Mood.ENERGETIC).map { it.id }.toSet(),
+            ordered.map { it.id }.toSet()
+        )
+    }
+
+    @Test fun calmLeadsWithTheCalmest() {
+        // The mirror of the above, so "strongest" is not quietly "loudest".
+        val songs = (0 until 12).map { song(it.toLong(), "artist-$it") }
+        val features = songs.associate { s ->
+            val i = s.id.toInt()
+            s.id to tempo(s.id, bpm = 60f + i * 2, confidence = 0.9f, onsets = 0.8f + i * 0.05f)
+        }
+        val ordered = Mood.strongest(songs, features, Mood.CALM)
+        val model = MoodModel(features.values)
+        assertTrue(ordered.isNotEmpty())
+        assertEquals(
+            ordered.first().id,
+            ordered.minByOrNull { model.arousal(features.getValue(it.id)) }?.id
+        )
+    }
+
+    private fun tempo(id: Long, bpm: Float, confidence: Float, onsets: Float) =
+        Analysis.blankFor(id).copy(
+            energy = 0.3f,
+            bpm = bpm,
+            bpmConfidence = confidence,
+            onsetRate = onsets,
+            brightness = 1500f,
+            shape = List(6) { 0.0 }.joinToString(",")
+        )
+
+    private fun song(id: Long, artist: String) = com.elchanan.rhythm.data.db.SongEntity(
+        id, "song-$id", "song-$id", artist, artist, "album", 1, 180000,
+        1, 2026, null, "/music/$id.mp3", "/music", 0, 1000
+    )
+
     private fun window(energy: Double) = Analysis.WindowStats(
         energy = energy, brightness = 1200.0, flatness = 0.2, dynamics = 0.3,
         bpm = 100.0, bpmConfidence = 0.5, onsetRate = 2.0,

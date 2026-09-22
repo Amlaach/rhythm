@@ -1568,8 +1568,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // had been finished.
             val features = runCatching { repo.featureMap() }.getOrDefault(emptyMap())
             val list = withContext(Dispatchers.Default) {
-                Mood.filter(library.value.songs, features, mood)
-                    .filter { (library.value.stats[it.id]?.liked ?: 0) != -1 }
+                // Strongest first. Disliked songs are dropped before the sort
+                // rather than after, so a thumbed down track cannot take one
+                // of the places the list is later trimmed to.
+                Mood.strongest(
+                    library.value.songs
+                        .filter { (library.value.stats[it.id]?.liked ?: 0) != -1 },
+                    features,
+                    mood
+                )
             }
             if (list.isEmpty()) {
                 _message.value = if (features.isEmpty()) {
@@ -1582,8 +1589,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val currentEngine = engine
             val ordered = withContext(Dispatchers.Default) {
                 currentEngine?.let { e ->
-                    val head = list.maxByOrNull { e.totalScore(it) } ?: list.first()
-                    e.sequence(head, list.filter { it.id != head.id }.take(80))
+                    // The head is the strongest example of the mood, not the
+                    // highest scoring song that happens to match it. Asking
+                    // for קצבי and getting the quietest track that cleared the
+                    // bar is what this list used to do, because the taste
+                    // score knows nothing about the chip that was pressed.
+                    //
+                    // And the eighty are the eighty strongest rather than
+                    // whichever eighty the library happened to store first.
+                    // The sequencer still orders them, so the flow is intact;
+                    // it is only the selection that stops being arbitrary.
+                    val head = list.first()
+                    e.sequence(head, list.drop(1).take(80))
                 } ?: list
             }
             openList(mood.label, mood.subtitle, ordered, "mood:${mood.name}")

@@ -858,7 +858,7 @@ private fun RhythmApp() {
     /**
      * A mood chip: everything the measurements put in that corner of the plane.
      *
-     * The judgement is [Mood.filter]'s, in :engine, so a mood on the phone and
+     * The judgement is [Mood.strongest]'s, in :engine, so a mood on the phone and
      * the same mood here pick the same songs out of the same library.
      */
     /**
@@ -1002,7 +1002,11 @@ private fun RhythmApp() {
     }
 
     fun openMood(mood: Mood) {
-        val matching = Mood.filter(library.songs, features, mood)
+        // Strongest example of the mood first. Matching is a yes or no, and a
+        // list of yeses in whatever order they were stored opens on whichever
+        // sorts first - which is how asking for קצבי handed back the quietest
+        // track that still cleared the bar.
+        val matching = Mood.strongest(library.songs, features, mood)
         if (matching.isEmpty()) {
             status = "אין שירים שמתאימים ל\"${mood.label}\" בספרייה הזאת"
             return
