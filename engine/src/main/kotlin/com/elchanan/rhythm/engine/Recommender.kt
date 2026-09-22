@@ -560,6 +560,81 @@ class Recommender(
         return kotlin.math.tanh(others / ARTIST_LISTEN_SCALE)
     }
 
+    /** The mood reading of the analysed library, built once per snapshot. */
+    private val moodModel: MoodModel = MoodModel(features.values)
+
+    /** Which moods each analysed song expresses, worked out once. */
+    private val moodsOf: Map<Long, List<Mood>> =
+        if (!moodModel.ready) emptyMap() else playable.mapNotNull { song ->
+            val f = features[song.id] ?: return@mapNotNull null
+            val moods = Mood.entries.filter { moodModel.matches(it, f) }
+            if (moods.isEmpty()) null else song.id to moods
+        }.toMap()
+
+    /**
+     * Per mood, the total endorsement of the songs in it that the listening has
+     * touched, and how many of them there are.
+     *
+     * An average rather than a sum, and against the listener's own average,
+     * which is the whole difficulty here. A sum would say "you like
+     * ENERGETIC" to anyone whose library is mostly energetic and who presses
+     * shuffle - they hear more of it because there is more of it, not because
+     * they prefer it. What says something is whether songs in a mood fare
+     * better or worse than this listener's songs do in general: played to the
+     * end where others are skipped, liked where others are not.
+     */
+    private val moodTotals: Map<Mood, Pair<Double, Int>> = run {
+        val out = HashMap<Mood, Pair<Double, Int>>()
+        for ((id, moods) in moodsOf) {
+            val w = behaviour[id] ?: continue
+            if (w == 0.0) continue
+            for (mood in moods) {
+                val (sum, n) = out[mood] ?: (0.0 to 0)
+                out[mood] = (sum + w) to (n + 1)
+            }
+        }
+        out
+    }
+
+    /** The average endorsement across every analysed song the listening touched. */
+    private val touchedAverage: Double = run {
+        val touched = moodsOf.keys.mapNotNull { id -> behaviour[id]?.takeIf { it != 0.0 } }
+        if (touched.isEmpty()) 0.0 else touched.average()
+    }
+
+    /**
+     * -1..1: how the listening treats this mood, with the song itself left out.
+     *
+     * Shrunk towards nothing while there are few songs to go on - two songs
+     * played to the end are not yet a taste for a mood - and saturating, so
+     * that a mood can lift a song but not bury everything else.
+     */
+    private fun moodPreference(mood: Mood, songId: Long): Double {
+        val (sum, n) = moodTotals[mood] ?: return 0.0
+        val own = behaviour[songId]?.takeIf { it != 0.0 && songId in moodsOf }
+        val othersSum = if (own != null) sum - own else sum
+        val othersN = if (own != null) n - 1 else n
+        if (othersN <= 0) return 0.0
+        val lift = othersSum / othersN - touchedAverage
+        val confidence = othersN / (othersN + MOOD_PRIOR_SONGS)
+        return kotlin.math.tanh(lift * confidence / MOOD_LIFT_SCALE)
+    }
+
+    /**
+     * -1..1: how well this song's moods sit with the moods the listening
+     * prefers. The average over the moods it expresses, so a track that is
+     * both calm and dark answers to both.
+     *
+     * The mood used to reach the feed through one shelf only - "it looks like
+     * you like X" - and only its single leading mood. Everywhere else it was
+     * present at most by accident, through the sound model, which measures
+     * resemblance to particular tracks and not a taste for a kind of feeling.
+     */
+    private fun moodTerm(song: SongEntity): Double {
+        val moods = moodsOf[song.id] ?: return 0.0
+        return moods.map { moodPreference(it, song.id) }.average()
+    }
+
     /** the songs the acoustic kNN measures against */
     private val acousticPositives: List<Long>
     private val acousticNegatives: List<Long>
@@ -898,6 +973,7 @@ class Recommender(
         score += ARTIST_LISTEN_WEIGHT * tuning.artistWeight * artistListeningTerm(song)
         score += 1.55 * tuning.styleWeight * styleFit(song.id)
         score += 1.15 * tuning.acousticWeight * (acousticFitById[song.id] ?: 0.0)
+        score += MOOD_WEIGHT * tuning.acousticWeight * moodTerm(song)
 
         when (st?.liked ?: 0) {
             1 -> score += 1.5
@@ -973,6 +1049,18 @@ class Recommender(
                 } ?: "השיר עוד לא נותח"
             )
         )
+        val mood = moodTerm(song)
+        if (mood != 0.0) {
+            val labels = moodsOf[song.id].orEmpty().joinToString(", ") { it.label }
+            out.add(
+                ScoreTerm(
+                    "התאמת מצב רוח",
+                    MOOD_WEIGHT * tuning.acousticWeight * mood,
+                    if (mood > 0) "$labels — מצבי רוח שאתה שומע יותר"
+                    else "$labels — מצבי רוח שאתה מדלג עליהם יותר"
+                )
+            )
+        }
         when (st?.liked ?: 0) {
             1 -> out.add(ScoreTerm("לייק", 1.5, "סימנת לייק"))
             -1 -> out.add(ScoreTerm("דיסלייק", -7.0, "סימנת דיסלייק"))
@@ -1823,11 +1911,10 @@ class Recommender(
         // The mood the user's own picks cluster into, then more of it. This leans
         // on measured audio rather than the style tags, which stay empty until
         // somebody types them in by hand.
-        val engaged = playable.filter {
-            val st = stats[it.id]
-            (st?.liked ?: 0) == 1 || (st?.rating ?: 0) >= 4 || (st?.playCount ?: 0) >= 3
-        }
-        val moodModel = MoodModel(features.values)
+        // What the listening vouches for, skips taken off. Three plays used to
+        // be enough on their own, so a song skipped thirty times still counted
+        // as a favourite and pulled the shelf towards its mood.
+        val engaged = playable.filter { (behaviour[it.id] ?: 0.0) > 0.35 }
         if (engaged.size >= 5 && moodModel.ready) {
             val favourite = favouriteMood(engaged, moodModel)
             if (favourite != null) {
@@ -2338,6 +2425,19 @@ class Recommender(
          * almost nothing more.
          */
         private const val ARTIST_LISTEN_SCALE = 6.0
+
+        /**
+         * How much the mood term can move a score, at most. Below the style
+         * match: a mood is read off the audio by a model, a style was said by
+         * the user.
+         */
+        private const val MOOD_WEIGHT = 0.9
+
+        /** A mood needs about this many touched songs before it is half believed. */
+        private const val MOOD_PRIOR_SONGS = 5.0
+
+        /** How far above the listener's average a mood must sit to count fully. */
+        private const val MOOD_LIFT_SCALE = 0.8
 
         /** How long a song must have been off before "listen again" offers it. */
         private const val AGAIN_AFTER_HOURS = 48.0
