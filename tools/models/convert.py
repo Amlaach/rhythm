@@ -146,11 +146,25 @@ def batch_of_one(pb):
     g = graph_pb2.GraphDef()
     g.ParseFromString(open(pb, "rb").read())
     changed = 0
-    for node in g.node:
+    # The model's body is a function (the graph calls it through
+    # PartitionedCall), so its nodes live in the library, not the top level.
+    nodes = list(g.node)
+    for f in g.library.function:
+        nodes.extend(f.node_def)
+        for arg in f.arg_attr.values():
+            if "_output_shapes" in arg.attr:
+                del arg.attr["_output_shapes"]
+            if "_user_specified_name" in arg.attr:
+                pass
+        for key in list(f.attr.keys()):
+            if key.startswith("_input_shapes") or key == "_output_shapes":
+                del f.attr[key]
+    for node in nodes:
         # Every node carries the shapes it had at export, batch of 64 included,
         # and constant folding trusts them over the new placeholder.
-        if "_output_shapes" in node.attr:
-            del node.attr["_output_shapes"]
+        for key in ("_output_shapes", "_input_shapes"):
+            if key in node.attr:
+                del node.attr[key]
         if node.op == "Placeholder" and "shape" in node.attr:
             dims = node.attr["shape"].shape.dim
             if dims and dims[0].size == 64:
@@ -160,9 +174,13 @@ def batch_of_one(pb):
             t = tf.make_ndarray(node.attr["value"].tensor)
             if t.ndim == 1 and 2 <= t.size <= 5 and t[0] == 64:
                 t = t.copy()
-                t[0] = -1 if node.name.endswith("/shape") else 1
+                t[0] = -1
                 node.attr["value"].tensor.CopyFrom(tf.make_tensor_proto(t, dtype=tf.int32))
                 changed += 1
+        if node.op == "PartitionedCall" or node.op == "StatefulPartitionedCall":
+            for key in ("_output_shapes", "Tout_shapes"):
+                if key in node.attr:
+                    del node.attr[key]
     print("batch surgery changed", changed, "nodes")
     path = os.path.join(WORK, "effnet_single.pb")
     open(path, "wb").write(g.SerializeToString())
