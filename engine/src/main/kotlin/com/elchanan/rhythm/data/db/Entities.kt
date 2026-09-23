@@ -103,7 +103,29 @@ data class SongStatsEntity(
      * MoodMarks. What the user said always wins over what the audio suggests,
      * and the marks are what the mood reading learns this listener's ear from.
      */
-    val moods: String = ""
+    val moods: String = "",
+    /**
+     * Whether this is vocal-only music, by the user's word: 1 yes, 0 no, -1
+     * left to the name and the sound. See Vocal.
+     */
+    val vocal: Int = -1,
+    /**
+     * On how many different days the song was played, and the last of them
+     * as a local epoch day. Ten plays on ten days is a song someone loves;
+     * ten plays in one evening can be one mood. Counted as plays arrive,
+     * because the history that could tell them apart is trimmed.
+     */
+    val playDays: Int = 0,
+    val lastPlayDay: Long = -1L,
+    /**
+     * Skips that came in a burst - the fourth or later within two minutes,
+     * someone flicking through for something in particular. Counted inside
+     * [skipCount] as well; the engine gives each of these a fraction of a
+     * skip's weight.
+     */
+    val burstSkips: Int = 0,
+    /** When the song was last skipped, 0 if never or before this was kept. */
+    val lastSkipAt: Long = 0L
 )
 
 /** User supplied artist profile: rating 1..5 and free style tags. */

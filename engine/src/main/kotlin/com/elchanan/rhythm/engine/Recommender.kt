@@ -102,7 +102,9 @@ data class EngineTuning(
      * listener's own history by [SignalCalibration] - or null for the
      * defaults. The sliders above still multiply them.
      */
-    val learned: SignalWeights? = null
+    val learned: SignalWeights? = null,
+    /** During the Omer and the Three Weeks, generate from vocal songs only. */
+    val onlyVocalInSeason: Boolean = false
 )
 
 /**
@@ -222,8 +224,17 @@ class Recommender(
      * skips, so it is the honest source. See [heardAt] for what happens to a
      * song older than the history reaches.
      */
-    private val lastHeard: Map<Long, Long> = emptyMap()
+    private val lastHeard: Map<Long, Long> = emptyMap(),
+    /**
+     * Vocal-only songs, see [Vocal]. Held back from everything generated
+     * outside the Omer and the Three Weeks; during them, with
+     * [EngineTuning.onlyVocalInSeason], the only thing generated.
+     */
+    private val vocal: Set<Long> = emptySet()
 ) {
+
+    /** Whether today is in the Omer or the Three Weeks. */
+    val season: JewishSeasons.Season? = JewishSeasons.at(now)
 
     /**
      * The songs anything generated may draw on.
@@ -232,8 +243,18 @@ class Recommender(
      * speech by forgetting to filter - which is exactly how this went wrong
      * the first time.
      */
-    private val playable: List<SongEntity> =
-        if (spoken.isEmpty()) songs else songs.filterNot { it.id in spoken }
+    private val playable: List<SongEntity> = run {
+        val music = if (spoken.isEmpty()) songs else songs.filterNot { it.id in spoken }
+        when {
+            vocal.isEmpty() -> music
+            season == null -> music.filterNot { it.id in vocal }
+            // Only when there is enough of it to make a feed from; otherwise
+            // a library with three vocal tracks would play those three on repeat.
+            tuning.onlyVocalInSeason && music.count { it.id in vocal } >= MIN_VOCAL_TO_REPLACE ->
+                music.filter { it.id in vocal }
+            else -> music
+        }
+    }
 
     /**
      * When a song was last heard - played, not skipped - or 0 when unknown.
@@ -295,8 +316,25 @@ class Recommender(
      * turned off over and over on the strength of one time they let it run.
      */
     private fun countedSkips(songId: Long): Double {
-        val skips = stats[songId]?.skipCount ?: 0
-        return if (heardSinceLastSkip(songId)) skips * SKIP_FORGIVEN else skips.toDouble()
+        val st = stats[songId] ?: return 0.0
+        // A skip in a burst - flicking through for something - says little
+        // about the song it landed on.
+        val burst = st.burstSkips.coerceIn(0, st.skipCount)
+        val skips = (st.skipCount - burst) + BURST_SKIP * burst
+        return if (heardSinceLastSkip(songId)) skips * SKIP_FORGIVEN else skips
+    }
+
+    /**
+     * 0.5..1: skips fade as they age. Taste moves, and a song turned off
+     * every time a year ago is not the same verdict as one turned off this
+     * week. Measured from the latest skip, so skipping it again renews the
+     * whole count; never below half, because a song skipped thirty times was
+     * not an accident. 1 when the date is unknown - skips from before it was
+     * kept count as they always did.
+     */
+    private fun skipAge(st: SongStatsEntity): Double {
+        if (st.lastSkipAt <= 0L) return 1.0
+        return 0.5 + 0.5 * exp(-daysSince(st.lastSkipAt) / SKIP_FADE_DAYS)
     }
 
     private val hourBucket: Int = bucketOf(now)
@@ -565,6 +603,20 @@ class Recommender(
     /** how strongly the user's behaviour endorses each song, positive or negative */
     private val behaviour: Map<Long, Double> = songs.associate { it.id to behaviourWeight(it.id) }
 
+    /**
+     * What a song's listening says about everything around it - its artist,
+     * its style, its mood - rather than about the song itself.
+     *
+     * Asymmetric on purpose. A like is a statement about the kind of music; a
+     * skip or a thumbs down is mostly a statement about this one track - the
+     * wrong moment, a weak recording, the one song by a loved singer that does
+     * not land. Carried over at full strength, three skips of one song were
+     * enough to sink its whole artist and every song that shares its style.
+     * The song itself keeps its full penalty; its neighbours get [NEGATIVE_SPILL]
+     * of it.
+     */
+    private val spill: Map<Long, Double> = behaviour.mapValues { (_, w) -> if (w < 0.0) w * NEGATIVE_SPILL else w }
+
     /** The signal weights in force: learned for this listener, or the defaults. */
     private val weights: SignalWeights = tuning.learned ?: SignalWeights.DEFAULT
 
@@ -596,7 +648,7 @@ class Recommender(
     private val artistListening: Map<String, Double> = run {
         val out = HashMap<String, Double>()
         for (song in playable) {
-            val w = behaviour[song.id] ?: continue
+            val w = spill[song.id] ?: continue
             if (w == 0.0) continue
             out.merge(song.artistKey, w) { a, b -> a + b }
         }
@@ -610,7 +662,7 @@ class Recommender(
      */
     private fun artistListeningTerm(song: SongEntity): Double {
         val total = artistListening[song.artistKey] ?: return 0.0
-        val others = total - (behaviour[song.id] ?: 0.0)
+        val others = total - (spill[song.id] ?: 0.0)
         if (abs(others) < 1e-9) return 0.0
         return kotlin.math.tanh(others / ARTIST_LISTEN_SCALE)
     }
@@ -641,7 +693,7 @@ class Recommender(
     private val moodTotals: Map<Mood, Pair<Double, Int>> = run {
         val out = HashMap<Mood, Pair<Double, Int>>()
         for ((id, moods) in moodsOf) {
-            val w = behaviour[id] ?: continue
+            val w = spill[id] ?: continue
             if (w == 0.0) continue
             for (mood in moods) {
                 val (sum, n) = out[mood] ?: (0.0 to 0)
@@ -653,7 +705,7 @@ class Recommender(
 
     /** The average endorsement across every analysed song the listening touched. */
     private val touchedAverage: Double = run {
-        val touched = moodsOf.keys.mapNotNull { id -> behaviour[id]?.takeIf { it != 0.0 } }
+        val touched = moodsOf.keys.mapNotNull { id -> spill[id]?.takeIf { it != 0.0 } }
         if (touched.isEmpty()) 0.0 else touched.average()
     }
 
@@ -666,7 +718,7 @@ class Recommender(
      */
     private fun moodPreference(mood: Mood, songId: Long): Double {
         val (sum, n) = moodTotals[mood] ?: return 0.0
-        val own = behaviour[songId]?.takeIf { it != 0.0 && songId in moodsOf }
+        val own = spill[songId]?.takeIf { it != 0.0 && songId in moodsOf }
         val othersSum = if (own != null) sum - own else sum
         val othersN = if (own != null) n - 1 else n
         if (othersN <= 0) return 0.0
@@ -733,7 +785,10 @@ class Recommender(
         if (positives.isEmpty()) return 0.0
         val positive = space.similarityToSet(songId, positives, 3)
         val negative = if (negatives.isEmpty()) 0.0 else space.similarityToSet(songId, negatives, 2)
-        return (2.0 * positive - 1.0 - 0.9 * negative).coerceIn(-1.5, 1.0)
+        // The songs pushed away count for less than the songs drawn in, for
+        // the reason [spill] gives: a rejected track says less about its
+        // sound than a loved one does.
+        return (2.0 * positive - 1.0 - NEGATIVE_SPILL * negative).coerceIn(-1.5, 1.0)
     }
 
     /**
@@ -856,7 +911,7 @@ class Recommender(
             // Recency of the last play, not the last touch - see [heardAt].
             val heard = heardAt(songId)
             val recency = if (heard == 0L) 0.0 else exp(-daysSince(heard) / 45.0)
-            w += ln(1.0 + st.playCount) * (0.55 + 0.45 * recency)
+            w += ln(1.0 + st.playCount) * (0.55 + 0.45 * recency) * spread(st)
         }
         w += when (st.liked) {
             1 -> 2.0
@@ -866,8 +921,30 @@ class Recommender(
         if (st.rating > 0) w += (st.rating - 3) * 0.8
         val skips = countedSkips(songId)
         val attempts = st.playCount + skips
-        if (attempts > 0.0) w -= 0.7 * (skips / attempts) * ln(1.0 + skips)
+        if (attempts > 0.0) w -= 0.7 * (skips / attempts) * ln(1.0 + skips) * skipAge(st)
         return w
+    }
+
+    /**
+     * 0.7..1.15: whether the plays were spread over many days or packed into
+     * a few. Settled taste is coming back to a song on day after day; a burst
+     * of repeats in one evening is a mood, and should not swing the whole
+     * profile the way months of listening do. 1 where the days are unknown -
+     * plays imported from another player, or older than the counter.
+     */
+    private fun spread(st: SongStatsEntity): Double {
+        if (st.playDays <= 0 || st.playCount <= 1) return 1.0
+        val days = st.playDays.coerceAtMost(st.playCount)
+        val ratio = ln(1.0 + days) / ln(1.0 + st.playCount)
+        return 0.7 + 0.45 * ratio
+    }
+
+    /** How well known a song is, relative to the most played one, weighted by [spread]. */
+    private fun familiarity(st: SongStatsEntity?): Double {
+        if (maxPlays <= 0) return 0.0
+        val plays = st?.playCount ?: 0
+        val base = 0.55 * (ln(1.0 + plays) / ln(1.0 + maxPlays))
+        return if (st == null) base else base * spread(st)
     }
 
     private fun buildTasteVector(): Map<String, Double> {
@@ -907,9 +984,10 @@ class Recommender(
             }
         }
 
-        // (b) behaviour, including per song ratings
+        // (b) behaviour, including per song ratings - dislikes carried over
+        // at their reduced weight, see [spill]
         for (song in playable) {
-            val w = behaviour[song.id] ?: 0.0
+            val w = spill[song.id] ?: 0.0
             if (abs(w) < 1e-6) continue
             for ((t, value) in unitVector(tokensBySong[song.id].orEmpty())) {
                 acc[t] = (acc[t] ?: 0.0) + w * value
@@ -993,7 +1071,7 @@ class Recommender(
     private fun styleFitWithout(songId: Long): Double {
         val v = unitVector(tokensBySong[songId].orEmpty())
         if (v.isEmpty()) return 0.0
-        val own = behaviour[songId] ?: 0.0
+        val own = spill[songId] ?: 0.0
         val adjusted = HashMap(tasteRaw)
         if (abs(own) > 1e-9 && songId in playableIds) {
             for ((k, value) in v) adjusted[k] = (adjusted[k] ?: 0.0) - own * value
@@ -1069,7 +1147,9 @@ class Recommender(
         // so a library that is skipped through constantly does not read every
         // song in it as bad.
         val rate = (skips + SKIP_PRIOR * restlessness) / (attempts + SKIP_PRIOR)
-        return -1.25 * rate
+        // The size of the penalty fades, not the rate: a song only ever
+        // skipped has a rate of one however old the skips are.
+        return -1.25 * rate * skipAge(st)
     }
 
     /**
@@ -1110,7 +1190,7 @@ class Recommender(
         }
 
         val plays = st?.playCount ?: 0
-        if (maxPlays > 0) score += 0.55 * (ln(1.0 + plays) / ln(1.0 + maxPlays))
+        if (maxPlays > 0) score += familiarity(st)
 
         skipTerm(song)?.let { score += it }
 
@@ -1199,8 +1279,8 @@ class Recommender(
             out.add(
                 ScoreTerm(
                     "היכרות",
-                    0.55 * (ln(1.0 + plays) / ln(1.0 + maxPlays)),
-                    "$plays השמעות"
+                    familiarity(st),
+                    if ((st?.playDays ?: 0) > 0) "$plays השמעות ב-${st?.playDays} ימים שונים" else "$plays השמעות"
                 )
             )
         }
@@ -2549,6 +2629,18 @@ class Recommender(
          * almost nothing more.
          */
         private const val ARTIST_LISTEN_SCALE = 6.0
+
+        /** Vocal songs needed before "only vocal" in the season replaces everything else. */
+        const val MIN_VOCAL_TO_REPLACE = 15
+
+        /** How many days it takes an old skip to lose most of what can fade. */
+        const val SKIP_FADE_DAYS = 180.0
+
+        /** What one skip in a burst of skipping counts for, against a considered one. */
+        const val BURST_SKIP = 0.3
+
+        /** How much of a song's dislike or skips reaches its artist, style, mood and sound. */
+        const val NEGATIVE_SPILL = 0.4
 
         /** A mood needs about this many touched songs before it is half believed. */
         private const val MOOD_PRIOR_SONGS = 5.0

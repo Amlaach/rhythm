@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.engine
 
+import com.elchanan.rhythm.data.db.SongEntity
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -61,6 +62,27 @@ class ArtistStylesTest {
                 }
             }
         }
+    }
+
+    @Test fun catalogueLabelsFeedTrainingUnlessTheUserOverrodeTheArtist() {
+        val song = SongEntity(
+            1, "test", "test", "Avromi Roth", "avromi roth", "album",
+            1, 180000, 1, 2026, null, "/music/1.mp3", "/music", 0, 1000
+        )
+        val feature = Analysis.blankFor(1).copy(energy = 0.5f)
+        assertEquals(listOf(ArtistStyles.HASIDIC), ArtistStyles.labelsFor(song, emptyMap()))
+        val rows = StyleTraining.rows(listOf(song), mapOf(1L to feature), emptyMap())
+        assertEquals(listOf(ArtistStyles.HASIDIC), rows.single().labels)
+
+        val override = mapOf(song.artistKey to "ג'אז")
+        assertEquals(listOf("ג'אז"), ArtistStyles.labelsFor(song, override))
+        assertEquals(
+            listOf("ג'אז"),
+            StyleTraining.rows(listOf(song), mapOf(1L to feature), override).single().labels
+        )
+        // A manual character label is still an override, not an invitation
+        // to add the catalogue's genre behind the user's back.
+        assertEquals(listOf("קצבי"), ArtistStyles.labelsFor(song, mapOf(song.artistKey to "קצבי")))
     }
 
     @Test fun everyStyleHasEnoughArtistsToSurviveTheSplit() {

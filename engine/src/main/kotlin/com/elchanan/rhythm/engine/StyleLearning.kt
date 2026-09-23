@@ -224,7 +224,7 @@ object StyleLearning {
         val withStyles = songs.count { song ->
             val own = stats[song.id]
             (own?.stylesAuto == 0 && Styles.parse(own.styles).isNotEmpty()) ||
-                Styles.parse(stylesByArtist[song.artistKey].orEmpty()).isNotEmpty()
+                ArtistStyles.labelsFor(song, stylesByArtist).isNotEmpty()
         }
         val withEvidence = songs.count { StyleTraining.featuresFor(features[it.id]) != null }
         val rows = StyleTraining.rows(songs, features, stylesByArtist, stats, music)
@@ -334,7 +334,7 @@ object StyleLearning {
             val own = stats[song.id]
             val current = Styles.parse(own?.styles.orEmpty())
             if (current.isNotEmpty() && own?.stylesAuto != 1) continue
-            val inherited = Styles.parse(stylesByArtist[song.artistKey].orEmpty())
+            val inherited = ArtistStyles.labelsFor(song, stylesByArtist)
             // A song whose artist carries tags used to be skipped outright,
             // and that left the learner with nothing to do for precisely the
             // user who had done the most work. Tag your artists - which is

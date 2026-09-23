@@ -456,6 +456,12 @@ class MusicRepository(
 
     private val moodMarkLock = kotlinx.coroutines.sync.Mutex()
 
+    /** The user saying a song is vocal-only (true), is not (false), or handing it back (null). */
+    suspend fun setVocal(songId: Long, vocal: Boolean?) = withContext(Dispatchers.IO) {
+        dao.ensureStats(songId)
+        dao.setVocal(songId, when (vocal) { true -> 1; false -> 0; null -> -1 })
+    }
+
     /** The user overruling the speech detector, either way. */
     suspend fun setSpoken(songId: Long, spoken: Boolean) = withContext(Dispatchers.IO) {
         dao.ensureStats(songId)
@@ -519,8 +525,12 @@ class MusicRepository(
         val now = System.currentTimeMillis()
         val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
         val bucket = Recommender.bucketOf(now)
+        val today = localDay(now)
+        val newDay = today != current.lastPlayDay
         dao.putStats(
             current.copy(
+                playDays = current.playDays + if (newDay) 1 else 0,
+                lastPlayDay = today,
                 playCount = current.playCount + 1,
                 completeCount = current.completeCount + if (completed) 1 else 0,
                 listenedMs = current.listenedMs + listenedMs,
@@ -559,6 +569,17 @@ class MusicRepository(
 
     private var playsSinceTrim = 0
 
+    /** When the last few skips happened, to tell flicking through from turning a song off. */
+    private val recentSkips = ArrayDeque<Long>()
+
+    /** The local calendar day, so a play at 23:59 and one at 00:01 are two days. */
+    private fun localDay(millis: Long): Long {
+        val c = java.util.Calendar.getInstance().apply { timeInMillis = millis }
+        return com.elchanan.rhythm.engine.JewishSeasons.epochDay(
+            c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1, c.get(java.util.Calendar.DAY_OF_MONTH)
+        )
+    }
+
     private suspend fun bump(a: Long, b: Long, w: Double, now: Long) {
         val current = dao.affinityWeight(a, b) ?: 0.0
         dao.putAffinity(AffinityEntity(a = a, b = b, weight = current + w, updatedAt = now))
@@ -566,8 +587,17 @@ class MusicRepository(
 
     suspend fun recordSkip(songId: Long, listenedMs: Long) = withContext(Dispatchers.IO) {
         val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
+        val now = System.currentTimeMillis()
+        val burst = synchronized(recentSkips) {
+            while (recentSkips.isNotEmpty() && now - recentSkips.first() > BURST_WINDOW_MS) recentSkips.removeFirst()
+            val inBurst = recentSkips.size >= BURST_BEFORE
+            recentSkips.addLast(now)
+            inBurst
+        }
         dao.putStats(
             current.copy(
+                burstSkips = current.burstSkips + if (burst) 1 else 0,
+                lastSkipAt = now,
                 skipCount = current.skipCount + 1,
                 listenedMs = current.listenedMs + listenedMs,
                 lastPlayedAt = System.currentTimeMillis()
@@ -761,6 +791,14 @@ class MusicRepository(
                 statsById[song.id]?.spoken ?: -1
             )
         }.mapTo(HashSet()) { it.id }
+        // Vocal-only songs, held back outside the Omer and the Three Weeks.
+        val engineArtists = ArtistStyles.withCatalogue(dao.allArtists().associateBy { it.artistKey }, allSongs)
+        val vocalIds = allSongs.filter { song ->
+            com.elchanan.rhythm.engine.Vocal.isVocal(
+                song, statsById[song.id], featuresById[song.id],
+                engineArtists[song.artistKey]?.styles.orEmpty()
+            )
+        }.mapTo(HashSet()) { it.id }
         // When each song was last actually heard. The history records plays
         // and never skips, where lastPlayedAt in the stats is also moved by a
         // skip. Newest first, so the first row seen per song is its latest.
@@ -771,9 +809,7 @@ class MusicRepository(
         Recommender(
             songs = allSongs,
             stats = statsById,
-            artists = ArtistStyles.withCatalogue(
-                dao.allArtists().associateBy { it.artistKey }, allSongs
-            ),
+            artists = engineArtists,
             affinity = affinityMap(),
             transitions = transitionMap(),
             features = featuresById,
@@ -786,12 +822,14 @@ class MusicRepository(
                 acousticWeight = prefs.acousticWeight,
                 separations = prefs.styleSeparations,
                 lastMood = prefs.lastMood,
-                learned = com.elchanan.rhythm.engine.SignalWeights.decode(prefs.learnedWeights)
+                learned = com.elchanan.rhythm.engine.SignalWeights.decode(prefs.learnedWeights),
+                onlyVocalInSeason = prefs.onlyVocalInSeason
             ),
             now = System.currentTimeMillis(),
             feedSeed = prefs.feedSeed.toLong(),
             spoken = spokenIds,
-            lastHeard = lastHeard
+            lastHeard = lastHeard,
+            vocal = vocalIds
         )
     }
 
@@ -1057,6 +1095,11 @@ class MusicRepository(
          * recordPlay trims it to this size, so asking for more finds nothing.
          */
         private const val HISTORY_FOR_RECENCY = 2000
+        /** Skips within this long of each other are one act of looking for something. */
+        const val BURST_WINDOW_MS = 120_000L
+
+        /** This many earlier skips inside the window make the next one part of a burst. */
+        const val BURST_BEFORE = 3
 
         private const val TRIM_EVERY = 200
 

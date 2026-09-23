@@ -264,6 +264,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_RESUME_SPOKEN, true)
         set(value) = sp.edit { putBoolean(KEY_RESUME_SPOKEN, value) }
 
+    /** In the Omer and the Three Weeks, recommend vocal-only songs and nothing else. */
+    var onlyVocalInSeason: Boolean
+        get() = sp.getBoolean(KEY_ONLY_VOCAL, true)
+        set(value) = sp.edit { putBoolean(KEY_ONLY_VOCAL, value) }
+
     /**
      * Show folders nested, the way they sit on the device, rather than as one
      * flat list of every folder that contains a file.
@@ -524,5 +529,6 @@ class Prefs(context: Context) {
         const val KEY_PIN_MOODS = "pin_mood_row"
         const val KEY_TAP_ARTWORK = "tap_artwork_toggles"
         const val KEY_RESUME_SPOKEN = "resume_spoken"
+        const val KEY_ONLY_VOCAL = "only_vocal_in_season"
     }
 }

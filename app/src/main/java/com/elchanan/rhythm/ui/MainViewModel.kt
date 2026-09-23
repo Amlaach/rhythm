@@ -39,7 +39,10 @@ import com.elchanan.rhythm.engine.LyricLine
 import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.engine.Mix
 import com.elchanan.rhythm.engine.Mood
+import com.elchanan.rhythm.engine.MusicModelEvaluation
 import com.elchanan.rhythm.engine.MoodModel
+import com.elchanan.rhythm.engine.JewishSeasons
+import com.elchanan.rhythm.engine.Vocal
 import com.elchanan.rhythm.engine.MoodMarks
 import com.elchanan.rhythm.engine.Names
 import com.elchanan.rhythm.engine.RecapData
@@ -820,6 +823,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteBookmark(id: Long) {
         viewModelScope.launch { repo.deleteBookmark(id) }
+    }
+
+    /** Whether a song counts as vocal-only now: the user's word, else its name and sound. */
+    fun isVocal(song: SongEntity, feature: AudioFeatureEntity?): Boolean {
+        val lib = library.value
+        val artistStyles = lib.artists.firstOrNull { it.key == song.artistKey }?.styles.orEmpty()
+        return Vocal.isVocal(song, lib.stats[song.id], feature, artistStyles)
+    }
+
+    /** The Omer or the Three Weeks, if today is in one. */
+    val season: JewishSeasons.Season? get() = JewishSeasons.at(System.currentTimeMillis())
+
+    fun setVocal(song: SongEntity, vocal: Boolean?) {
+        viewModelScope.launch {
+            repo.setVocal(song.id, vocal)
+            _message.value = when (vocal) {
+                true -> "סומן כווקאלי — יוצג רק בספירה ובשלושת השבועות"
+                false -> "סומן כלא ווקאלי"
+                null -> "חזר לזיהוי האוטומטי"
+            }
+            refreshFeed()
+        }
+    }
+
+    fun setOnlyVocalInSeason(value: Boolean) {
+        prefs.onlyVocalInSeason = value
+        refreshFeed()
     }
 
     /** What the user said about songs' moods, from the live stats. */
@@ -1699,6 +1729,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private val _musicModelReport = MutableStateFlow<String?>(null)
+    val musicModelReport: StateFlow<String?> = _musicModelReport.asStateFlow()
+    private val _musicModelChecking = MutableStateFlow(false)
+    val musicModelChecking: StateFlow<Boolean> = _musicModelChecking.asStateFlow()
+
+    /** Compare the music model against the same labelled songs without writing tags. */
+    fun runMusicModelEvaluation() {
+        if (_musicModelChecking.value) return
+        _musicModelChecking.value = true
+        _musicModelReport.value = "בודק את תרומת המודל המוזיקלי…"
+        viewModelScope.launch {
+            try {
+                val lib = library.value
+                val features = repo.featureMap()
+                val report = withContext(Dispatchers.Default) {
+                    MusicModelEvaluation.measure(
+                        lib.songs, lib.stats,
+                        lib.artists.associate { it.key to it.styles },
+                        features
+                    )
+                }
+                _musicModelReport.value = MusicModelEvaluation.describe(report)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _musicModelReport.value = "בדיקת המודל לא הושלמה. נסה שוב."
+            } finally {
+                _musicModelChecking.value = false
+            }
+        }
+    }
+
     private val _calibration = MutableStateFlow<SignalCalibration.Report?>(null)
 
     /** The last report card, or null before one was asked for. */
@@ -1897,9 +1959,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // Strongest first. Disliked songs are dropped before the sort
                 // rather than after, so a thumbed down track cannot take one
                 // of the places the list is later trimmed to.
+                // Vocal-only songs follow the same season as the feed.
+                val inSeason = season != null
                 Mood.strongest(
                     library.value.songs
-                        .filter { (library.value.stats[it.id]?.liked ?: 0) != -1 },
+                        .filter { (library.value.stats[it.id]?.liked ?: 0) != -1 }
+                        .filter { inSeason || !isVocal(it, features[it.id]) },
                     features,
                     mood,
                     moodMarks()

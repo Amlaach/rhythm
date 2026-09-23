@@ -133,6 +133,9 @@ interface MusicDao {
     @Query("UPDATE song_stats SET spoken = :spoken WHERE songId = :id")
     suspend fun setSpoken(id: Long, spoken: Int)
 
+    @Query("UPDATE song_stats SET vocal = :vocal WHERE songId = :id")
+    suspend fun setVocal(id: Long, vocal: Int)
+
     @Query("UPDATE song_stats SET moods = :moods WHERE songId = :id")
     suspend fun setMoods(id: Long, moods: String)
 
