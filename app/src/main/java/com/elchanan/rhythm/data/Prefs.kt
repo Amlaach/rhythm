@@ -315,6 +315,16 @@ class Prefs(context: Context) {
      * only easier when there are few enough folders for the difference not to
      * matter - in which case the tree is no harder either.
      */
+    /** The folder the folder view opens on; empty for the top of the tree. */
+    var folderHome: String
+        get() = sp.getString(KEY_FOLDER_HOME, "").orEmpty()
+        set(value) = sp.edit { putString(KEY_FOLDER_HOME, value) }
+
+    /** The folders as a tab of their own on the bottom bar. */
+    var foldersTab: Boolean
+        get() = sp.getBoolean(KEY_FOLDERS_TAB, false)
+        set(value) = sp.edit { putBoolean(KEY_FOLDERS_TAB, value) }
+
     var folderTree: Boolean
         get() = sp.getBoolean(KEY_FOLDER_TREE, true)
         set(value) = sp.edit { putBoolean(KEY_FOLDER_TREE, value) }
@@ -576,6 +586,8 @@ class Prefs(context: Context) {
         const val KEY_ONLY_VOCAL = "only_vocal_in_season"
         const val KEY_MEDLEY_MINUTES = "medley_minutes"
         const val KEY_COMPACT = "compact_mode"
+        const val KEY_FOLDER_HOME = "folder_home"
+        const val KEY_FOLDERS_TAB = "folders_tab"
         const val KEY_ARTIST_BY_ALBUM = "artist_by_album"
         const val KEY_ARTWORK_TAP_MODE = "artwork_tap_mode"
         const val KEY_APP_VOLUME = "app_volume"

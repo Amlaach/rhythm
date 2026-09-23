@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
         val prefs = Prefs(this)
         UiLanguage.code = prefs.language
         Display.compact = prefs.compactMode
+        Display.foldersTab = prefs.foldersTab
 
         setContent {
             RhythmTheme {

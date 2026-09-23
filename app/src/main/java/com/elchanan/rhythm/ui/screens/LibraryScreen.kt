@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
@@ -65,6 +66,7 @@ import androidx.compose.material3.OutlinedTextField
 import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -144,7 +146,9 @@ fun LibraryScreen(
     vm: MainViewModel,
     onOpenDetail: () -> Unit,
     onOpenArtist: () -> Unit,
-    onOpenAlbums: () -> Unit
+    onOpenAlbums: () -> Unit,
+    // The folders on their own, for the tab of their own on the bottom bar.
+    foldersOnly: Boolean = false
 ) {
     val library by vm.library.collectAsStateWithLifecycle()
     val playlists by vm.playlists.collectAsStateWithLifecycle()
@@ -152,8 +156,23 @@ fun LibraryScreen(
     // Which tab the library opens on is a preference, so someone who lives in
     // their folders does not land on playlists every single time.
     var tab by remember {
-        val wanted = vm.prefs.libraryFirstTab
+        val wanted = if (foldersOnly) LibraryTab.FOLDERS.name else vm.prefs.libraryFirstTab
         mutableStateOf(LibraryTab.entries.indexOfFirst { it.name == wanted }.coerceAtLeast(0))
+    }
+    // A folder asked for from the player. The tree opens it itself; the flat
+    // list has no place to stand in, so the folder opens as its song list.
+    val folderRequest by vm.folderRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(folderRequest) {
+        val wanted = folderRequest ?: return@LaunchedEffect
+        tab = LibraryTab.FOLDERS.ordinal
+        if (!vm.prefs.folderTree) {
+            vm.folderRequest.value = null
+            val songs = library.songs.filter { it.folder == wanted }
+            if (songs.isNotEmpty()) {
+                vm.openList(folderName(wanted), wanted, songs, "folder:$wanted")
+                onOpenDetail()
+            }
+        }
     }
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
     var newPlaylist by remember { mutableStateOf(false) }
@@ -207,12 +226,12 @@ fun LibraryScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         Text(
-            text = "הספרייה שלי",
+            text = if (foldersOnly) "תיקיות" else "הספרייה שלי",
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(top = topPad).padding(horizontal = gutter, vertical = 10.dp)
         )
-        LazyRow(
+        if (!foldersOnly) LazyRow(
             contentPadding = PaddingValues(horizontal = gutter),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -1036,6 +1055,24 @@ private fun FolderTreeTab(
     val selectionMode = selection.isNotEmpty()
     val root = remember(library.songs) { Folders.build(library.songs) }
     var path by rememberSaveable { mutableStateOf(root.path) }
+    // The folder chosen as the main one: where the view opens, and where back
+    // stops climbing.
+    var home by remember { mutableStateOf(vm.prefs.folderHome) }
+    val homeExists = home.isNotEmpty() && Folders.find(root, home) != null
+    var homeApplied by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(root) {
+        if (!homeApplied && root.total > 0) {
+            homeApplied = true
+            if (homeExists && path == root.path) path = home
+        }
+    }
+    val folderRequest by vm.folderRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(folderRequest, root) {
+        val wanted = folderRequest ?: return@LaunchedEffect
+        if (root.total == 0) return@LaunchedEffect
+        vm.folderRequest.value = null
+        Folders.find(root, Folders.pathOf(wanted))?.let { path = it.path }
+    }
     // A rescan can remove the folder being looked at, and a path that no
     // longer exists would otherwise show an empty screen with no way out.
     val here = remember(root, path) { Folders.find(root, path) ?: root }
@@ -1069,7 +1106,7 @@ private fun FolderTreeTab(
         )
     }
 
-    BackHandler(enabled = here.path != root.path) {
+    BackHandler(enabled = here.path != root.path && here.path != home) {
         path = trail.getOrNull(trail.size - 2)?.path ?: root.path
     }
 
@@ -1084,7 +1121,8 @@ private fun FolderTreeTab(
     Column(modifier = Modifier.fillMaxSize()) {
         // Where we are, and a way back to any level above without tapping back
         // once per folder.
-        if (trail.size > 1) {
+        val homeLink = homeExists && here.path != home
+        if (trail.size > 1 || homeLink) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1092,6 +1130,17 @@ private fun FolderTreeTab(
                     .padding(horizontal = gutter, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (homeLink) {
+                    Icon(
+                        Icons.Filled.Home,
+                        contentDescription = localized("התיקייה הראשית"),
+                        tint = Accent,
+                        modifier = Modifier
+                            .clickable { path = home }
+                            .padding(end = 10.dp)
+                            .size(18.dp)
+                    )
+                }
                 trail.forEachIndexed { index, node ->
                     if (index > 0) {
                         Text(
@@ -1118,8 +1167,13 @@ private fun FolderTreeTab(
             // someone tapping a folder of folders is asking for.
             if (here.total > 0 && here.path != root.path) {
                 item {
+                    // Sideways rather than wrapped, like the player's row: the
+                    // actions stay one line however narrow the phone.
                     Row(
-                        modifier = Modifier.padding(horizontal = gutter, vertical = 6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = gutter, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Chip(label = "נגן הכל", selected = false, onClick = {
@@ -1131,6 +1185,10 @@ private fun FolderTreeTab(
                         })
                         Chip(label = "תייג סגנון", selected = false, onClick = { tagging = here })
                         Chip(label = "דרג", selected = false, onClick = { rating = here })
+                        Chip(label = "תיקייה ראשית", selected = here.path == home, onClick = {
+                            home = if (here.path == home) "" else here.path
+                            vm.prefs.folderHome = home
+                        })
                     }
                 }
             }

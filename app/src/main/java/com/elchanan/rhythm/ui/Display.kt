@@ -19,6 +19,9 @@ object Display {
      */
     var compact by mutableStateOf(false)
 
+    /** The folders as a tab of their own on the bar at the bottom, beside the library. Off by default. */
+    var foldersTab by mutableStateOf(false)
+
     /** How much smaller, for sizes and for text. Tuned so a 5" phone gains about a row and a half per screen. */
     const val COMPACT_SIZE = 0.86f
     const val COMPACT_TEXT = 0.93f

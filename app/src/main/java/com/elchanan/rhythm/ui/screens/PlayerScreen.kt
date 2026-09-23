@@ -512,11 +512,14 @@ fun PlayerScreen(
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
+                        // The artist line leads to the song's folder, where
+                        // the rest of what it came with is.
                         Text(
                             song.artistName,
                             style = MaterialTheme.typography.bodyMedium,
                             color = TextSecondary,
-                            maxLines = 1
+                            maxLines = 1,
+                            modifier = Modifier.clickable { vm.openFolder(song.folder) }
                         )
                     }
                 }

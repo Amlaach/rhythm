@@ -1968,6 +1968,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         refreshFeed()
     }
 
+    /**
+     * A folder asked for from outside the folder view - the artist line in
+     * the player - for the folder view to open on, once it is on screen.
+     */
+    val folderRequest = MutableStateFlow<String?>(null)
+
+    fun openFolder(path: String) {
+        if (path.isNotBlank()) folderRequest.value = path
+    }
+
     fun requestHomeTop() {
         _homeTopSignal.value = _homeTopSignal.value + 1
     }
