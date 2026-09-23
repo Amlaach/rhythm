@@ -565,6 +565,20 @@ class Recommender(
     /** how strongly the user's behaviour endorses each song, positive or negative */
     private val behaviour: Map<Long, Double> = songs.associate { it.id to behaviourWeight(it.id) }
 
+    /**
+     * What a song's listening says about everything around it - its artist,
+     * its style, its mood - rather than about the song itself.
+     *
+     * Asymmetric on purpose. A like is a statement about the kind of music; a
+     * skip or a thumbs down is mostly a statement about this one track - the
+     * wrong moment, a weak recording, the one song by a loved singer that does
+     * not land. Carried over at full strength, three skips of one song were
+     * enough to sink its whole artist and every song that shares its style.
+     * The song itself keeps its full penalty; its neighbours get [NEGATIVE_SPILL]
+     * of it.
+     */
+    private val spill: Map<Long, Double> = behaviour.mapValues { (_, w) -> if (w < 0.0) w * NEGATIVE_SPILL else w }
+
     /** The signal weights in force: learned for this listener, or the defaults. */
     private val weights: SignalWeights = tuning.learned ?: SignalWeights.DEFAULT
 
@@ -596,7 +610,7 @@ class Recommender(
     private val artistListening: Map<String, Double> = run {
         val out = HashMap<String, Double>()
         for (song in playable) {
-            val w = behaviour[song.id] ?: continue
+            val w = spill[song.id] ?: continue
             if (w == 0.0) continue
             out.merge(song.artistKey, w) { a, b -> a + b }
         }
@@ -610,7 +624,7 @@ class Recommender(
      */
     private fun artistListeningTerm(song: SongEntity): Double {
         val total = artistListening[song.artistKey] ?: return 0.0
-        val others = total - (behaviour[song.id] ?: 0.0)
+        val others = total - (spill[song.id] ?: 0.0)
         if (abs(others) < 1e-9) return 0.0
         return kotlin.math.tanh(others / ARTIST_LISTEN_SCALE)
     }
@@ -641,7 +655,7 @@ class Recommender(
     private val moodTotals: Map<Mood, Pair<Double, Int>> = run {
         val out = HashMap<Mood, Pair<Double, Int>>()
         for ((id, moods) in moodsOf) {
-            val w = behaviour[id] ?: continue
+            val w = spill[id] ?: continue
             if (w == 0.0) continue
             for (mood in moods) {
                 val (sum, n) = out[mood] ?: (0.0 to 0)
@@ -653,7 +667,7 @@ class Recommender(
 
     /** The average endorsement across every analysed song the listening touched. */
     private val touchedAverage: Double = run {
-        val touched = moodsOf.keys.mapNotNull { id -> behaviour[id]?.takeIf { it != 0.0 } }
+        val touched = moodsOf.keys.mapNotNull { id -> spill[id]?.takeIf { it != 0.0 } }
         if (touched.isEmpty()) 0.0 else touched.average()
     }
 
@@ -666,7 +680,7 @@ class Recommender(
      */
     private fun moodPreference(mood: Mood, songId: Long): Double {
         val (sum, n) = moodTotals[mood] ?: return 0.0
-        val own = behaviour[songId]?.takeIf { it != 0.0 && songId in moodsOf }
+        val own = spill[songId]?.takeIf { it != 0.0 && songId in moodsOf }
         val othersSum = if (own != null) sum - own else sum
         val othersN = if (own != null) n - 1 else n
         if (othersN <= 0) return 0.0
@@ -733,7 +747,10 @@ class Recommender(
         if (positives.isEmpty()) return 0.0
         val positive = space.similarityToSet(songId, positives, 3)
         val negative = if (negatives.isEmpty()) 0.0 else space.similarityToSet(songId, negatives, 2)
-        return (2.0 * positive - 1.0 - 0.9 * negative).coerceIn(-1.5, 1.0)
+        // The songs pushed away count for less than the songs drawn in, for
+        // the reason [spill] gives: a rejected track says less about its
+        // sound than a loved one does.
+        return (2.0 * positive - 1.0 - NEGATIVE_SPILL * negative).coerceIn(-1.5, 1.0)
     }
 
     /**
@@ -907,9 +924,10 @@ class Recommender(
             }
         }
 
-        // (b) behaviour, including per song ratings
+        // (b) behaviour, including per song ratings - dislikes carried over
+        // at their reduced weight, see [spill]
         for (song in playable) {
-            val w = behaviour[song.id] ?: 0.0
+            val w = spill[song.id] ?: 0.0
             if (abs(w) < 1e-6) continue
             for ((t, value) in unitVector(tokensBySong[song.id].orEmpty())) {
                 acc[t] = (acc[t] ?: 0.0) + w * value
@@ -993,7 +1011,7 @@ class Recommender(
     private fun styleFitWithout(songId: Long): Double {
         val v = unitVector(tokensBySong[songId].orEmpty())
         if (v.isEmpty()) return 0.0
-        val own = behaviour[songId] ?: 0.0
+        val own = spill[songId] ?: 0.0
         val adjusted = HashMap(tasteRaw)
         if (abs(own) > 1e-9 && songId in playableIds) {
             for ((k, value) in v) adjusted[k] = (adjusted[k] ?: 0.0) - own * value
@@ -2549,6 +2567,9 @@ class Recommender(
          * almost nothing more.
          */
         private const val ARTIST_LISTEN_SCALE = 6.0
+
+        /** How much of a song's dislike or skips reaches its artist, style, mood and sound. */
+        const val NEGATIVE_SPILL = 0.4
 
         /** A mood needs about this many touched songs before it is half believed. */
         private const val MOOD_PRIOR_SONGS = 5.0
