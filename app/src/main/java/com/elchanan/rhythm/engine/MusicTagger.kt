@@ -126,7 +126,12 @@ class MusicTagger private constructor(
     companion object {
         private const val FOLDER = "music"
 
-        /** [threads] as for [AudioTagger.create]. */
+        /**
+         * [threads] as for [AudioTagger.create], for EffNet - the heavy part.
+         * The mood heads keep their default: each is one small layer over an
+         * embedding, done in microseconds, where more threads would cost more
+         * in handing the work out than they save.
+         */
         fun create(context: Context, threads: Int = 2): MusicTagger? = runCatching {
             val options = Interpreter.Options().apply { setNumThreads(threads) }
             val effnet = Interpreter(map(context, "$FOLDER/effnet.tflite"), options)
