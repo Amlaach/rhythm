@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.desktop
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,7 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -328,13 +330,13 @@ private fun HomeTopBar(
             modifier = Modifier.weight(1f)
         )
         IconButton(onClick = onRefresh) {
-            Icon(Icons.Filled.Autorenew, contentDescription = "רענון", tint = TextSecondary)
+            Icon(Icons.Filled.Autorenew, contentDescription = localized("רענון"), tint = TextSecondary)
         }
         IconButton(onClick = onRecap) {
-            Icon(Icons.Filled.BarChart, contentDescription = "הסיכום שלך", tint = TextSecondary)
+            Icon(Icons.Filled.BarChart, contentDescription = localized("הסיכום שלך"), tint = TextSecondary)
         }
         IconButton(onClick = onSettings) {
-            Icon(Icons.Filled.Settings, contentDescription = "הגדרות", tint = TextSecondary)
+            Icon(Icons.Filled.Settings, contentDescription = localized("הגדרות"), tint = TextSecondary)
         }
     }
 }
@@ -413,7 +415,7 @@ private fun Banner(
             IconButton(onClick = onDismiss, modifier = Modifier.size(30.dp)) {
                 Icon(
                     Icons.Filled.Close,
-                    contentDescription = "סגור",
+                    contentDescription = localized("סגור"),
                     tint = TextSecondary,
                     modifier = Modifier.size(18.dp)
                 )
@@ -619,7 +621,7 @@ private fun QuickPickRow(
         IconButton(onClick = onMore, modifier = Modifier.size(34.dp)) {
             Icon(
                 Icons.Filled.MoreVert,
-                contentDescription = "עוד",
+                contentDescription = localized("עוד"),
                 tint = TextSecondary,
                 modifier = Modifier.size(20.dp)
             )
@@ -662,7 +664,7 @@ private fun SongCard(song: SongEntity, onClick: () -> Unit, onMore: () -> Unit) 
             ) {
                 Icon(
                     Icons.Filled.MoreVert,
-                    contentDescription = "עוד",
+                    contentDescription = localized("עוד"),
                     tint = TextSecondary,
                     modifier = Modifier.size(18.dp)
                 )
@@ -751,7 +753,7 @@ private fun MixCard(mix: Mix, onOpen: () -> Unit, onPlay: () -> Unit) {
                     .clickable(onClick = onPlay),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = "נגן", tint = Color.White)
+                Icon(Icons.Filled.PlayArrow, contentDescription = localized("נגן"), tint = Color.White)
             }
         }
         Spacer(Modifier.height(8.dp))

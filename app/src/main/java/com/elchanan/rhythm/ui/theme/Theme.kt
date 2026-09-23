@@ -33,7 +33,7 @@ fun RhythmTheme(content: @Composable () -> Unit) {
         colorScheme = RhythmColors,
         typography = RhythmTypography
     ) {
-        // Right to left, because the app is Hebrew. Not a setting.
+        // The listener can choose English; Hebrew remains the default.
         //
         // And a content colour, because Compose's default is Color.Black and
         // a Text that names no colour of its own takes it. Material3 normally
@@ -48,7 +48,7 @@ fun RhythmTheme(content: @Composable () -> Unit) {
         // the next one. Anything that wants a different colour - a Button, a
         // Surface, a Text that names one - still overrides it locally.
         CompositionLocalProvider(
-            LocalLayoutDirection provides LayoutDirection.Rtl,
+            LocalLayoutDirection provides if (UiLanguage.english) LayoutDirection.Ltr else LayoutDirection.Rtl,
             LocalContentColor provides TextPrimary,
             content = content
         )

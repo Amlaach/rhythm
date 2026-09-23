@@ -22,6 +22,10 @@ import com.elchanan.rhythm.engine.Listening
  */
 class Prefs(private val store: Store) {
 
+    var language: String
+        get() = store.get("ui_language").let { if (it == "en") "en" else "he" }
+        set(value) = store.put("ui_language", if (value == "en") "en" else "he")
+
     private fun flag(key: String, fallback: Boolean): Boolean =
         store.get(key)?.toBooleanStrictOrNull() ?: fallback
 
