@@ -1947,31 +1947,50 @@ class Recommender(
 
         // tempo based mixes, only meaningful once the analyser has run
         if (features.size >= 12) {
+            // By the mood model where there is one: קצבי and רגוע as the
+            // mood chips and lists read them, with the user's own marks.
+            //
+            // They were a tempo threshold - "above 112" - on the raw
+            // estimate, and the tempo detector answers even when it has
+            // nothing to go on: a sparse pulse aliases upward readily, and a
+            // niggun in free time comes back as a confident 120. The mood
+            // model weighs the tempo by how sure the detector was and falls
+            // back to counting onsets; the threshold did not, and it could
+            // not be taught - a song marked "not קצבי" stayed in the mix.
+            val byMood = moodModel.ready
+            fun inMood(mood: Mood, s: SongEntity) =
+                moodModel.matches(mood, features[s.id]) && s.id !in speechAhead
+            fun lean(mood: Mood): ((SongEntity) -> Double)? =
+                if (!byMood) null else { c -> MOOD_MIX_LEAN * moodModel.strength(mood, features[c.id]) }
             val fast = notDisliked.filter { s ->
-                val f = features[s.id] ?: return@filter false
-                f.bpm >= 112f && f.onsetRate >= 1.2f
+                if (byMood) inMood(Mood.ENERGETIC, s) else {
+                    val f = features[s.id] ?: return@filter false
+                    f.bpm >= 112f && f.onsetRate >= 1.2f
+                }
             }
             if (fast.size >= 8) {
                 mixes.add(
                     Mix(
                         id = "mix:tempo:fast",
                         title = "מיקס קצבי",
-                        subtitle = "מעל 112 פעימות בדקה",
-                        songs = pick(fast, 40, salt = 67L, maxPerArtist = 3)
+                        subtitle = if (byMood) Mood.ENERGETIC.subtitle else "מעל 112 פעימות בדקה",
+                        songs = pick(fast, 40, salt = 67L, maxPerArtist = 3, extra = lean(Mood.ENERGETIC))
                     )
                 )
             }
             val calm = notDisliked.filter { s ->
-                val f = features[s.id] ?: return@filter false
-                f.bpm in 1f..95f || (f.onsetRate < 0.8f && f.dynamics < 0.9f)
+                if (byMood) inMood(Mood.CALM, s) else {
+                    val f = features[s.id] ?: return@filter false
+                    f.bpm in 1f..95f || (f.onsetRate < 0.8f && f.dynamics < 0.9f)
+                }
             }
             if (calm.size >= 8) {
                 mixes.add(
                     Mix(
                         id = "mix:tempo:calm",
                         title = "מיקס רגוע",
-                        subtitle = "איטי, פחות הקשה",
-                        songs = pick(calm, 40, salt = 71L, maxPerArtist = 3)
+                        subtitle = Mood.CALM.subtitle,
+                        songs = pick(calm, 40, salt = 71L, maxPerArtist = 3, extra = lean(Mood.CALM))
                     )
                 )
             }
@@ -2862,6 +2881,9 @@ class Recommender(
 
         /** How far above the listener's average a mood must sit to count fully. */
         private const val MOOD_LIFT_SCALE = 0.8
+
+        /** How far a clear example of a mood leads its mix, against the listener's score. */
+        private const val MOOD_MIX_LEAN = 0.8
 
         /** In tenths: how much of the analysed library a print must cover to be what the daily mixes cluster on. */
         private const val DAILY_PRINT_COVER = 8
