@@ -25,6 +25,9 @@ object UiStrings {
         putAll(part17())
         putAll(part18())
         putAll(part19())
+        putAll(part20())
+        putAll(part21())
+        putAll(part22())
     } }
     private data class Template(val pattern: Regex, val target: String, val names: List<String>, val literal: Int)
     private val templates: List<Template> by lazy { exact.mapNotNull { (source, target) ->
@@ -1623,5 +1626,75 @@ object UiStrings {
             "Style and mood recognition: Discogs-EffNet and Essentia's mood classifiers, by MTG, Universitat Pompeu Fabra in Barcelona, under CC BY-NC-SA 4.0 — non-commercial use only. The same models as on the phone, converted to ONNX and run with ONNX Runtime (Microsoft, MIT licence). Source: essentia.upf.edu/models.html; licence: creativecommons.org/licenses/by-nc-sa/4.0/. Credits and licences are included in the installation folder.",
         "בנייה מקומית — לא נבנתה דרך GitHub Actions, ולכן אין לה מספר בנייה שאפשר להשוות אליו." to
             "Local build — not built by GitHub Actions, so it has no build number to compare against."
+    )
+    private fun part20(): Map<String, String> = mapOf(
+        "מחרוזת לפי אורך" to "Medley by length",
+        "שיר שאורכו לפחות כך נחשב מחרוזת, גם כשבשם שלו לא כתוב \"מחרוזת\". " to "A track at least this long counts as a medley, even when its name does not say \"medley\". ",
+        "מחרוזות לא מוצעות במיקסים, ברדיו ובהמלצות — הן נשארות בספרייה ובמדף \"נוספו לאחרונה\"." to "Medleys are not offered in mixes, radio or recommendations — they stay in the library and on the \"Recently added\" shelf.",
+        "רק לפי השם" to "By name only",
+        "\$minutes דקות ומעלה" to "\$minutes minutes and up",
+        "דרג את כל השירים בתיקייה" to "Rate every song in the folder",
+        "דירוג לתיקייה" to "Rate a folder",
+        "\"\$folderName\" · \${songs.size} שירים, כולל תת־תיקיות" to "\"\$folderName\" · \${songs.size} songs, subfolders included",
+        "רק שירים בלי דירוג" to "Only unrated songs",
+        "\$rated שירים שכבר דירגת אחד אחד ישמרו את הדירוג שלהם." to "\$rated songs you already rated one by one keep their rating.",
+        "גם \$rated השירים שכבר דירגת יקבלו את הדירוג הזה." to "The \$rated songs you already rated get this rating too.",
+        "דרג \${target.size} שירים" to "Rate \${target.size} songs"
+    )
+
+    private fun part21(): Map<String, String> = mapOf(
+        "לא הצלחתי לקרוא את הקבצים" to "I couldn't read the files",
+        "לא נמצאו פלייליסטים — צריך את ה־ZIP מ־Google Takeout או קובץ CSV של פלייליסט" to "No playlists found — this needs the ZIP from Google Takeout or a playlist CSV file",
+        "אף שיר מהפלייליסטים לא נמצא בספרייה שלך" to "None of the playlists' songs are in your library",
+        "יובאו \${found.size} פלייליסטים עם \$songs שירים · \$missing לא נמצאו" to "Imported \${found.size} playlists with \$songs songs · \$missing not found",
+        "יובאו \${found.size} פלייליסטים עם \$songs שירים" to "Imported \${found.size} playlists with \$songs songs",
+        "יובאו \${matched.size} פלייליסטים עם \$songs שירים · \$missing לא נמצאו" to "Imported \${matched.size} playlists with \$songs songs · \$missing not found",
+        "יובאו \${matched.size} פלייליסטים עם \$songs שירים" to "Imported \${matched.size} playlists with \$songs songs",
+        "שירים בודדים" to "Singles",
+        "\${shelf.songs.size} שירים" to "\${shelf.songs.size} songs",
+        "מצב מסך קטן" to "Small screen mode",
+        "כל האפליקציה בגודל אחד קטן יותר — טקסט, מרווחים, תמונות והטאבים למטה — כדי שייכנס יותר למסך קטן. העיצוב נשאר אותו עיצוב" to "The whole app one size smaller — text, spacing, pictures and the tabs at the bottom — so more fits on a small screen. The design stays the same",
+        "סידור תפריט השיר" to "Arrange the song menu",
+        "מה מופיע בתפריט שלוש הנקודות של השירים, ומה למעלה" to "What the songs' three-dot menu shows, and what comes first",
+        "כפתור לתור במסך הבית" to "Queue button on the home screen",
+        "ליד הרענון והסיכום למעלה: פותח את הנגן ישר על התור" to "Beside refresh and the recap at the top: opens the player straight on the queue",
+        "תיקיות בסרגל התחתון" to "Folders on the bottom bar",
+        "לשונית משלהן ליד הספרייה, כדי להגיע לתיקיות בנגיעה אחת" to "A tab of their own beside the library, to reach the folders in one tap",
+        "תיקייה ראשית" to "Main folder",
+        "התיקיות נפתחות מההתחלה. לקביעת תיקייה ראשית: \"תיקייה ראשית\" בתוך התיקייה" to "Folders open at the top. To set a main folder: \"Main folder\" inside that folder",
+        "התיקייה הראשית" to "The main folder",
+        "עוצמת הנגן" to "Player volume",
+        "עוצמה משלו לנגן, בלי לשנות את עוצמת הטלפון — שיחה, סרטון או ניווט נשארים כמו שהיו." to "The player's own volume, without changing the phone's — calls, videos and navigation stay as they were.",
+        "עוצמה משלו, בלי לגעת בעוצמת הטלפון" to "Its own volume, without touching the phone's",
+        "לחיצה על התמונה בנגן" to "Tapping the cover in the player",
+        "התמונה הגדולה במסך הנגן היא הדבר הכי קל לפגוע בו בלי להסתכל. עצירה והמשך מציגה לרגע סימן באמצע התמונה, כמו ביוטיוב" to "The big cover in the player is the easiest thing to hit without looking. Pause and resume shows a mark in the middle of the picture for a moment, as YouTube does",
+        "עצירה והמשך" to "Pause and resume",
+        "הגדלת התמונה" to "Enlarge the cover",
+        "כלום" to "Nothing",
+        "דילוג על שקט בסוף שיר ברדיו" to "Skip silence at the end of songs on the radio",
+        "כשהרדיו בחר את השיר ונשאר בסופו שקט ארוך, עובר לבא מיד כשהצליל נגמר. שירים שבחרת בעצמך מתנגנים עד הסוף" to "When the radio chose the song and it ends in a long silence, moves on as soon as the sound stops. Songs you chose yourself play to the end",
+        "הרצאה או מוזיקה" to "Lecture or music",
+        "למעלה" to "At the top",
+        "במקום הרגיל" to "In its usual place",
+        "מה מופיע בתפריט שלוש הנקודות של כל שיר, ובאיזה סדר: למעלה, במקום הרגיל, או מוסתר לגמרי." to "What each song's three-dot menu shows, and in what order: at the top, in its usual place, or hidden altogether.",
+        "ייבוא מ־YouTube Music" to "Import from YouTube Music",
+        "בוחרים את קובץ ה־ZIP מ־Google Takeout (\"YouTube ו־YouTube Music\"), או קובצי CSV של פלייליסטים. כל פלייליסט נוצר כאן, והשירים מזוהים לפי שם ואמן" to "Choose the ZIP from Google Takeout (\"YouTube and YouTube Music\"), or playlist CSV files. Each playlist is created here, and the songs are matched by title and artist",
+        "בחר קבצים" to "Choose files",
+        "בחר את הייצוא מ־Google Takeout" to "Choose the Google Takeout export",
+        "ייצוא של Google Takeout (zip, csv, json, html)" to "Google Takeout export (zip, csv, json, html)"
+    )
+
+    private fun part22(): Map<String, String> = mapOf(
+        "הקובץ נוצר בגרסה חדשה יותר של Rhythm. צריך לעדכן את האפליקציה בטלפון ולייבא שוב" to "The file was made by a newer version of Rhythm. Update the app on the phone and import again",
+        "קובץ הניתוח פגום או חלקי" to "The analysis file is damaged or incomplete",
+        "פרטי השיר עודכנו" to "Song details updated",
+        "עודכנו \${songIds.size} שירים" to "Updated \${songIds.size} songs",
+        "נשמר באפליקציה. הקובץ אינו MP3, ולכן הוא עצמו לא שונה." to "Saved in the app. The file is not an MP3, so the file itself was not changed.",
+        "נכתבו \${outcome.written} קבצים · \${outcome.notMp3} אינם MP3 ונשמרו רק באפליקציה" to "Wrote \${outcome.written} files · \${outcome.notMp3} are not MP3 and were saved in the app only",
+        "עריכת פרטים" to "Edit details",
+        "עריכת פרטי השיר" to "Edit song details",
+        "עריכת \${songs.size} שירים" to "Edit \${songs.size} songs",
+        "ללא שינוי" to "Unchanged",
+        "נשמר באפליקציה ונכתב גם לתוך הקובץ עצמו (MP3), כך שכל נגן יראה אותו. העטיפה ושאר פרטי הקובץ נשמרים כמו שהם." to "Saved in the app and written into the file itself (MP3), so every player sees it. The cover and the rest of the file stay as they are."
     )
 }

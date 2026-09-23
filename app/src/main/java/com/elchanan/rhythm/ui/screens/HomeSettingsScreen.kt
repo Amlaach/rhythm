@@ -28,6 +28,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.SwitchDefaults
 import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -40,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.elchanan.rhythm.engine.ShelfKind
+import com.elchanan.rhythm.ui.Display
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.rememberMetrics
@@ -60,10 +62,15 @@ import com.elchanan.rhythm.ui.theme.TextSecondary
 fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val gutter = rememberMetrics().gutter
     var shelvesOpen by remember { mutableStateOf(false) }
+    var songMenuOpen by remember { mutableStateOf(false) }
+    var queueButton by remember { mutableStateOf(vm.prefs.homeQueueButton) }
     var pinMoods by remember { mutableStateOf(vm.prefs.pinMoodRow) }
     var firstTab by remember { mutableStateOf(vm.prefs.libraryFirstTab) }
     var folderTree by remember { mutableStateOf(vm.prefs.folderTree) }
     var hideDupes by remember { mutableStateOf(vm.prefs.hideDuplicates) }
+    var compact by remember { mutableStateOf(Display.compact) }
+    var foldersTab by remember { mutableStateOf(Display.foldersTab) }
+    var folderHome by remember { mutableStateOf(vm.prefs.folderHome) }
 
     Column(
         modifier = Modifier
@@ -87,6 +94,17 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             }
             Spacer(Modifier.width(4.dp))
             Text("דף הבית ותצוגה", style = MaterialTheme.typography.titleLarge)
+        }
+
+        SettingSwitch(
+            title = "מצב מסך קטן",
+            subtitle = "כל האפליקציה בגודל אחד קטן יותר — טקסט, מרווחים, תמונות והטאבים " +
+                "למטה — כדי שייכנס יותר למסך קטן. העיצוב נשאר אותו עיצוב",
+            checked = compact
+        ) {
+            compact = it
+            vm.prefs.compactMode = it
+            Display.compact = it
         }
 
         Row(
@@ -140,6 +158,35 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             ) { Text("ערוך") }
         }
 
+        Row(
+            modifier = Modifier
+                .fillMaxWidth().clickable { songMenuOpen = true }
+                .padding(horizontal = gutter, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("סידור תפריט השיר", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "מה מופיע בתפריט שלוש הנקודות של השירים, ומה למעלה",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+            Button(
+                onClick = { songMenuOpen = true },
+                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+            ) { Text("ערוך") }
+        }
+
+        SettingSwitch(
+            title = "כפתור לתור במסך הבית",
+            subtitle = "ליד הרענון והסיכום למעלה: פותח את הנגן ישר על התור",
+            checked = queueButton
+        ) {
+            queueButton = it
+            vm.prefs.homeQueueButton = it
+        }
+
         // The rest of what this screen decides: not what the home screen
         // shows, but how the library is presented once you are in it. They
         // are on the same screen because they answer the same question -
@@ -190,6 +237,42 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             )
         }
 
+
+        SettingSwitch(
+            title = "תיקיות בסרגל התחתון",
+            subtitle = "לשונית משלהן ליד הספרייה, כדי להגיע לתיקיות בנגיעה אחת",
+            checked = foldersTab
+        ) {
+            foldersTab = it
+            vm.prefs.foldersTab = it
+            Display.foldersTab = it
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = gutter, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("תיקייה ראשית", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    if (folderHome.isEmpty()) {
+                        "התיקיות נפתחות מההתחלה. לקביעת תיקייה ראשית: \"תיקייה ראשית\" בתוך התיקייה"
+                    } else {
+                        folderHome.substringAfterLast('/')
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+            if (folderHome.isNotEmpty()) {
+                TextButton(onClick = {
+                    folderHome = ""
+                    vm.prefs.folderHome = ""
+                }) { Text("נקה", color = Accent) }
+            }
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -218,6 +301,10 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 )
             )
         }
+    }
+
+    if (songMenuOpen) {
+        SongMenuSheet(vm = vm, onDismiss = { songMenuOpen = false })
     }
 
     if (shelvesOpen) {

@@ -4,6 +4,10 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import com.elchanan.rhythm.ui.Display
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -42,16 +46,30 @@ class MainActivity : ComponentActivity() {
         hasAudioPermission = ContextCompat.checkSelfPermission(this, audioPermission) ==
             PackageManager.PERMISSION_GRANTED
 
-        UiLanguage.code = Prefs(this).language
+        val prefs = Prefs(this)
+        UiLanguage.code = prefs.language
+        Display.compact = prefs.compactMode
+        Display.foldersTab = prefs.foldersTab
 
         setContent {
             RhythmTheme {
                 val vm: MainViewModel = viewModel()
-                RhythmRoot(
-                    vm = vm,
-                    hasPermission = hasAudioPermission,
-                    onRequestPermission = { requestPermissions() }
-                )
+                // Compact mode: the whole app one size smaller, by scaling the
+                // density everything is measured in. The layouts are the same
+                // layouts; nothing is rearranged or hidden, it all just fits.
+                val base = LocalDensity.current
+                val density = if (Display.compact) {
+                    Density(base.density * Display.COMPACT_SIZE, base.fontScale * Display.COMPACT_TEXT)
+                } else {
+                    base
+                }
+                CompositionLocalProvider(LocalDensity provides density) {
+                    RhythmRoot(
+                        vm = vm,
+                        hasPermission = hasAudioPermission,
+                        onRequestPermission = { requestPermissions() }
+                    )
+                }
             }
         }
     }

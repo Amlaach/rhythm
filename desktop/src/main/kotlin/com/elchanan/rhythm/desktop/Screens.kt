@@ -101,6 +101,8 @@ import com.elchanan.rhythm.engine.AlphabetIndexing
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.Capo
 import com.elchanan.rhythm.data.ArtistMerge
+import com.elchanan.rhythm.data.ArtistShelf
+import com.elchanan.rhythm.data.ArtistShelves
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.elchanan.rhythm.engine.Folders
@@ -576,6 +578,7 @@ internal fun LibraryPane(
                     stats = stats,
                     current = current,
                     onTagFolder = onTagFolder,
+                    onRateFolder = onBulkRate,
                     onPlay = onPlay,
                     onShuffle = onShuffle,
                     onLike = onLike,
@@ -1911,9 +1914,14 @@ internal fun ArtistDetailScreen(
     onTag: (String) -> Unit,
     onLike: (SongEntity) -> Unit,
     onDislike: (SongEntity) -> Unit,
-    onMore: (SongEntity) -> Unit
+    onMore: (SongEntity) -> Unit,
+    onOpenAlbum: (Long) -> Unit
 ) {
     val selected = Styles.parse(artist.styles)
+    // As on the phone: the albums first, the one long list a chip away.
+    var byAlbum by remember { mutableStateOf(true) }
+    val shelves = remember(artist.songs) { ArtistShelves.of(artist.songs, looseName = "שירים בודדים") }
+    val shown = if (byAlbum) shelves.flatMap { it.songs } else artist.songs
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = artist.displayName, onBack = onBack)
         LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -1995,21 +2003,77 @@ internal fun ArtistDetailScreen(
                     }
                     Spacer(Modifier.height(16.dp))
                     Text("השירים", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip("לפי אלבומים", selected = byAlbum, onClick = { byAlbum = true })
+                        Chip("כל השירים", selected = !byAlbum, onClick = { byAlbum = false })
+                    }
                 }
             }
 
-            itemsIndexed(artist.songs, key = { _, song -> song.id }) { index, song ->
+            val row: @Composable (SongEntity) -> Unit = { song ->
                 SongRow(
                     song = song,
                     isCurrent = song.id == current,
                     liked = stats[song.id]?.liked ?: 0,
                     rating = stats[song.id]?.rating ?: 0,
-                    onClick = { onPlay(artist.songs, index) },
+                    onClick = { onPlay(shown, shown.indexOf(song)) },
                     onMore = { onMore(song) },
                     onLike = { onLike(song) },
                     onDislike = { onDislike(song) }
                 )
             }
+            if (byAlbum) {
+                // One heading would only repeat the page's own title.
+                val headed = !(shelves.size == 1 && shelves[0].albumId == null)
+                shelves.forEach { shelf ->
+                    if (headed) {
+                        item(key = "shelf:${shelf.albumId ?: "loose"}") {
+                            ShelfHeading(
+                                shelf = shelf,
+                                onOpen = shelf.albumId?.let { id -> { onOpenAlbum(id) } },
+                                onPlay = { onPlay(shelf.songs, 0) }
+                            )
+                        }
+                    }
+                    items(shelf.songs, key = { it.id }) { song -> row(song) }
+                }
+            } else {
+                items(artist.songs, key = { it.id }) { song -> row(song) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShelfHeading(shelf: ArtistShelf, onOpen: (() -> Unit)?, onPlay: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)
+            .padding(start = GUTTER, end = GUTTER - 8.dp, top = 18.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (shelf.albumId != null) {
+            Art(song = shelf.songs.first(), size = 52.dp, corner = 10.dp)
+            Spacer(Modifier.width(12.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                shelf.name,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row {
+                if (shelf.year > 0) {
+                    Text("${shelf.year} · ", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+                Text("${shelf.songs.size} שירים", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            }
+        }
+        IconButton(onClick = onPlay) {
+            Icon(Icons.Filled.PlayArrow, contentDescription = localized("נגן"), tint = Accent)
         }
     }
 }
@@ -2348,6 +2412,7 @@ private fun FolderTree(
     stats: Map<Long, SongStatsEntity>,
     current: Long?,
     onTagFolder: (List<Long>, List<String>, Boolean) -> Unit,
+    onRateFolder: (List<Long>, Int) -> Unit,
     onPlay: (List<SongEntity>, Int) -> Unit,
     onShuffle: (List<SongEntity>) -> Unit,
     onLike: (SongEntity) -> Unit,
@@ -2362,6 +2427,8 @@ private fun FolderTree(
     val trail = remember(root, here) { Folders.trail(root, here.path) }
     // Which folder the style dialog is about, or null while it is closed.
     var tagging by remember { mutableStateOf<Folders.Node?>(null) }
+    // Which folder the rating dialog is about, likewise.
+    var rating by remember { mutableStateOf<Folders.Node?>(null) }
 
     tagging?.let { node ->
         val inside = remember(node) { Folders.allSongs(node) }
@@ -2370,6 +2437,19 @@ private fun FolderTree(
             count = inside.size,
             onDismiss = { tagging = null },
             onApply = { styles, replace -> onTagFolder(inside.map { it.id }, styles, replace) }
+        )
+    }
+    rating?.let { node ->
+        val inside = remember(node) { Folders.allSongs(node) }
+        FolderRatingDialog(
+            folderName = node.name,
+            songs = inside,
+            stats = stats,
+            onDismiss = { rating = null },
+            onApply = { ids, stars ->
+                onRateFolder(ids, stars)
+                rating = null
+            }
         )
     }
 
@@ -2428,6 +2508,7 @@ private fun FolderTree(
                             onShuffle(Folders.allSongs(here))
                         })
                         Chip(label = "תייג סגנון", selected = false, onClick = { tagging = here })
+                        Chip(label = "דרג", selected = false, onClick = { rating = here })
                     }
                 }
             }
@@ -2473,6 +2554,14 @@ private fun FolderTree(
                             maxLines = 1
                         )
                     }
+                    IconButton(onClick = { rating = child }) {
+                        Icon(
+                            Icons.Filled.Star,
+                            contentDescription = localized("דרג את כל השירים בתיקייה"),
+                            tint = TextTertiary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                     IconButton(onClick = { tagging = child }) {
                         Icon(
                             Icons.Filled.LocalOffer,
@@ -2510,6 +2599,64 @@ private fun FolderTree(
             }
         }
     }
+}
+
+/**
+ * One rating for every song in a folder, subfolders included. Whether songs
+ * already rated one by one keep their own is asked, and keeping them is the
+ * default. The phone's dialog.
+ */
+@Composable
+private fun FolderRatingDialog(
+    folderName: String,
+    songs: List<SongEntity>,
+    stats: Map<Long, SongStatsEntity>,
+    onDismiss: () -> Unit,
+    onApply: (List<Long>, Int) -> Unit
+) {
+    var stars by remember { mutableStateOf(0) }
+    var keepRated by remember { mutableStateOf(true) }
+    val rated = songs.count { (stats[it.id]?.rating ?: 0) > 0 }
+    val target = if (keepRated) songs.filter { (stats[it.id]?.rating ?: 0) == 0 } else songs
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("דירוג לתיקייה") },
+        text = {
+            Column {
+                Text(
+                    "\"$folderName\" · ${songs.size} שירים, כולל תת־תיקיות",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(14.dp))
+                StarRow(rating = stars, onRate = { stars = it }, size = 34)
+                if (rated > 0) {
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip(label = "רק שירים בלי דירוג", selected = keepRated, onClick = { keepRated = true })
+                        Chip(label = "כל השירים", selected = !keepRated, onClick = { keepRated = false })
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        if (keepRated) "$rated שירים שכבר דירגת אחד אחד ישמרו את הדירוג שלהם."
+                        else "גם $rated השירים שכבר דירגת יקבלו את הדירוג הזה.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = stars > 0 && target.isNotEmpty(),
+                onClick = { onApply(target.map { it.id }, stars) }
+            ) { Text("דרג ${target.size} שירים", color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
 }
 
 /**

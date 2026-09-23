@@ -3,6 +3,14 @@ package com.elchanan.rhythm.ui.screens
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import com.elchanan.rhythm.playback.AppVolume
+import com.elchanan.rhythm.data.ArtworkTap
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -218,13 +226,32 @@ fun PlayerScreen(
     var showQueue by remember { mutableStateOf(false) }
     var scrubbing by remember { mutableStateOf<Float?>(null) }
     var showLyrics by remember { mutableStateOf(false) }
+    val queueRequest by vm.queueRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(queueRequest) {
+        if (queueRequest) {
+            showQueue = true
+            showLyrics = false
+            vm.queueRequest.value = false
+        }
+    }
     var sleepOpen by remember { mutableStateOf(false) }
     var whyOpen by remember { mutableStateOf(false) }
     var optionsOpen by remember { mutableStateOf(false) }
     var detailsOpen by remember { mutableStateOf(false) }
+    var editOpen by remember { mutableStateOf(false) }
     var speedOpen by remember { mutableStateOf(false) }
     var bookmarksOpen by remember { mutableStateOf(false) }
-    val tapArtwork = vm.prefs.tapArtworkToggles
+    var volumeOpen by remember { mutableStateOf(false) }
+    // What a tap on the cover does: pause and carry on, open it full size, or
+    // nothing. One choice rather than two switches, so they cannot collide.
+    val artworkTap = vm.prefs.artworkTap
+    var zoomed by remember { mutableStateOf(false) }
+    // The YouTube-style mark: the state a tap on the cover just set, shown in
+    // the middle of it for a moment and fading, so a tap on a picture visibly
+    // did something.
+    val pulse = remember { Animatable(0f) }
+    var pulseIcon by remember { mutableStateOf(Icons.Filled.Pause) }
+    val pulseScope = rememberCoroutineScope()
 
     // Read once per composition: the map lives in preferences, and asking it for
     // every control on every frame would be a file read inside layout.
@@ -266,6 +293,38 @@ fun PlayerScreen(
     val dragY = remember { Animatable(0f) }
     val dismissPx = with(LocalDensity.current) { 120.dp.toPx() }
 
+    // Pulled down from anywhere on the sheet, not only its header. The drag
+    // sits on a frame that does not move, around the sheet that does: a
+    // detector inside the moving sheet measures the finger against itself and
+    // loses half of every step. Anything under the finger that uses a vertical
+    // drag itself - the queue list, the lyrics - gets it first, as children
+    // always do, so they scroll as before; a sideways swipe on the cover still
+    // changes the song. Only a downward drag that nothing else took puts the
+    // player away.
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        scope.launch {
+                            if (dragY.value > dismissPx) {
+                                onCollapse()
+                                dragY.snapTo(0f)
+                            } else {
+                                dragY.animateTo(0f)
+                            }
+                        }
+                    },
+                    onDragCancel = { scope.launch { dragY.animateTo(0f) } }
+                ) { change, amount ->
+                    change.consume()
+                    scope.launch {
+                        dragY.snapTo((dragY.value + amount).coerceAtLeast(0f))
+                    }
+                }
+            }
+    ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -295,32 +354,7 @@ fun PlayerScreen(
                 .fillMaxSize()
                 .padding(top = topPad, bottom = bottomPad)
         ) {
-            // The drag lives on the header alone rather than the whole sheet, so it
-            // can never fight the scrubber, the queue list or the lyrics scroller.
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .pointerInput(Unit) {
-                        detectVerticalDragGestures(
-                            onDragEnd = {
-                                scope.launch {
-                                    if (dragY.value > dismissPx) {
-                                        onCollapse()
-                                        dragY.snapTo(0f)
-                                    } else {
-                                        dragY.animateTo(0f)
-                                    }
-                                }
-                            },
-                            onDragCancel = { scope.launch { dragY.animateTo(0f) } }
-                        ) { change, amount ->
-                            change.consume()
-                            scope.launch {
-                                dragY.snapTo((dragY.value + amount).coerceAtLeast(0f))
-                            }
-                        }
-                    }
-            ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 // The grab handle: the affordance that says this panel pulls down.
                 Box(
                     modifier = Modifier
@@ -403,6 +437,7 @@ fun PlayerScreen(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    Box(contentAlignment = Alignment.Center) {
                     Artwork(
                         songId = song.id,
                         albumId = song.albumId,
@@ -429,16 +464,47 @@ fun PlayerScreen(
                                     }
                                 ) { _, amount -> drag += amount }
                             }
-                            // Tapping the sleeve stops and starts it. The
+                            // Tapping the sleeve stops and starts it, or opens
+                            // it full size - whichever the listener chose. The
                             // artwork is the biggest thing on the screen and
-                            // the easiest thing to hit without looking, which
-                            // is most of why people want this.
-                            .pointerInput(song.id, tapArtwork) {
-                                if (!tapArtwork) return@pointerInput
-                                detectTapGestures(onTap = { vm.player.togglePlayPause() })
+                            // the easiest thing to hit without looking.
+                            .pointerInput(song.id, artworkTap) {
+                                if (artworkTap == ArtworkTap.NONE) return@pointerInput
+                                detectTapGestures(onTap = {
+                                    if (artworkTap == ArtworkTap.ZOOM) {
+                                        zoomed = true
+                                    } else {
+                                        val wasPlaying = vm.player.state.value.isPlaying
+                                        vm.player.togglePlayPause()
+                                        pulseIcon = if (wasPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow
+                                        pulseScope.launch {
+                                            pulse.snapTo(1f)
+                                            pulse.animateTo(0f, tween(durationMillis = 700))
+                                        }
+                                    }
+                                })
                             },
                         corner = 20
                     )
+                    if (pulse.value > 0f) {
+                        Box(
+                            modifier = Modifier
+                                .size(76.dp)
+                                .graphicsLayer {
+                                    alpha = pulse.value
+                                    // Grows a little as it fades, as YouTube's does.
+                                    val grow = 1.25f - 0.25f * pulse.value
+                                    scaleX = grow
+                                    scaleY = grow
+                                }
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.45f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(pulseIcon, contentDescription = null, tint = Color.White, modifier = Modifier.size(44.dp))
+                        }
+                    }
+                    }
                 }
             }
 
@@ -455,11 +521,14 @@ fun PlayerScreen(
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
+                        // The artist line leads to the song's folder, where
+                        // the rest of what it came with is.
                         Text(
                             song.artistName,
                             style = MaterialTheme.typography.bodyMedium,
                             color = TextSecondary,
-                            maxLines = 1
+                            maxLines = 1,
+                            modifier = Modifier.clickable { vm.openFolder(song.folder) }
                         )
                     }
                 }
@@ -542,6 +611,15 @@ fun PlayerScreen(
                                 Icons.Filled.GraphicEq,
                                 contentDescription = localized("אקולייזר"),
                                 tint = TextSecondary
+                            )
+                        }
+                    }
+                    if (placement(PlayerAction.VOLUME) == ActionPlacement.BUTTON) {
+                        IconButton(onClick = { volumeOpen = true }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = localized("עוצמת הנגן"),
+                                tint = if (AppVolume.position < 1f) Accent else TextSecondary
                             )
                         }
                     }
@@ -737,14 +815,54 @@ fun PlayerScreen(
             }
         }
     }
+    }
 
+    if (zoomed) {
+        // The cover at full size, on black: a window of its own, so nothing
+        // on the player underneath can take the tap that closes it.
+        Dialog(
+            onDismissRequest = { zoomed = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { zoomed = false },
+                contentAlignment = Alignment.Center
+            ) {
+                Artwork(
+                    songId = song.id,
+                    albumId = song.albumId,
+                    seed = song.artistKey,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                    corner = 0
+                )
+            }
+        }
+    }
     if (sleepOpen) SleepDialog(vm = vm, onDismiss = { sleepOpen = false })
     if (whyOpen) WhyDialog(vm = vm, song = song, onDismiss = { whyOpen = false })
     if (detailsOpen) {
-        SongDetailsDialog(song = song, feature = feature, onDismiss = { detailsOpen = false })
+        SongDetailsDialog(
+            song = song,
+            feature = feature,
+            onDismiss = { detailsOpen = false },
+            onEdit = { detailsOpen = false; editOpen = true }
+        )
+    }
+    if (editOpen) {
+        SongEditDialog(vm = vm, songs = listOf(song), onDismiss = { editOpen = false })
     }
     if (speedOpen) {
         SpeedDialog(vm = vm, onDismiss = { speedOpen = false })
+    }
+    if (volumeOpen) {
+        VolumeDialog(vm = vm, onDismiss = { volumeOpen = false })
     }
     if (bookmarksOpen) {
         BookmarksSheet(
@@ -761,6 +879,11 @@ fun PlayerScreen(
             song = song,
             onDismiss = { optionsOpen = false },
             forCurrentSong = true,
+            onVolume = if (placement(PlayerAction.VOLUME) == ActionPlacement.MENU) {
+                { volumeOpen = true }
+            } else {
+                null
+            },
             // Keeps the synced, scrolling lyrics panel reachable. The menu's own
             // lyrics row opens the editor, which is a different thing from
             // watching the words go by while the song plays.
@@ -781,7 +904,8 @@ fun PlayerScreen(
 private fun SongDetailsDialog(
     song: SongEntity,
     feature: com.elchanan.rhythm.data.db.AudioFeatureEntity?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onEdit: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -812,7 +936,9 @@ private fun SongDetailsDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } },
+        // The name, artist and album, into the file itself.
+        dismissButton = { TextButton(onClick = onEdit) { Text("ערוך", color = Accent) } }
     )
 }
 
@@ -869,6 +995,65 @@ private fun SpeedDialog(vm: MainViewModel, onDismiss: () -> Unit) {
                         )
                     }
                 }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }
+    )
+}
+
+/**
+ * The player's own volume. Apart from the phone's, so turning the music down
+ * here leaves a call, a video or a navigation voice where they were.
+ */
+@Composable
+private fun VolumeDialog(vm: MainViewModel, onDismiss: () -> Unit) {
+    var level by remember { mutableFloatStateOf(AppVolume.position) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("עוצמת הנגן") },
+        text = {
+            Column {
+                Text(
+                    "עוצמה משלו לנגן, בלי לשנות את עוצמת הטלפון — שיחה, סרטון או ניווט נשארים כמו שהיו.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(14.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.VolumeDown,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Slider(
+                        value = level,
+                        onValueChange = {
+                            level = it
+                            AppVolume.set(it)
+                        },
+                        onValueChangeFinished = { vm.prefs.appVolume = level },
+                        colors = SliderDefaults.colors(
+                            thumbColor = Accent,
+                            activeTrackColor = Accent,
+                            inactiveTrackColor = Accent.copy(alpha = 0.2f)
+                        ),
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                    )
+                    Icon(
+                        Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Text(
+                    "${(level * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = TextSecondary,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }

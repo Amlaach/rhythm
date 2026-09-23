@@ -18,6 +18,7 @@ import com.elchanan.rhythm.data.MusicRepository
 import com.elchanan.rhythm.data.PlaylistExport
 import com.elchanan.rhythm.data.PlayCountImport
 import com.elchanan.rhythm.data.PlaylistImport
+import com.elchanan.rhythm.data.YouTubeMusicImport
 import com.elchanan.rhythm.data.TagFileWriter
 import com.elchanan.rhythm.data.TagFixer
 import com.elchanan.rhythm.data.db.ArtistEntity
@@ -223,6 +224,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }.sortedBy { it.displayName.lowercase(Locale.ROOT) }
 
+            com.elchanan.rhythm.playback.MediaItems.noteLibrary(songs)
             val albums = songs.groupBy { it.albumId }.map { (id, list) ->
                 AlbumInfo(
                     albumId = id,
@@ -869,6 +871,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         refreshFeed()
     }
 
+    fun setMedleyMinutes(value: Int) {
+        prefs.medleyMinutes = value
+        refreshFeed()
+    }
+
     /** What the user said about songs' moods, from the live stats. */
     private fun moodMarks(): Map<Long, Map<Mood, Boolean>> = MoodMarks.of(library.value.stats)
 
@@ -1358,6 +1365,78 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * Imports playlists from YouTube Music, by way of Google Takeout: the zip
+     * (or zips) itself, or files from inside it, or a converter's CSV. See
+     * [YouTubeMusicImport]. Every playlist that matched anything is created;
+     * what did not match is counted, as with any import.
+     */
+    fun importYouTubeMusic(files: List<Pair<Uri, String>>) {
+        viewModelScope.launch {
+            _busy.value = true
+            val outcome = runCatching {
+                withContext(Dispatchers.IO) {
+                    val resolver = getApplication<Application>().contentResolver
+                    val collector = YouTubeMusicImport.Collector()
+                    for ((uri, name) in files) {
+                        resolver.openInputStream(uri)?.use { stream ->
+                            if (name.endsWith(".zip", ignoreCase = true)) {
+                                java.util.zip.ZipInputStream(stream.buffered()).use { zip ->
+                                    while (true) {
+                                        val entry = zip.nextEntry ?: break
+                                        if (!entry.isDirectory && collector.wants(entry.name)) {
+                                            collector.add(entry.name, readCapped(zip))
+                                        }
+                                    }
+                                }
+                            } else {
+                                collector.add(name, readCapped(stream))
+                            }
+                        }
+                    }
+                    YouTubeMusicImport.match(collector, library.value.songs)
+                }
+            }.getOrNull()
+
+            if (outcome == null) {
+                _busy.value = false
+                _message.value = "לא הצלחתי לקרוא את הקבצים"
+                return@launch
+            }
+            if (outcome.isEmpty()) {
+                _busy.value = false
+                _message.value = "לא נמצאו פלייליסטים — צריך את ה־ZIP מ־Google Takeout או קובץ CSV של פלייליסט"
+                return@launch
+            }
+            val found = outcome.filter { it.songs.isNotEmpty() }
+            for (list in found) {
+                val id = repo.createPlaylist(list.name)
+                repo.bulkAddToPlaylist(id, list.songs.map { it.id })
+            }
+            _busy.value = false
+            val songs = found.sumOf { it.songs.size }
+            val missing = outcome.sumOf { it.missing }
+            _message.value = when {
+                found.isEmpty() -> "אף שיר מהפלייליסטים לא נמצא בספרייה שלך"
+                missing > 0 -> "יובאו ${found.size} פלייליסטים עם $songs שירים · $missing לא נמצאו"
+                else -> "יובאו ${found.size} פלייליסטים עם $songs שירים"
+            }
+        }
+    }
+
+    /** A file's text, up to what a watch history needs; the rest of a huge one is skipped. */
+    private fun readCapped(input: java.io.InputStream): String {
+        val out = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(64 * 1024)
+        val cap = YouTubeMusicImport.HISTORY_MAX_CHARS
+        while (out.size() < cap) {
+            val n = input.read(buffer)
+            if (n < 0) break
+            out.write(buffer, 0, minOf(n, cap - out.size()))
+        }
+        return out.toString(Charsets.UTF_8.name())
+    }
+
+    /**
      * Imports listening history from another player's CSV export.
      *
      * Someone arriving with years of history elsewhere starts here with every
@@ -1416,7 +1495,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun importAnalysis(uri: Uri) {
         viewModelScope.launch {
             _busy.value = true
-            val prepared = runCatching {
+            val attempt = runCatching {
                 withContext(Dispatchers.IO) {
                     val bytes = getApplication<Application>().contentResolver
                         .openInputStream(uri)?.use { input ->
@@ -1436,11 +1515,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     val current = repo.featureMap()
                     bundle to AnalysisTransfer.match(bundle, library.value.songs, current)
                 }
-            }.getOrNull()
+            }
+            val prepared = attempt.getOrNull()
 
             if (prepared == null) {
                 _busy.value = false
-                _message.value = "קובץ הניתוח פגום, חלקי או מגרסה שאינה נתמכת"
+                _message.value = if (attempt.exceptionOrNull() is AnalysisTransfer.NewerVersionException) {
+                    "הקובץ נוצר בגרסה חדשה יותר של Rhythm. צריך לעדכן את האפליקציה בטלפון ולייבא שוב"
+                } else {
+                    "קובץ הניתוח פגום או חלקי"
+                }
                 return@launch
             }
             val (bundle, matched) = prepared
@@ -1575,10 +1659,39 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun startFileWrite(changed: List<TagFixer.Proposal>) {
-        pendingWrites = changed.map {
-            TagFileWriter.Item(it.songId, it.newTitle, it.newArtist)
+    /**
+     * A song's details as the listener typed them - one song, or a selection.
+     *
+     * Null leaves that detail as it is. Kept in the app like any correction,
+     * and written into the file itself whatever the tag-fixing setting says:
+     * editing the file is what this was asked for.
+     */
+    fun editSongDetails(songIds: List<Long>, title: String?, artist: String?, album: String?) {
+        if (songIds.isEmpty() || (title == null && artist == null && album == null)) return
+        viewModelScope.launch {
+            val existing = repo.overrides().associateBy { it.songId }
+            repo.saveOverrides(
+                songIds.map { id ->
+                    val row = existing[id] ?: TagOverrideEntity(songId = id)
+                    row.copy(
+                        title = title ?: row.title,
+                        artistName = artist ?: row.artistName,
+                        albumName = album ?: row.albumName
+                    )
+                }
+            )
+            refreshFeed()
+            _message.value = if (songIds.size == 1) "פרטי השיר עודכנו" else "עודכנו ${songIds.size} שירים"
+            startFileWriteItems(songIds.map { TagFileWriter.Item(it, title, artist, album) })
         }
+    }
+
+    private fun startFileWrite(changed: List<TagFixer.Proposal>) {
+        startFileWriteItems(changed.map { TagFileWriter.Item(it.songId, it.newTitle, it.newArtist) })
+    }
+
+    private fun startFileWriteItems(items: List<TagFileWriter.Item>) {
+        pendingWrites = items
         val request = tagFiles.permissionRequest(pendingWrites)
         when {
             // Android 11 and up: the system asks about these exact files.
@@ -1628,7 +1741,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             writeRetried = false
             _message.value = when {
+                outcome.written == 0 && outcome.failed == 0 && outcome.notMp3 > 0 ->
+                    "נשמר באפליקציה. הקובץ אינו MP3, ולכן הוא עצמו לא שונה."
                 outcome.written == 0 -> "לא הצלחתי לכתוב לקבצים. התיקון נשמר באפליקציה."
+                outcome.notMp3 > 0 -> "נכתבו ${outcome.written} קבצים · ${outcome.notMp3} אינם MP3 ונשמרו רק באפליקציה"
                 outcome.ok -> "נכתבו ${outcome.written} קבצים"
                 else -> "נכתבו ${outcome.written}, נכשלו ${outcome.failed}"
             }
@@ -1961,6 +2077,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setHideDuplicates(enabled: Boolean) {
         prefs.hideDuplicates = enabled
         refreshFeed()
+    }
+
+    /**
+     * A folder asked for from outside the folder view - the artist line in
+     * the player - for the folder view to open on, once it is on screen.
+     */
+    val folderRequest = MutableStateFlow<String?>(null)
+
+    fun openFolder(path: String) {
+        if (path.isNotBlank()) folderRequest.value = path
+    }
+
+    /** The player asked to open on its queue - the home screen's queue button. */
+    val queueRequest = MutableStateFlow(false)
+
+    fun openQueue() {
+        queueRequest.value = true
     }
 
     fun requestHomeTop() {

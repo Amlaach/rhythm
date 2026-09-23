@@ -24,6 +24,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Switch
 import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -107,6 +109,42 @@ internal fun SettingsDoor(
             contentDescription = null,
             tint = TextTertiary,
             modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+/**
+ * One setting that is on or off: its name, what it does, and the switch. The
+ * whole row answers a tap, not only the switch, because the switch is the
+ * smallest thing on it.
+ */
+@Composable
+internal fun SettingSwitch(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit
+) {
+    val gutter = rememberMetrics().gutter
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onChange(!checked) }
+            .padding(horizontal = gutter, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Accent,
+                checkedTrackColor = Accent.copy(alpha = 0.4f)
+            )
         )
     }
 }

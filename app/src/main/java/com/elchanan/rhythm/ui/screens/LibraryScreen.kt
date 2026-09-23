@@ -35,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -46,6 +47,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
@@ -65,6 +67,7 @@ import androidx.compose.material3.OutlinedTextField
 import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -144,7 +147,9 @@ fun LibraryScreen(
     vm: MainViewModel,
     onOpenDetail: () -> Unit,
     onOpenArtist: () -> Unit,
-    onOpenAlbums: () -> Unit
+    onOpenAlbums: () -> Unit,
+    // The folders on their own, for the tab of their own on the bottom bar.
+    foldersOnly: Boolean = false
 ) {
     val library by vm.library.collectAsStateWithLifecycle()
     val playlists by vm.playlists.collectAsStateWithLifecycle()
@@ -152,8 +157,23 @@ fun LibraryScreen(
     // Which tab the library opens on is a preference, so someone who lives in
     // their folders does not land on playlists every single time.
     var tab by remember {
-        val wanted = vm.prefs.libraryFirstTab
+        val wanted = if (foldersOnly) LibraryTab.FOLDERS.name else vm.prefs.libraryFirstTab
         mutableStateOf(LibraryTab.entries.indexOfFirst { it.name == wanted }.coerceAtLeast(0))
+    }
+    // A folder asked for from the player. The tree opens it itself; the flat
+    // list has no place to stand in, so the folder opens as its song list.
+    val folderRequest by vm.folderRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(folderRequest) {
+        val wanted = folderRequest ?: return@LaunchedEffect
+        tab = LibraryTab.FOLDERS.ordinal
+        if (!vm.prefs.folderTree) {
+            vm.folderRequest.value = null
+            val songs = library.songs.filter { it.folder == wanted }
+            if (songs.isNotEmpty()) {
+                vm.openList(folderName(wanted), wanted, songs, "folder:$wanted")
+                onOpenDetail()
+            }
+        }
     }
     var sheetSong by remember { mutableStateOf<SongEntity?>(null) }
     var newPlaylist by remember { mutableStateOf(false) }
@@ -207,12 +227,12 @@ fun LibraryScreen(
 
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         Text(
-            text = "הספרייה שלי",
+            text = if (foldersOnly) "תיקיות" else "הספרייה שלי",
             style = MaterialTheme.typography.headlineMedium,
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(top = topPad).padding(horizontal = gutter, vertical = 10.dp)
         )
-        LazyRow(
+        if (!foldersOnly) LazyRow(
             contentPadding = PaddingValues(horizontal = gutter),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -756,6 +776,7 @@ internal fun SelectionBar(vm: MainViewModel) {
     var rateOpen by remember { mutableStateOf(false) }
     var playlistOpen by remember { mutableStateOf(false) }
     var genreOpen by remember { mutableStateOf(false) }
+    var editOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
     var styleOpen by remember { mutableStateOf(false) }
@@ -820,6 +841,11 @@ internal fun SelectionBar(vm: MainViewModel) {
                     onClick = { moreOpen = false; rateOpen = true }
                 )
                 DropdownMenuItem(
+                    text = { Text("עריכת פרטים") },
+                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                    onClick = { moreOpen = false; editOpen = true }
+                )
+                DropdownMenuItem(
                     text = { Text("ז'אנר") },
                     leadingIcon = { Icon(Icons.Filled.LocalOffer, contentDescription = null) },
                     onClick = { moreOpen = false; genreOpen = true }
@@ -848,6 +874,10 @@ internal fun SelectionBar(vm: MainViewModel) {
             onDismiss = { styleOpen = false },
             onApply = { styles, replace -> vm.tagFolder(songs, styles, replace); onClear() }
         )
+    }
+
+    if (editOpen) {
+        SongEditDialog(vm = vm, songs = songs, onDismiss = { editOpen = false }, onSaved = onClear)
     }
 
     if (genreOpen) {
@@ -1036,12 +1066,46 @@ private fun FolderTreeTab(
     val selectionMode = selection.isNotEmpty()
     val root = remember(library.songs) { Folders.build(library.songs) }
     var path by rememberSaveable { mutableStateOf(root.path) }
+    // The folder chosen as the main one: where the view opens, and where back
+    // stops climbing.
+    var home by remember { mutableStateOf(vm.prefs.folderHome) }
+    val homeExists = home.isNotEmpty() && Folders.find(root, home) != null
+    var homeApplied by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(root) {
+        if (!homeApplied && root.total > 0) {
+            homeApplied = true
+            if (homeExists && path == root.path) path = home
+        }
+    }
+    val folderRequest by vm.folderRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(folderRequest, root) {
+        val wanted = folderRequest ?: return@LaunchedEffect
+        if (root.total == 0) return@LaunchedEffect
+        vm.folderRequest.value = null
+        Folders.find(root, Folders.pathOf(wanted))?.let { path = it.path }
+    }
     // A rescan can remove the folder being looked at, and a path that no
     // longer exists would otherwise show an empty screen with no way out.
     val here = remember(root, path) { Folders.find(root, path) ?: root }
     val trail = remember(root, here) { Folders.trail(root, here.path) }
     // Which folder the style dialog is about, or null while it is closed.
     var tagging by remember { mutableStateOf<Folders.Node?>(null) }
+    // Which folder the rating dialog is about, likewise.
+    var rating by remember { mutableStateOf<Folders.Node?>(null) }
+
+    rating?.let { node ->
+        val inside = remember(node) { Folders.allSongs(node) }
+        FolderRatingDialog(
+            folderName = node.name,
+            songs = inside,
+            stats = library.stats,
+            onDismiss = { rating = null },
+            onApply = { ids, stars ->
+                vm.bulkRateSongs(ids, stars)
+                rating = null
+            }
+        )
+    }
 
     tagging?.let { node ->
         val inside = remember(node) { Folders.allSongs(node) }
@@ -1053,7 +1117,7 @@ private fun FolderTreeTab(
         )
     }
 
-    BackHandler(enabled = here.path != root.path) {
+    BackHandler(enabled = here.path != root.path && here.path != home) {
         path = trail.getOrNull(trail.size - 2)?.path ?: root.path
     }
 
@@ -1068,7 +1132,8 @@ private fun FolderTreeTab(
     Column(modifier = Modifier.fillMaxSize()) {
         // Where we are, and a way back to any level above without tapping back
         // once per folder.
-        if (trail.size > 1) {
+        val homeLink = homeExists && here.path != home
+        if (trail.size > 1 || homeLink) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1076,6 +1141,17 @@ private fun FolderTreeTab(
                     .padding(horizontal = gutter, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (homeLink) {
+                    Icon(
+                        Icons.Filled.Home,
+                        contentDescription = localized("התיקייה הראשית"),
+                        tint = Accent,
+                        modifier = Modifier
+                            .clickable { path = home }
+                            .padding(end = 10.dp)
+                            .size(18.dp)
+                    )
+                }
                 trail.forEachIndexed { index, node ->
                     if (index > 0) {
                         Text(
@@ -1102,8 +1178,13 @@ private fun FolderTreeTab(
             // someone tapping a folder of folders is asking for.
             if (here.total > 0 && here.path != root.path) {
                 item {
+                    // Sideways rather than wrapped, like the player's row: the
+                    // actions stay one line however narrow the phone.
                     Row(
-                        modifier = Modifier.padding(horizontal = gutter, vertical = 6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = gutter, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Chip(label = "נגן הכל", selected = false, onClick = {
@@ -1114,6 +1195,11 @@ private fun FolderTreeTab(
                             vm.shuffleList(Folders.allSongs(here))
                         })
                         Chip(label = "תייג סגנון", selected = false, onClick = { tagging = here })
+                        Chip(label = "דרג", selected = false, onClick = { rating = here })
+                        Chip(label = "תיקייה ראשית", selected = here.path == home, onClick = {
+                            home = if (here.path == home) "" else here.path
+                            vm.prefs.folderHome = home
+                        })
                     }
                 }
             }
@@ -1178,6 +1264,14 @@ private fun FolderTreeTab(
                         )
                     }
                     if (!selectionMode) {
+                        IconButton(onClick = { rating = child }) {
+                            Icon(
+                                Icons.Filled.Star,
+                                contentDescription = localized("דרג את כל השירים בתיקייה"),
+                                tint = TextTertiary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                         IconButton(onClick = { tagging = child }) {
                             Icon(
                                 Icons.Filled.LocalOffer,
@@ -1229,6 +1323,66 @@ private fun FolderTreeTab(
             }
         }
     }
+}
+
+/**
+ * One rating for every song in a folder, subfolders included.
+ *
+ * Whether songs already rated one by one keep their own is asked, and
+ * keeping them is the default: a rating given to one song on purpose says
+ * more than one given to a folder in passing.
+ */
+@Composable
+private fun FolderRatingDialog(
+    folderName: String,
+    songs: List<SongEntity>,
+    stats: Map<Long, com.elchanan.rhythm.data.db.SongStatsEntity>,
+    onDismiss: () -> Unit,
+    onApply: (List<Long>, Int) -> Unit
+) {
+    var stars by remember { mutableStateOf(0) }
+    var keepRated by remember { mutableStateOf(true) }
+    val rated = songs.count { (stats[it.id]?.rating ?: 0) > 0 }
+    val target = if (keepRated) songs.filter { (stats[it.id]?.rating ?: 0) == 0 } else songs
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("דירוג לתיקייה") },
+        text = {
+            Column {
+                Text(
+                    "\"$folderName\" · ${songs.size} שירים, כולל תת־תיקיות",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(14.dp))
+                StarRow(rating = stars, onRate = { stars = it }, size = 34)
+                if (rated > 0) {
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip(label = "רק שירים בלי דירוג", selected = keepRated, onClick = { keepRated = true })
+                        Chip(label = "כל השירים", selected = !keepRated, onClick = { keepRated = false })
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        if (keepRated) "$rated שירים שכבר דירגת אחד אחד ישמרו את הדירוג שלהם."
+                        else "גם $rated השירים שכבר דירגת יקבלו את הדירוג הזה.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = stars > 0 && target.isNotEmpty(),
+                onClick = { onApply(target.map { it.id }, stars) }
+            ) { Text("דרג ${target.size} שירים", color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
 }
 
 /**

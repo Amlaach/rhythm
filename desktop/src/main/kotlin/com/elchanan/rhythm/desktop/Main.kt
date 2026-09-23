@@ -122,6 +122,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.elchanan.rhythm.data.PlaylistExport
 import com.elchanan.rhythm.data.PlayCountImport
 import com.elchanan.rhythm.data.PlaylistImport
+import com.elchanan.rhythm.data.YouTubeMusicImport
 import com.elchanan.rhythm.data.AnalysisTransfer
 import com.elchanan.rhythm.data.TagFixer
 import com.elchanan.rhythm.data.db.ArtistEntity
@@ -1275,6 +1276,49 @@ private fun RhythmApp() {
         }
     }
 
+    /** Playlists from YouTube Music, by way of Google Takeout. See [YouTubeMusicImport]. */
+    fun importYouTubeMusic(files: List<File>) {
+        busy = true
+        scope.launch {
+            val note = withContext(Dispatchers.IO) {
+                val found = runCatching {
+                    val collector = YouTubeMusicImport.Collector()
+                    for (file in files) {
+                        if (file.name.endsWith(".zip", ignoreCase = true)) {
+                            java.util.zip.ZipFile(file).use { zip ->
+                                for (entry in zip.entries()) {
+                                    if (entry.isDirectory || !collector.wants(entry.name)) continue
+                                    zip.getInputStream(entry).use { collector.add(entry.name, readCapped(it)) }
+                                }
+                            }
+                        } else {
+                            file.inputStream().use { collector.add(file.name, readCapped(it)) }
+                        }
+                    }
+                    YouTubeMusicImport.match(collector, library.songs)
+                }.getOrNull() ?: return@withContext "לא הצלחתי לקרוא את הקבצים"
+                if (found.isEmpty()) {
+                    return@withContext "לא נמצאו פלייליסטים — צריך את ה־ZIP מ־Google Takeout או קובץ CSV של פלייליסט"
+                }
+                val matched = found.filter { it.songs.isNotEmpty() }
+                for (list in matched) {
+                    val id = store.createPlaylist(list.name)
+                    store.bulkAddToPlaylist(id, list.songs.map { it.id })
+                }
+                val songs = matched.sumOf { it.songs.size }
+                val missing = found.sumOf { it.missing }
+                when {
+                    matched.isEmpty() -> "אף שיר מהפלייליסטים לא נמצא בספרייה שלך"
+                    missing > 0 -> "יובאו ${matched.size} פלייליסטים עם $songs שירים · $missing לא נמצאו"
+                    else -> "יובאו ${matched.size} פלייליסטים עם $songs שירים"
+                }
+            }
+            busy = false
+            reload()
+            status = note
+        }
+    }
+
     /**
      * Reads listening history out of another player's CSV export.
      *
@@ -1950,7 +1994,19 @@ private fun RhythmApp() {
                             onTag = { tagArtist(info, it) },
                             onLike = { like(it) },
                             onDislike = { dislike(it) },
-                            onMore = { options = it }
+                            onMore = { options = it },
+                            onOpenAlbum = { id ->
+                                library.albums.firstOrNull { it.albumId == id }?.let { album ->
+                                    stack = stack + Route.Detail(
+                                        DetailList(
+                                            title = album.name,
+                                            subtitle = album.artistName,
+                                            songs = album.songs,
+                                            gradientKey = "album:${album.albumId}"
+                                        )
+                                    )
+                                }
+                            }
                         )
                     }
                 }
@@ -2003,6 +2059,7 @@ private fun RhythmApp() {
                         chooseFolder()?.let { prefs.lyricsFolder = it.absolutePath }
                     },
                     onImportPlaylist = { choosePlaylistFile()?.let { importPlaylist(it) } },
+                    onImportYouTubeMusic = { chooseYouTubeMusicFiles().takeIf { it.isNotEmpty() }?.let { importYouTubeMusic(it) } },
                     onImportPlayCounts = { choosePlayCountFile()?.let { importPlayCounts(it) } },
                     onExportPlaylists = { chooseFolder()?.let { exportPlaylists(it) } },
                     onExportAnalysis = { chooseAnalysisFile()?.let { exportAnalysis(it) } },
@@ -2033,6 +2090,13 @@ private fun RhythmApp() {
                         onResetTuning = { resetTuning() },
                         onlyVocalInSeason = onlyVocal,
                         onOnlyVocal = { setOnlyVocal(it) },
+                        medleyMinutes = tuning.medleyMinutes,
+                        onMedleyMinutes = { minutes ->
+                            scope.launch {
+                                withContext(Dispatchers.IO) { store.medleyMinutes = minutes }
+                                reload()
+                            }
+                        },
                         season = JewishSeasons.at(System.currentTimeMillis())?.label,
                         usingLearned = usingLearned,
                         calibrating = calibrating,
@@ -2281,6 +2345,9 @@ private fun RhythmApp() {
                                     store.bulkSetRating(ids, rating)
                                     store.stats()
                                 }
+                                // A rating moves recommendations; the phone
+                                // rebuilds its feed after one, and so does this.
+                                reload()
                                 status = "דורגו ${ids.size} שירים"
                             }
                         },
@@ -3788,6 +3855,33 @@ private fun choosePlaylistFile(): File? {
         chooser.selectedFile
     } else {
         null
+    }
+}
+
+/** A file's text, up to what a watch history needs; the rest of a huge one is skipped. */
+private fun readCapped(input: java.io.InputStream): String {
+    val out = java.io.ByteArrayOutputStream()
+    val buffer = ByteArray(64 * 1024)
+    val cap = YouTubeMusicImport.HISTORY_MAX_CHARS
+    while (out.size() < cap) {
+        val n = input.read(buffer)
+        if (n < 0) break
+        out.write(buffer, 0, minOf(n, cap - out.size()))
+    }
+    return out.toString(Charsets.UTF_8.name())
+}
+
+private fun chooseYouTubeMusicFiles(): List<File> {
+    val chooser = JFileChooser().apply {
+        fileSelectionMode = JFileChooser.FILES_ONLY
+        isMultiSelectionEnabled = true
+        dialogTitle = localized("בחר את הייצוא מ־Google Takeout").orEmpty()
+        fileFilter = FileNameExtensionFilter(localized("ייצוא של Google Takeout (zip, csv, json, html)").orEmpty(), "zip", "csv", "json", "html")
+    }
+    return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+        chooser.selectedFiles.toList()
+    } else {
+        emptyList()
     }
 }
 

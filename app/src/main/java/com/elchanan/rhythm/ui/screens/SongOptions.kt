@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.FormatQuote
@@ -95,6 +97,8 @@ fun SongOptionsSheet(
     onRemoveFromPlaylist: (() -> Unit)? = null,
     /** True when opened from the player, about the song already playing. */
     forCurrentSong: Boolean = false,
+    /** The player's own volume, when the listener put it in this menu rather than on the player. */
+    onVolume: (() -> Unit)? = null,
     /** Set by the player so lyrics open its synced panel, not the editor. */
     onShowLyrics: (() -> Unit)? = null
 ) {
@@ -113,6 +117,7 @@ fun SongOptionsSheet(
     var confirmReset by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var genreOpen by remember { mutableStateOf(false) }
+    var editOpen by remember { mutableStateOf(false) }
     var moodOpen by remember { mutableStateOf(false) }
     val detail by vm.detail.collectAsStateWithLifecycle()
     // Opened from inside a mood's list: the fastest place to say "not this".
@@ -194,108 +199,121 @@ fun SongOptionsSheet(
             // them in the menu only made the menu longer, and a long menu is
             // what stands between someone and simply playing a song.
 
-            // The four things people actually open this menu for, in the order
-            // they reach for them. Everything below is browsing, not doing.
-            // Queueing the song that is already playing means nothing, so the
-            // player's own menu leaves those two out rather than showing rows
-            // that would do nothing useful.
-            if (!forCurrentSong) {
-                OptionRow(Icons.Filled.SkipNext, "נגן הבא") { vm.playNext(song); onDismiss() }
-                OptionRow(Icons.AutoMirrored.Filled.QueueMusic, "הוסף לתור") { vm.addToQueue(song); onDismiss() }
-            }
-            if (onOpenDetail != null) {
-                OptionRow(Icons.Filled.AutoAwesome, "צור מיקס מהשיר הזה") {
-                    vm.createMix(song) { onOpenDetail() }
-                    onDismiss()
+            // What only this place offers comes first: it is why the menu
+            // was opened here rather than anywhere else.
+            if (onRemoveFromPlaylist != null) {
+                OptionRow(Icons.Filled.PlaylistRemove, "הסר מהרשימה") {
+                    onRemoveFromPlaylist(); onDismiss()
                 }
             }
-            OptionRow(Icons.Filled.Radio, "התחל רדיו מהשיר") { vm.startRadio(song); onDismiss() }
-
-            // Always offered, even with no playlists yet: having to leave for the
-            // library tab to make the first one is the step that stops playlists
-            // being used at all.
-            Text(
-                "הוספה לרשימה",
-                style = MaterialTheme.typography.labelLarge,
-                color = TextSecondary,
-                modifier = Modifier.padding(start = gutter, top = 14.dp, bottom = 4.dp)
-            )
-            OptionRow(Icons.Filled.Add, "רשימה חדשה", tint = Accent) { newPlaylist = true }
-            playlists.forEach { info ->
-                OptionRow(Icons.AutoMirrored.Filled.PlaylistAdd, info.playlist.name) {
-                    vm.addToPlaylist(info.playlist.id, song.id)
-                    onDismiss()
-                }
-            }
-            Spacer(Modifier.height(6.dp))
-
-            OptionRow(Icons.Filled.FormatQuote, "מילות השיר") {
-                if (onShowLyrics != null) {
-                    onShowLyrics()
-                    onDismiss()
-                } else {
-                    showLyrics = true
-                }
-            }
-            OptionRow(Icons.Filled.MusicNote, "אקורדים וקאפו") { showCapo = true }
-            OptionRow(Icons.Filled.Insights, "למה זה הומלץ לי") { showWhy = true }
-            OptionRow(Icons.Filled.LocalOffer, "תגיות סגנון לשיר") { showTags = true }
             if (listMood != null) {
                 OptionRow(Icons.Filled.SentimentDissatisfied, "לא מתאים ל\"${listMood.label}\"") {
                     vm.setMoodMark(song, listMood, false)
                     onDismiss()
                 }
             }
-            OptionRow(Icons.Filled.SentimentSatisfied, "מצב רוח") { moodOpen = true }
+            if (onVolume != null) {
+                OptionRow(Icons.AutoMirrored.Filled.VolumeUp, "עוצמת הנגן") { onVolume(); onDismiss() }
+            }
 
-            if (onOpenArtist != null) {
-                OptionRow(Icons.Filled.Person, "עבור לאמן") { onOpenArtist(); onDismiss() }
-            }
-            if (onOpenAlbum != null) {
-                OptionRow(Icons.Filled.Album, "עבור לאלבום") { onOpenAlbum(); onDismiss() }
-            }
-            if (onRemoveFromPlaylist != null) {
-                OptionRow(Icons.Filled.PlaylistRemove, "הסר מהרשימה") {
-                    onRemoveFromPlaylist(); onDismiss()
+            // The rest in the order the listener arranged (Home & display),
+            // which until they do is the order below: the things people open
+            // this menu for first, browsing after, the destructive last.
+            val arranged = remember { SongMenu.shown(vm.prefs.songMenu) }
+            for (item in arranged) when (item) {
+                // Queueing the song that is already playing means nothing, so
+                // the player's own menu leaves those two out.
+                SongMenuItem.PLAY_NEXT -> if (!forCurrentSong) {
+                    OptionRow(Icons.Filled.SkipNext, "נגן הבא") { vm.playNext(song); onDismiss() }
                 }
-            }
-            OptionRow(Icons.Filled.LocalOffer, "שנה ז'אנר") { genreOpen = true }
-            OptionRow(Icons.Filled.Share, "שתף") {
-                vm.shareSongs(listOf(song))
-                onDismiss()
-            }
-
-            // The detector's verdict, and a way to disagree with it. Shown as
-            // the opposite of what it currently thinks, so the row says what
-            // pressing it will do rather than what is already true.
-            val markedSpoken = stats?.spoken == 1
-            OptionRow(
-                if (markedSpoken) Icons.Filled.MusicNote else Icons.Filled.RecordVoiceOver,
-                if (markedSpoken) "זה בעצם מוזיקה" else "סמן כהרצאה או שיעור"
-            ) {
-                vm.setSpoken(song.id, !markedSpoken)
-                onDismiss()
-            }
-
-            // Vocal-only: shown as the opposite of the current verdict, like
-            // the speech row above.
-            val vocalNow = vm.isVocal(song, features[song.id])
-            OptionRow(
-                Icons.Filled.MusicNote,
-                if (vocalNow) "זה לא ווקאלי" else "סמן כווקאלי (לספירה ולשלושת השבועות)"
-            ) {
-                vm.setVocal(song, !vocalNow)
-                onDismiss()
-            }
-
-            // Only worth offering when there is something to clear.
-            if ((stats?.playCount ?: 0) > 0) {
-                OptionRow(Icons.Filled.RestartAlt, "אפס את מספר ההשמעות") {
-                    confirmReset = true
+                SongMenuItem.ADD_TO_QUEUE -> if (!forCurrentSong) {
+                    OptionRow(Icons.AutoMirrored.Filled.QueueMusic, "הוסף לתור") { vm.addToQueue(song); onDismiss() }
                 }
-            }
-            OptionRow(Icons.Filled.Delete, "מחק את הקובץ מהמכשיר", tint = Color_Error) {
-                confirmDelete = true
+                SongMenuItem.MIX -> if (onOpenDetail != null) {
+                    OptionRow(Icons.Filled.AutoAwesome, "צור מיקס מהשיר הזה") {
+                        vm.createMix(song) { onOpenDetail() }
+                        onDismiss()
+                    }
+                }
+                SongMenuItem.RADIO ->
+                    OptionRow(Icons.Filled.Radio, "התחל רדיו מהשיר") { vm.startRadio(song); onDismiss() }
+                // Always offered, even with no playlists yet: having to leave
+                // for the library tab to make the first one is the step that
+                // stops playlists being used at all.
+                SongMenuItem.PLAYLISTS -> {
+                    Text(
+                        "הוספה לרשימה",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(start = gutter, top = 14.dp, bottom = 4.dp)
+                    )
+                    OptionRow(Icons.Filled.Add, "רשימה חדשה", tint = Accent) { newPlaylist = true }
+                    playlists.forEach { info ->
+                        OptionRow(Icons.AutoMirrored.Filled.PlaylistAdd, info.playlist.name) {
+                            vm.addToPlaylist(info.playlist.id, song.id)
+                            onDismiss()
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+                SongMenuItem.LYRICS -> OptionRow(Icons.Filled.FormatQuote, "מילות השיר") {
+                    if (onShowLyrics != null) {
+                        onShowLyrics()
+                        onDismiss()
+                    } else {
+                        showLyrics = true
+                    }
+                }
+                SongMenuItem.CAPO -> OptionRow(Icons.Filled.MusicNote, "אקורדים וקאפו") { showCapo = true }
+                SongMenuItem.WHY -> OptionRow(Icons.Filled.Insights, "למה זה הומלץ לי") { showWhy = true }
+                SongMenuItem.TAGS -> OptionRow(Icons.Filled.LocalOffer, "תגיות סגנון לשיר") { showTags = true }
+                SongMenuItem.MOOD -> OptionRow(Icons.Filled.SentimentSatisfied, "מצב רוח") { moodOpen = true }
+                SongMenuItem.ARTIST -> if (onOpenArtist != null) {
+                    OptionRow(Icons.Filled.Person, "עבור לאמן") { onOpenArtist(); onDismiss() }
+                }
+                SongMenuItem.ALBUM -> if (onOpenAlbum != null) {
+                    OptionRow(Icons.Filled.Album, "עבור לאלבום") { onOpenAlbum(); onDismiss() }
+                }
+                SongMenuItem.GENRE -> OptionRow(Icons.Filled.LocalOffer, "שנה ז'אנר") { genreOpen = true }
+                SongMenuItem.EDIT -> OptionRow(Icons.Filled.Edit, "עריכת פרטי השיר") { editOpen = true }
+                SongMenuItem.SHARE -> OptionRow(Icons.Filled.Share, "שתף") {
+                    vm.shareSongs(listOf(song))
+                    onDismiss()
+                }
+                // The detector's verdict, and a way to disagree with it. Shown
+                // as the opposite of what it currently thinks, so the row says
+                // what pressing it will do rather than what is already true.
+                SongMenuItem.SPOKEN -> {
+                    val markedSpoken = stats?.spoken == 1
+                    OptionRow(
+                        if (markedSpoken) Icons.Filled.MusicNote else Icons.Filled.RecordVoiceOver,
+                        if (markedSpoken) "זה בעצם מוזיקה" else "סמן כהרצאה או שיעור"
+                    ) {
+                        vm.setSpoken(song.id, !markedSpoken)
+                        onDismiss()
+                    }
+                }
+                // Vocal-only: shown as the opposite of the current verdict,
+                // like the speech row.
+                SongMenuItem.VOCAL -> {
+                    val vocalNow = vm.isVocal(song, features[song.id])
+                    OptionRow(
+                        Icons.Filled.MusicNote,
+                        if (vocalNow) "זה לא ווקאלי" else "סמן כווקאלי (לספירה ולשלושת השבועות)"
+                    ) {
+                        vm.setVocal(song, !vocalNow)
+                        onDismiss()
+                    }
+                }
+                // Only worth offering when there is something to clear.
+                SongMenuItem.RESET -> if ((stats?.playCount ?: 0) > 0) {
+                    OptionRow(Icons.Filled.RestartAlt, "אפס את מספר ההשמעות") {
+                        confirmReset = true
+                    }
+                }
+                SongMenuItem.DELETE -> OptionRow(Icons.Filled.Delete, "מחק את הקובץ מהמכשיר", tint = Color_Error) {
+                    confirmDelete = true
+                }
             }
         }
     }
@@ -307,6 +325,10 @@ fun SongOptionsSheet(
             marks = MoodMarks.parse(stats?.moods.orEmpty()),
             onDismiss = { moodOpen = false }
         )
+    }
+
+    if (editOpen) {
+        SongEditDialog(vm = vm, songs = listOf(song), onDismiss = { editOpen = false; onDismiss() })
     }
 
     if (genreOpen) {

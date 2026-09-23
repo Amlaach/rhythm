@@ -2,11 +2,6 @@ package com.elchanan.rhythm.ui.screens
 
 import com.elchanan.rhythm.ui.theme.localized
 
-import android.Manifest
-import android.app.Activity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.IntentSenderRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -77,32 +72,9 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
     // the preview showing proposals that had already been applied.
     LaunchedEffect(library.songs) { vm.buildTagProposals() }
 
-    // Writing into the files needs the system's own permission dialog from
-    // Android 11 on, and only an activity can show it.
+    // The permission dialogs for writing into the files are shown by
+    // RhythmRoot, for every screen that edits a file - not only this one.
     val writesToFiles = vm.prefs.writeTagsToFiles
-    val permissionRequest by vm.writePermissionRequest.collectAsStateWithLifecycle()
-    val writeLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartIntentSenderForResult()
-    ) { result ->
-        vm.onWritePermissionResult(result.resultCode == Activity.RESULT_OK)
-    }
-    LaunchedEffect(permissionRequest) {
-        permissionRequest?.let {
-            writeLauncher.launch(IntentSenderRequest.Builder(it).build())
-        }
-    }
-
-    // Below Android 11 there is no per file dialog, just the old storage
-    // permission, which the app has never had a reason to ask for until now.
-    val legacyRequest by vm.legacyPermissionRequest.collectAsStateWithLifecycle()
-    val legacyLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted -> vm.onWritePermissionResult(granted) }
-    LaunchedEffect(legacyRequest) {
-        if (legacyRequest) {
-            legacyLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-        }
-    }
 
     val changed = proposals.filter { it.changed }
     // The uncertain ones are shown and marked, and applied only when asked.

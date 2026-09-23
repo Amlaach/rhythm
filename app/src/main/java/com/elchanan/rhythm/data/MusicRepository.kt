@@ -826,7 +826,8 @@ class MusicRepository(
                 lastMood = prefs.lastMood,
                 lastMoodAt = prefs.lastMoodAt,
                 learned = com.elchanan.rhythm.engine.SignalWeights.decode(prefs.learnedWeights),
-                onlyVocalInSeason = prefs.onlyVocalInSeason
+                onlyVocalInSeason = prefs.onlyVocalInSeason,
+                medleyMinutes = prefs.medleyMinutes
             ),
             now = System.currentTimeMillis(),
             feedSeed = prefs.feedSeed.toLong(),
@@ -894,9 +895,13 @@ class MusicRepository(
     }
 
     suspend fun bulkSetRating(songIds: List<Long>, rating: Int) = withContext(Dispatchers.IO) {
-        for (id in songIds) {
-            val current = dao.stats(id) ?: SongStatsEntity(songId = id)
-            dao.putStats(current.copy(rating = rating))
+        // One transaction: a folder can hold a thousand songs, and a commit
+        // per song made rating one take seconds.
+        RhythmDatabase.get(context).withTransaction {
+            for (id in songIds) {
+                val current = dao.stats(id) ?: SongStatsEntity(songId = id)
+                dao.putStats(current.copy(rating = rating))
+            }
         }
     }
 

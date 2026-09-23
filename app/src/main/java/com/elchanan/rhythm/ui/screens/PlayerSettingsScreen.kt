@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.elchanan.rhythm.engine.ActionPlacement
 import com.elchanan.rhythm.ui.MainViewModel
+import com.elchanan.rhythm.data.ArtworkTap
 import com.elchanan.rhythm.engine.PlayerAction
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.rememberMetrics
@@ -71,10 +72,11 @@ fun PlayerSettingsScreen(
     val gutter = rememberMetrics().gutter
     var arrangementOpen by remember { mutableStateOf(false) }
     var openOnPlay by remember { mutableStateOf(vm.prefs.openPlayerOnPlay) }
-    var tapArtwork by remember { mutableStateOf(vm.prefs.tapArtworkToggles) }
+    var artworkTap by remember { mutableStateOf(vm.prefs.artworkTap) }
     var resumePrompt by remember { mutableStateOf(vm.prefs.resumePrompt) }
     var pauseSilent by remember { mutableStateOf(vm.prefs.pauseOnSilence) }
     var autoRadio by remember { mutableStateOf(vm.prefs.autoRadio) }
+    var trimSilence by remember { mutableStateOf(vm.prefs.trimRadioSilence) }
     var normalizeVolume by remember { mutableStateOf(vm.prefs.normalizeVolume) }
 
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
@@ -145,33 +147,28 @@ fun PlayerSettingsScreen(
                         )
                     )
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "לחיצה על התמונה עוצרת וממשיכה",
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        Text(
-                            "התמונה הגדולה במסך הנגן היא הדבר הכי קל לפגוע בו בלי " +
-                                "להסתכל",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-                    }
-                    Switch(
-                        checked = tapArtwork,
-                        onCheckedChange = {
-                            tapArtwork = it
-                            vm.prefs.tapArtworkToggles = it
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Accent,
-                            checkedTrackColor = Accent.copy(alpha = 0.4f)
-                        )
+                // One choice, not two switches: a tap cannot both pause the
+                // song and open the picture.
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp)) {
+                    Text("לחיצה על התמונה בנגן", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "התמונה הגדולה במסך הנגן היא הדבר הכי קל לפגוע בו בלי להסתכל. " +
+                            "עצירה והמשך מציגה לרגע סימן באמצע התמונה, כמו ביוטיוב",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
                     )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip(label = "עצירה והמשך", selected = artworkTap == ArtworkTap.TOGGLE) {
+                            artworkTap = ArtworkTap.TOGGLE; vm.prefs.artworkTap = artworkTap
+                        }
+                        Chip(label = "הגדלת התמונה", selected = artworkTap == ArtworkTap.ZOOM) {
+                            artworkTap = ArtworkTap.ZOOM; vm.prefs.artworkTap = artworkTap
+                        }
+                        Chip(label = "כלום", selected = artworkTap == ArtworkTap.NONE) {
+                            artworkTap = ArtworkTap.NONE; vm.prefs.artworkTap = artworkTap
+                        }
+                    }
                 }
             }
             item {
@@ -254,6 +251,18 @@ fun PlayerSettingsScreen(
                             checkedTrackColor = Accent.copy(alpha = 0.4f)
                         )
                     )
+                }
+            }
+
+            item {
+                SettingSwitch(
+                    title = "דילוג על שקט בסוף שיר ברדיו",
+                    subtitle = "כשהרדיו בחר את השיר ונשאר בסופו שקט ארוך, עובר לבא מיד " +
+                        "כשהצליל נגמר. שירים שבחרת בעצמך מתנגנים עד הסוף",
+                    checked = trimSilence
+                ) {
+                    trimSilence = it
+                    vm.prefs.trimRadioSilence = it
                 }
             }
 

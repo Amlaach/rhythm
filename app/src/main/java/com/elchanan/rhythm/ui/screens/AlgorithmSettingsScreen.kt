@@ -17,6 +17,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import com.elchanan.rhythm.ui.components.Chip
+import com.elchanan.rhythm.engine.EngineTuning
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -83,6 +88,7 @@ fun AlgorithmSettingsScreen(
     val moodReport by vm.moodReport.collectAsStateWithLifecycle()
     var usingLearned by remember { mutableStateOf(vm.usingLearnedWeights) }
     var onlyVocal by remember { mutableStateOf(vm.prefs.onlyVocalInSeason) }
+    var medleyMinutes by remember { mutableStateOf(vm.prefs.medleyMinutes) }
 
     var discovery by remember { mutableFloatStateOf(vm.prefs.discovery) }
     var artistWeight by remember { mutableFloatStateOf(vm.prefs.artistWeight) }
@@ -271,6 +277,32 @@ fun AlgorithmSettingsScreen(
                             checkedTrackColor = Accent.copy(alpha = 0.4f)
                         )
                     )
+                }
+            }
+
+            item {
+                // A set of songs is often titled after the first of them;
+                // its length is what gives it away. Off unless chosen.
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp)) {
+                    Text("מחרוזת לפי אורך", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "שיר שאורכו לפחות כך נחשב מחרוזת, גם כשבשם שלו לא כתוב \"מחרוזת\". " +
+                            "מחרוזות לא מוצעות במיקסים, ברדיו ובהמלצות — הן נשארות בספרייה ובמדף \"נוספו לאחרונה\".",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(EngineTuning.MEDLEY_CHOICES) { minutes ->
+                            Chip(
+                                label = if (minutes == 0) "רק לפי השם" else "$minutes דקות ומעלה",
+                                selected = medleyMinutes == minutes
+                            ) {
+                                medleyMinutes = minutes
+                                vm.setMedleyMinutes(minutes)
+                            }
+                        }
+                    }
                 }
             }
 

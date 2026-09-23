@@ -252,6 +252,15 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_PIN_MOODS, true)
         set(value) = sp.edit { putBoolean(KEY_PIN_MOODS, value) }
 
+    /**
+     * What a tap on the cover in the player does: one of [ArtworkTap]. Until it is chosen, what the
+     * older on/off switch said.
+     */
+    var artworkTap: String
+        get() = sp.getString(KEY_ARTWORK_TAP_MODE, null)
+            ?: if (tapArtworkToggles) ArtworkTap.TOGGLE else ArtworkTap.NONE
+        set(value) = sp.edit { putString(KEY_ARTWORK_TAP_MODE, value) }
+
     /** Tap the artwork in the player to pause and carry on. */
     var tapArtworkToggles: Boolean
         get() = sp.getBoolean(KEY_TAP_ARTWORK, true)
@@ -268,6 +277,31 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_RESUME_SPOKEN, true)
         set(value) = sp.edit { putBoolean(KEY_RESUME_SPOKEN, value) }
 
+    /** In the radio, move on where the sound ends rather than play out silence at a track's end. */
+    var trimRadioSilence: Boolean
+        get() = sp.getBoolean(KEY_TRIM_SILENCE, true)
+        set(value) = sp.edit { putBoolean(KEY_TRIM_SILENCE, value) }
+
+    /** The player's own volume slider, 0..1, apart from the phone's. See playback.AppVolume. */
+    var appVolume: Float
+        get() = sp.getFloat(KEY_APP_VOLUME, 1f)
+        set(value) = sp.edit { putFloat(KEY_APP_VOLUME, value) }
+
+    /** Small-screen mode: the whole app drawn a size smaller. Off by default. See ui.Display. */
+    /** An artist's page lists their songs under their albums, rather than as one list. */
+    var artistByAlbum: Boolean
+        get() = sp.getBoolean(KEY_ARTIST_BY_ALBUM, true)
+        set(value) = sp.edit { putBoolean(KEY_ARTIST_BY_ALBUM, value) }
+
+    var compactMode: Boolean
+        get() = sp.getBoolean(KEY_COMPACT, false)
+        set(value) = sp.edit { putBoolean(KEY_COMPACT, value) }
+
+    /** From how many minutes a track counts as a medley, 0 for the title alone. See EngineTuning.medleyMinutes. */
+    var medleyMinutes: Int
+        get() = sp.getInt(KEY_MEDLEY_MINUTES, 0)
+        set(value) = sp.edit { putInt(KEY_MEDLEY_MINUTES, value) }
+
     /** In the Omer and the Three Weeks, recommend vocal-only songs and nothing else. */
     var onlyVocalInSeason: Boolean
         get() = sp.getBoolean(KEY_ONLY_VOCAL, true)
@@ -281,6 +315,16 @@ class Prefs(context: Context) {
      * only easier when there are few enough folders for the difference not to
      * matter - in which case the tree is no harder either.
      */
+    /** The folder the folder view opens on; empty for the top of the tree. */
+    var folderHome: String
+        get() = sp.getString(KEY_FOLDER_HOME, "").orEmpty()
+        set(value) = sp.edit { putString(KEY_FOLDER_HOME, value) }
+
+    /** The folders as a tab of their own on the bottom bar. */
+    var foldersTab: Boolean
+        get() = sp.getBoolean(KEY_FOLDERS_TAB, false)
+        set(value) = sp.edit { putBoolean(KEY_FOLDERS_TAB, value) }
+
     var folderTree: Boolean
         get() = sp.getBoolean(KEY_FOLDER_TREE, true)
         set(value) = sp.edit { putBoolean(KEY_FOLDER_TREE, value) }
@@ -472,6 +516,26 @@ class Prefs(context: Context) {
      * later does not need a migration - an unknown key is simply ignored and a
      * missing one falls back to its own default.
      */
+    /** The song menu's arrangement: row key to placement, as [playerActions] stores its own. */
+    var songMenu: Map<String, String>
+        get() = sp.getString(KEY_SONG_MENU, null)
+            ?.split(',')
+            ?.mapNotNull { pair ->
+                val parts = pair.split('=')
+                if (parts.size == 2 && parts[0].isNotBlank()) parts[0].trim() to parts[1].trim()
+                else null
+            }
+            ?.toMap()
+            .orEmpty()
+        set(value) = sp.edit {
+            putString(KEY_SONG_MENU, value.entries.joinToString(",") { "${it.key}=${it.value}" })
+        }
+
+    /** A queue button beside the others at the top of the home screen. */
+    var homeQueueButton: Boolean
+        get() = sp.getBoolean(KEY_HOME_QUEUE, false)
+        set(value) = sp.edit { putBoolean(KEY_HOME_QUEUE, value) }
+
     var playerActions: Map<String, String>
         get() = sp.getString(KEY_PLAYER_ACTIONS, null)
             ?.split(',')
@@ -540,5 +604,24 @@ class Prefs(context: Context) {
         const val KEY_TAP_ARTWORK = "tap_artwork_toggles"
         const val KEY_RESUME_SPOKEN = "resume_spoken"
         const val KEY_ONLY_VOCAL = "only_vocal_in_season"
+        const val KEY_MEDLEY_MINUTES = "medley_minutes"
+        const val KEY_COMPACT = "compact_mode"
+        const val KEY_SONG_MENU = "song_menu"
+        const val KEY_HOME_QUEUE = "home_queue_button"
+        const val KEY_FOLDER_HOME = "folder_home"
+        const val KEY_FOLDERS_TAB = "folders_tab"
+        const val KEY_ARTIST_BY_ALBUM = "artist_by_album"
+        const val KEY_ARTWORK_TAP_MODE = "artwork_tap_mode"
+        const val KEY_APP_VOLUME = "app_volume"
+        const val KEY_TRIM_SILENCE = "trim_radio_silence"
     }
+}
+
+/** What a tap on the cover in the player does. See [Prefs.artworkTap]. */
+object ArtworkTap {
+    /** Pause and carry on. */
+    const val TOGGLE = "TOGGLE"
+    /** Open the cover full size. */
+    const val ZOOM = "ZOOM"
+    const val NONE = "NONE"
 }

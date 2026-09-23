@@ -34,8 +34,11 @@ data class Metrics(
 @Composable
 fun rememberMetrics(): Metrics {
     val config = LocalConfiguration.current
-    val width = config.screenWidthDp
-    val height = config.screenHeightDp
+    // The window in the dp the app is drawing in: compact mode draws with a
+    // smaller dp, so the same window holds more of them.
+    val scale = if (com.elchanan.rhythm.ui.Display.compact) 1f / com.elchanan.rhythm.ui.Display.COMPACT_SIZE else 1f
+    val width = (config.screenWidthDp * scale).toInt()
+    val height = (config.screenHeightDp * scale).toInt()
     return remember(width, height) {
         val gutter = when {
             // Small and older phones report around 320-360dp. At that width the

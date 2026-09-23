@@ -377,6 +377,7 @@ class Store private constructor(private val conn: Connection) {
         private const val KEY_LAST_MOOD_AT = "tune.lastMoodAt"
         private const val KEY_LEARNED = "tune.learned"
         private const val KEY_ONLY_VOCAL = "tune.onlyVocalInSeason"
+        private const val KEY_MEDLEY_MINUTES = "tune.medleyMinutes"
 
         /**
          * Edges kept per table.
@@ -1908,7 +1909,8 @@ class Store private constructor(private val conn: Connection) {
             lastMoodAt = setting(KEY_LAST_MOOD_AT)?.toLongOrNull() ?: 0L,
             learned = com.elchanan.rhythm.engine.SignalWeights.decode(setting(KEY_LEARNED).orEmpty()),
             // On by default, as on the phone.
-            onlyVocalInSeason = setting(KEY_ONLY_VOCAL)?.toBooleanStrictOrNull() ?: true
+            onlyVocalInSeason = setting(KEY_ONLY_VOCAL)?.toBooleanStrictOrNull() ?: true,
+            medleyMinutes = setting(KEY_MEDLEY_MINUTES)?.toIntOrNull() ?: 0
         )
         // The sliders and the separations only. The mood the feed last
         // settled on, the learned weights and the vocal rule each have a
@@ -1945,6 +1947,11 @@ class Store private constructor(private val conn: Connection) {
     var onlyVocalInSeason: Boolean
         @Synchronized get() = setting(KEY_ONLY_VOCAL)?.toBooleanStrictOrNull() ?: true
         @Synchronized set(value) = putSetting(KEY_ONLY_VOCAL, value.toString())
+
+    /** From how many minutes a track counts as a medley, 0 for the title alone. */
+    var medleyMinutes: Int
+        @Synchronized get() = setting(KEY_MEDLEY_MINUTES)?.toIntOrNull() ?: 0
+        @Synchronized set(value) = putSetting(KEY_MEDLEY_MINUTES, value.toString())
 
     /** Reads one stored setting. Public so [com.elchanan.rhythm.desktop.Prefs] can sit on it. */
     @Synchronized

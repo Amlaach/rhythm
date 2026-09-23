@@ -68,6 +68,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.Mood
@@ -123,6 +125,10 @@ fun HomeScreen(
     // Tapping home while already home scrolls the feed back to the top.
     val feedState = rememberLazyListState()
     val homeTop by vm.homeTopSignal.collectAsStateWithLifecycle()
+    // Only whether something is playing - not every tick of its position.
+    val hasQueue by remember(vm) {
+        vm.player.state.map { it.currentSongId != null }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = vm.player.state.value.currentSongId != null)
     LaunchedEffect(homeTop) {
         if (homeTop > 0) feedState.animateScrollToItem(0)
     }
@@ -149,7 +155,12 @@ fun HomeScreen(
                 padding = statusPadding,
                 onRefresh = { vm.refreshFeed(reshuffle = true) },
                 onRecap = onOpenRecap,
-                onSettings = onOpenSettings
+                onSettings = onOpenSettings,
+                onQueue = if (vm.prefs.homeQueueButton && hasQueue) {
+                    { vm.openQueue() }
+                } else {
+                    null
+                }
             )
             if (busy) {
                 LinearProgressIndicator(
@@ -515,7 +526,8 @@ private fun HomeTopBar(
     padding: androidx.compose.ui.unit.Dp,
     onRefresh: () -> Unit,
     onRecap: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    onQueue: (() -> Unit)?
 ) {
     Row(
         modifier = Modifier
@@ -532,6 +544,11 @@ private fun HomeTopBar(
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.weight(1f)
         )
+        if (onQueue != null) {
+            IconButton(onClick = onQueue) {
+                Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = localized("התור"), tint = TextSecondary)
+            }
+        }
         IconButton(onClick = onRefresh) {
             Icon(Icons.Filled.Autorenew, contentDescription = localized("רענון"), tint = TextSecondary)
         }

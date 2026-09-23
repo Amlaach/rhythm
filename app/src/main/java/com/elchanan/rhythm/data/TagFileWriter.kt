@@ -24,7 +24,13 @@ import kotlinx.coroutines.withContext
  */
 class TagFileWriter(private val context: Context) {
 
-    data class Item(val songId: Long, val title: String, val artist: String)
+    /** What to write; null leaves that part of the tag as the file has it. */
+    data class Item(
+        val songId: Long,
+        val title: String?,
+        val artist: String?,
+        val album: String? = null
+    )
 
     /**
      * @param recovery on Android 10, the dialog that would grant access to the
@@ -35,7 +41,9 @@ class TagFileWriter(private val context: Context) {
     data class Outcome(
         val written: Int,
         val failed: Int,
-        val recovery: IntentSender? = null
+        val recovery: IntentSender? = null,
+        /** Files that are not MP3: only their ID3 tag can be written here, so they are left alone. */
+        val notMp3: Int = 0
     ) {
         val ok: Boolean get() = failed == 0
     }
@@ -83,10 +91,18 @@ class TagFileWriter(private val context: Context) {
         var written = 0
         var failed = 0
         var recovery: IntentSender? = null
+        var notMp3 = 0
         for (item in items) {
             val uri = uriFor(item.songId)
+            // An ID3 tag belongs at the front of an MP3 only. Put in front of
+            // a FLAC or an M4A it would be something other players stumble
+            // over, so those files keep the change in the app alone.
+            if (!isMp3(uri)) {
+                notMp3++
+                continue
+            }
             val done = try {
-                Id3Writer.write(context, uri, item.title, item.artist, null)
+                Id3Writer.write(context, uri, item.title, item.artist, item.album)
             } catch (e: SecurityException) {
                 // Keep the first offer of a way out; the rest of the files will
                 // almost always be refused for the same reason.
@@ -101,7 +117,12 @@ class TagFileWriter(private val context: Context) {
                 context.contentResolver.notifyChange(it, null)
             }
         }
-        Outcome(written, failed, recovery)
+        Outcome(written, failed, recovery, notMp3)
+    }
+
+    private fun isMp3(uri: Uri): Boolean {
+        val type = runCatching { context.contentResolver.getType(uri) }.getOrNull()
+        return type == "audio/mpeg" || type == "audio/mp3"
     }
 
     /**

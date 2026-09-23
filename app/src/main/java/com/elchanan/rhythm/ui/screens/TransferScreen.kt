@@ -62,6 +62,14 @@ fun TransferScreen(vm: MainViewModel, onBack: () -> Unit) {
         }
     }
 
+    // Several files at once: a Takeout export can come in more than one zip,
+    // or as the loose files from inside it.
+    val youTubeLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) vm.importYouTubeMusic(uris.map { it to displayNameOf(context, it) })
+    }
+
     // Same reasoning as the playlist picker: a CSV exported by another player
     // arrives as text/csv, text/plain, text/comma-separated-values or
     // application/octet-stream depending on who wrote it.
@@ -166,6 +174,29 @@ fun TransferScreen(vm: MainViewModel, onBack: () -> Unit) {
                     onClick = { playlistLauncher.launch(arrayOf("*/*")) },
                     colors = ButtonDefaults.buttonColors(containerColor = Accent)
                 ) { Text("בחר קובץ") }
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable(enabled = !busy) { youTubeLauncher.launch(arrayOf("*/*")) }.padding(horizontal = gutter, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("ייבוא מ־YouTube Music", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "בוחרים את קובץ ה־ZIP מ־Google Takeout (\"YouTube ו־YouTube Music\"), " +
+                            "או קובצי CSV של פלייליסטים. כל פלייליסט נוצר כאן, והשירים " +
+                            "מזוהים לפי שם ואמן",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+                Button(
+                    onClick = { youTubeLauncher.launch(arrayOf("*/*")) },
+                    enabled = !busy,
+                    colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                ) { Text("בחר קבצים") }
             }
         }
 

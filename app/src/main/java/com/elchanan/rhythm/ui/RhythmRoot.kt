@@ -17,12 +17,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -79,6 +82,7 @@ object Routes {
     const val HOME = "home"
     const val SEARCH = "search"
     const val LIBRARY = "library"
+    const val FOLDERS = "folders"
     const val RATINGS = "ratings"
     const val SETTINGS = "settings"
     const val ALGORITHM_SETTINGS = "algorithmsettings"
@@ -104,6 +108,9 @@ private val TABS = listOf(
     Tab(Routes.LIBRARY, "ספרייה", Icons.Filled.LibraryMusic),
     Tab(Routes.RATINGS, "אמנים", Icons.Filled.Star)
 )
+
+/** The folders' own tab, beside the library, for those who chose it. */
+private val FOLDERS_TAB = Tab(Routes.FOLDERS, "תיקיות", Icons.Filled.Folder)
 
 @Composable
 fun RhythmRoot(
@@ -180,6 +187,49 @@ fun RhythmRoot(
     // the counter rather than on the current song, so that it fires on a
     // deliberate tap and stays quiet when the queue simply moves on - and so
     // that starting the same song twice opens it twice.
+    // A folder asked for from the player: the player steps aside and the
+    // folder view comes up, where the request itself is opened.
+    val folderRequest by vm.folderRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(folderRequest) {
+        if (folderRequest == null) return@LaunchedEffect
+        playerOpen = false
+        val target = if (Display.foldersTab) Routes.FOLDERS else Routes.LIBRARY
+        if (navController.currentDestination?.route != target) {
+            navController.navigate(target) {
+                popUpTo(Routes.HOME) { saveState = true }
+                launchSingleTop = true
+            }
+        }
+    }
+
+    // The home screen's queue button: the player comes up, and opens its queue itself.
+    val queueRequest by vm.queueRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(queueRequest) {
+        if (queueRequest) playerOpen = true
+    }
+
+    // Writing a song's details into its file needs the system's own
+    // permission dialog from Android 11 on, and only an activity can show it.
+    // Here rather than on one screen, because the edit can start anywhere -
+    // the player, a song's menu, a selection, the tag fixer.
+    val writePermission by vm.writePermissionRequest.collectAsStateWithLifecycle()
+    val writeLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        vm.onWritePermissionResult(result.resultCode == android.app.Activity.RESULT_OK)
+    }
+    LaunchedEffect(writePermission) {
+        writePermission?.let { writeLauncher.launch(IntentSenderRequest.Builder(it).build()) }
+    }
+    // Below Android 11 there is no per file dialog, only the old storage permission.
+    val legacyWrite by vm.legacyPermissionRequest.collectAsStateWithLifecycle()
+    val legacyLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> vm.onWritePermissionResult(granted) }
+    LaunchedEffect(legacyWrite) {
+        if (legacyWrite) legacyLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+    }
+
     val startedCount by vm.playbackStarted.collectAsStateWithLifecycle()
     LaunchedEffect(startedCount) {
         if (startedCount > 0 && vm.prefs.openPlayerOnPlay) playerOpen = true
@@ -297,6 +347,15 @@ fun RhythmRoot(
                         onOpenDetail = { navController.navigate(Routes.DETAIL) },
                         onOpenArtist = { navController.navigate(Routes.ARTIST) },
                         onOpenAlbums = { navController.navigate(Routes.ALBUMS) }
+                    )
+                }
+                composable(Routes.FOLDERS) {
+                    LibraryScreen(
+                        vm = vm,
+                        onOpenDetail = { navController.navigate(Routes.DETAIL) },
+                        onOpenArtist = { navController.navigate(Routes.ARTIST) },
+                        onOpenAlbums = { navController.navigate(Routes.ALBUMS) },
+                        foldersOnly = true
                     )
                 }
                 composable(Routes.RATINGS) {
@@ -421,9 +480,16 @@ private fun RhythmBottomBar(
 ) {
     NavigationBar(
         containerColor = Color.Transparent,
-        modifier = Modifier.fillMaxWidth()
+        // Compact mode: a lower bar. Icons and labels stay; the air around
+        // them is what a small screen cannot spare.
+        modifier = Modifier.fillMaxWidth().then(if (Display.compact) Modifier.height(62.dp) else Modifier)
     ) {
-        TABS.forEach { tab ->
+        val tabs = if (Display.foldersTab) {
+            TABS.flatMap { if (it.route == Routes.LIBRARY) listOf(it, FOLDERS_TAB) else listOf(it) }
+        } else {
+            TABS
+        }
+        tabs.forEach { tab ->
             // Home is the root of the app, so its tab ignores what was saved for
             // it. Leaving a settings screen files that whole stack under home's
             // own id, and restoring it hands the settings screen straight back

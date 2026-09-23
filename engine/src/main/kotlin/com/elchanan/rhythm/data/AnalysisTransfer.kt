@@ -116,6 +116,13 @@ object AnalysisTransfer {
         return body + "SHA256\t" + sha256(body) + "\n"
     }
 
+    /**
+     * The file was written by a newer Rhythm than the one reading it. Its own
+     * kind, so the app can say "update" rather than "damaged": a phone a few
+     * versions behind the computer is the usual case, and the file is fine.
+     */
+    class NewerVersionException(what: String) : IllegalArgumentException("written by a newer version: $what")
+
     fun decode(content: String): Bundle {
         val normalized = content.replace("\r\n", "\n")
         val footerStart = normalized.lastIndexOf("SHA256\t")
@@ -131,11 +138,12 @@ object AnalysisTransfer {
         val header = lines.next().split('\t')
         require(header.size == 5 && header[0] == MAGIC) { "not a Rhythm analysis file" }
         val format = header[1].toIntOrNull()
-        require(format != null && format in 1..FORMAT_VERSION) { "unsupported format" }
+        require(format != null && format >= 1) { "unsupported format" }
+        if (format > FORMAT_VERSION) throw NewerVersionException("format $format")
         val fields = if (format >= 2) 29 else 26
         val analyzer = header[2].toIntOrNull()?.takeIf { it > 0 }
             ?: throw IllegalArgumentException("invalid analyzer version")
-        require(analyzer <= ANALYZER_VERSION) { "newer analyzer is not supported" }
+        if (analyzer > ANALYZER_VERSION) throw NewerVersionException("analyzer $analyzer")
         val created = header[3].toLongOrNull()?.takeIf { it >= 0 }
             ?: throw IllegalArgumentException("invalid creation time")
         val capabilities = header[4].split(',').filter { it.isNotBlank() }.toSet()

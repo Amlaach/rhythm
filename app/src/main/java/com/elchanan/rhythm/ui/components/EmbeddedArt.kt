@@ -39,7 +39,15 @@ class SongArtFetcher(
 ) : Fetcher {
 
     override suspend fun fetch(): FetchResult? = withContext(Dispatchers.IO) {
-        val bytes = embeddedPicture() ?: albumThumbnail() ?: return@withContext null
+        val own = readTrack()
+        // The album's picture only for a track that names an album. Android
+        // files an untagged download under an album named after its folder,
+        // and that album's picture is some other song's cover - the wrong
+        // artwork people saw on singles. Better the app's own mark than a
+        // stranger's sleeve.
+        val bytes = own.picture
+            ?: (if (own.hasAlbum && data.albumId !in MediaItems.looseAlbums) albumThumbnail() else null)
+            ?: return@withContext null
         SourceResult(
             source = ImageSource(Buffer().write(bytes), context),
             mimeType = null,
@@ -47,15 +55,21 @@ class SongArtFetcher(
         )
     }
 
-    private fun embeddedPicture(): ByteArray? {
-        if (data.songId <= 0) return null
+    private class Track(val picture: ByteArray?, val hasAlbum: Boolean)
+
+    /** The track's own cover, and whether it names an album at all. Album tiles have no track. */
+    private fun readTrack(): Track {
+        if (data.songId <= 0) return Track(null, hasAlbum = true)
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(context, MediaItems.songUri(data.songId))
-            retriever.embeddedPicture
+            Track(
+                retriever.embeddedPicture,
+                hasAlbum = !retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM).isNullOrBlank()
+            )
         } catch (e: Exception) {
-            // Unreadable or tagless file - fall through to the album thumbnail.
-            null
+            // Unreadable file - fall through to the album thumbnail, as before.
+            Track(null, hasAlbum = true)
         } finally {
             runCatching { retriever.release() }
         }

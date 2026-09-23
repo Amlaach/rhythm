@@ -49,7 +49,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,6 +58,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.elchanan.rhythm.data.ArtistShelf
+import com.elchanan.rhythm.data.ArtistShelves
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.ui.AlbumInfo
@@ -223,7 +224,9 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
     var confirmReset by remember { mutableStateOf(false) }
     val gutter = rememberMetrics().gutter
 
-    var groupByAlbum by rememberSaveable(artist?.key) { mutableStateOf(false) }
+    // The listener's choice, kept: an artist page is usually opened to find
+    // an album, so the albums come first unless they said otherwise.
+    var groupByAlbum by remember { mutableStateOf(vm.prefs.artistByAlbum) }
     val info = artist
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = info?.displayName.orEmpty(), onBack = onBack)
@@ -233,14 +236,28 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
         }
         val live = library.artists.firstOrNull { it.key == info.key } ?: info
         val selectedStyles = Styles.parse(live.styles)
-        val artistAlbums = remember(live.songs, library.albums) {
-            val ids = live.songs.map { it.id }.toSet()
-            library.albums.mapNotNull { album ->
-                val tracks = album.songs.filter { it.id in ids }
-                if (tracks.isEmpty()) null else album.copy(songs = tracks)
-            }
+        val shelves = remember(live.songs) { ArtistShelves.of(live.songs, looseName = "שירים בודדים") }
+        val displayedSongs = if (groupByAlbum) shelves.flatMap { it.songs } else live.songs
+        val songRow: @Composable (SongEntity) -> Unit = { song ->
+            SongRow(
+                song = song,
+                liked = library.stats[song.id]?.liked ?: 0,
+                rating = library.stats[song.id]?.rating ?: 0,
+                selected = song.id in selection,
+                selectionMode = selection.isNotEmpty(),
+                onClick = {
+                    if (selection.isNotEmpty()) vm.toggleSelect(song.id)
+                    else vm.playList(displayedSongs, displayedSongs.indexOf(song))
+                },
+                onLongClick = {
+                    vm.noteSelectionScope(displayedSongs.map { it.id })
+                    vm.toggleSelect(song.id)
+                },
+                onMore = { sheetSong = song },
+                onLike = { vm.like(song.id) },
+                onDislike = { vm.dislike(song.id) }
+            )
         }
-        val displayedSongs = if (groupByAlbum) artistAlbums.flatMap { it.songs } else live.songs
 
         LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
             item {
@@ -356,48 +373,40 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
                     Text("השירים", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(8.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Chip("כל השירים", selected = !groupByAlbum, onClick = { groupByAlbum = false })
-                        Chip("לפי אלבומים", selected = groupByAlbum, onClick = { groupByAlbum = true })
+                        Chip("לפי אלבומים", selected = groupByAlbum, onClick = {
+                            groupByAlbum = true; vm.prefs.artistByAlbum = true
+                        })
+                        Chip("כל השירים", selected = !groupByAlbum, onClick = {
+                            groupByAlbum = false; vm.prefs.artistByAlbum = false
+                        })
                     }
                 }
             }
 
-            items(displayedSongs, key = { it.id }) { song ->
-                if (groupByAlbum) {
-                    val album = artistAlbums.firstOrNull { it.albumId == song.albumId }
-                    if (album != null && album.songs.firstOrNull()?.id == song.id) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Artwork(song.id, song.albumId, album.name, Modifier.size(48.dp), corner = 8)
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text(album.name, style = MaterialTheme.typography.titleMedium)
-                                Text("${album.songs.size} שירים", color = TextSecondary,
-                                    style = MaterialTheme.typography.bodySmall)
-                            }
+            if (groupByAlbum) {
+                // One heading would only repeat the page's own title.
+                val headed = !(shelves.size == 1 && shelves[0].albumId == null)
+                shelves.forEach { shelf ->
+                    if (headed) {
+                        item(key = "shelf:${shelf.albumId ?: "loose"}") {
+                            ShelfHeading(
+                                shelf = shelf,
+                                onOpen = shelf.albumId?.let { id ->
+                                    {
+                                        library.albums.firstOrNull { it.albumId == id }?.let {
+                                            vm.openList(it.name, it.artistName, it.songs, "album:${it.albumId}")
+                                            onOpenDetail()
+                                        }
+                                    }
+                                },
+                                onPlay = { vm.playList(shelf.songs) }
+                            )
                         }
                     }
+                    items(shelf.songs, key = { it.id }) { song -> songRow(song) }
                 }
-                SongRow(
-                    song = song,
-                    liked = library.stats[song.id]?.liked ?: 0,
-                    rating = library.stats[song.id]?.rating ?: 0,
-                    selected = song.id in selection,
-                    selectionMode = selection.isNotEmpty(),
-                    onClick = {
-                        if (selection.isNotEmpty()) vm.toggleSelect(song.id)
-                        else vm.playList(displayedSongs, displayedSongs.indexOf(song))
-                    },
-                    onLongClick = {
-                        vm.noteSelectionScope(displayedSongs.map { it.id })
-                        vm.toggleSelect(song.id)
-                    },
-                    onMore = { sheetSong = song },
-                    onLike = { vm.like(song.id) },
-                    onDislike = { vm.dislike(song.id) }
-                )
+            } else {
+                items(live.songs, key = { it.id }) { song -> songRow(song) }
             }
         }
     }
@@ -443,6 +452,43 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun ShelfHeading(shelf: ArtistShelf, onOpen: (() -> Unit)?, onPlay: () -> Unit) {
+    val gutter = rememberMetrics().gutter
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)
+            .padding(start = gutter, end = gutter - 8.dp, top = 18.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Read once: the shelf comes from :engine, where the compiler cannot
+        // assume the property stays what it was checked to be.
+        val albumId = shelf.albumId
+        if (albumId != null) {
+            Artwork(shelf.songs.first().id, albumId, shelf.name, Modifier.size(52.dp), corner = 10)
+            Spacer(Modifier.width(12.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                shelf.name,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row {
+                if (shelf.year > 0) {
+                    Text("${shelf.year} · ", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+                Text("${shelf.songs.size} שירים", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            }
+        }
+        IconButton(onClick = onPlay) {
+            Icon(Icons.Filled.PlayArrow, contentDescription = localized("נגן"), tint = Accent)
+        }
     }
 }
 

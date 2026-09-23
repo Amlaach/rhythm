@@ -142,6 +142,9 @@ object Folders {
         }
     }
 
+    /** A song's folder the way the tree spells its paths, so it can be looked up with [find]. */
+    fun pathOf(folder: String): String = segments(normalize(folder)).joinToString("/")
+
     private fun normalize(path: String): String =
         path.replace('\\', '/').trimEnd('/')
 

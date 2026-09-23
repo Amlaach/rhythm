@@ -148,6 +148,36 @@ object Spoken {
         return score(song, feature, tagScores) >= THRESHOLD
     }
 
+    /**
+     * Whether the model heard more talking than music in a track, whatever
+     * [isSpoken] concluded.
+     *
+     * Not a verdict on what the track is - a shiur with a niggun in the
+     * middle, a talk over a backing track, can land either side of the
+     * threshold above, and that choice stays with [isSpoken] and the
+     * listener. This answers a narrower question: may this track stand in a
+     * list of music chosen for how it feels? A mood is a musical thing, and a
+     * speaker who talks fast and loud reads as "energetic" to every measure
+     * the moods use. There, speech ahead of music is enough to stay out.
+     * False where the model never ran: nothing heard, nothing held back.
+     */
+    fun speechAhead(feature: AudioFeatureEntity?): Boolean {
+        val tags = feature?.tags?.takeIf { it.isNotBlank() } ?: return false
+        val scores = AudioTags.pick(tags, AudioTags.SPEECH_INDICES) ?: return false
+        if (scores.size < AudioTags.SPEECH_INDICES.size) return false
+        val speech = maxOf(
+            scores[AudioTags.SLOT_SPEECH],
+            scores[AudioTags.SLOT_CHILD_SPEECH],
+            scores[AudioTags.SLOT_CONVERSATION],
+            scores[AudioTags.SLOT_NARRATION]
+        )
+        val music = maxOf(scores[AudioTags.SLOT_MUSIC], scores[AudioTags.SLOT_SINGING])
+        return speech - music > SPEECH_LEAD
+    }
+
+    /** How far ahead speech must be for [speechAhead]: clearly, not a close call. */
+    const val SPEECH_LEAD = 0.1f
+
     const val THRESHOLD = 0.62
 
     /** How much of the verdict is the model's where it ran; the rest is the length. */

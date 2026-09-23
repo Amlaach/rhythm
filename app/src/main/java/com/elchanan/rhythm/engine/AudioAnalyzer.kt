@@ -183,7 +183,8 @@ object AudioAnalyzer {
         fun trimmed(): FloatArray = data.copyOf(size)
     }
 
-    private fun decodeMono(
+    /** Mono samples from [startUs] on, for [seconds]; also used by the player to find silence at the end. */
+    internal fun decodeMono(
         context: Context,
         uri: Uri,
         startUs: Long,
