@@ -2448,11 +2448,27 @@ class Recommender(
         val space = acoustic ?: return emptyList()
         // Medleys stay out, as they do of every other generated mix: landing on
         // one unasked sounds like a song that started halfway through.
-        val entries = playable.filter { space.has(it.id) && !medley(it) }
+        val analysed = playable.filter { space.has(it.id) && !medley(it) }
+        // What the clusters are made of: the music model's print where nearly
+        // every song has one, else YAMNet's, else the measured features.
+        //
+        // It was always the features - tempo, loudness, timbre, key - and
+        // those are the weakest thing the app measures: asked which songs
+        // share a style, a song's nearest neighbours by the features did so
+        // less often than a random pick (12% against 25%), where the prints
+        // did best. So the daily mixes were mostly tempo bands - "מיקס 131
+        // BPM" - rather than kinds of music. One measure for all of them, so
+        // no cluster is an artefact of which songs had which.
+        fun covered(prints: Map<Long, DoubleArray>): List<SongEntity>? {
+            val with = analysed.filter { it.id in prints }
+            return with.takeIf { it.size >= 40 && it.size * 10 >= analysed.size * DAILY_PRINT_COVER }
+        }
+        val (entries, points) = covered(space.musicPrints)?.let { it to it.map { s -> space.musicPrints.getValue(s.id) } }
+            ?: covered(space.soundPrints)?.let { it to it.map { s -> space.soundPrints.getValue(s.id) } }
+            ?: (analysed to analysed.map { space.vectors.getValue(it.id) })
         if (entries.size < 40) return emptyList()
 
-        val dims = AcousticSpace.DIMS
-        val points = entries.map { space.vectors[it.id]!! }
+        val dims = points.first().size
         val k = minOf(maxMixes, maxOf(2, entries.size / 60))
         // By the day, not by the refresh button. These are called the daily
         // mixes and they were changing only when the feed was reshuffled.
@@ -2846,6 +2862,9 @@ class Recommender(
 
         /** How far above the listener's average a mood must sit to count fully. */
         private const val MOOD_LIFT_SCALE = 0.8
+
+        /** In tenths: how much of the analysed library a print must cover to be what the daily mixes cluster on. */
+        private const val DAILY_PRINT_COVER = 8
 
         /** How long the "based on your likes" mix is, how much of it the likes are, and how many per singer. */
         private const val LIKED_MIX_SIZE = 50

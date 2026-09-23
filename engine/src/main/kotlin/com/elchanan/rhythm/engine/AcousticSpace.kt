@@ -261,6 +261,9 @@ class AcousticSpace(
      */
     val musicPrints: Map<Long, DoubleArray> get() = music
 
+    /** YAMNet's prints, likewise folded, centred and unit length. Read only. */
+    val soundPrints: Map<Long, DoubleArray> get() = prints
+
     /** The hand-made features alone: tempo, loudness, timbre, harmony, shape. */
     fun featureSimilarity(a: Long, b: Long): Double {
         val va = vectors[a] ?: return 0.0
