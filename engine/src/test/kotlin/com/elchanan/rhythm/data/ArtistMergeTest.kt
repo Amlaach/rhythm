@@ -29,4 +29,15 @@ class ArtistMergeTest {
         assertEquals("אברהם פריד, יעקב שוואקי",
             ArtistMerge.renameCredit("אברם פריד, יעקב שוואקי", key, "אברהם פריד"))
     }
+
+    @Test
+    fun aProfileFollowsItsSongsOnlyWhenAllOfThemWentOneWay() {
+        val before = mapOf(1L to "channel", 2L to "channel", 3L to "duo", 4L to "duo", 5L to "kept")
+        val after = mapOf(1L to "singer", 2L to "singer", 3L to "a", 4L to "b", 5L to "kept")
+        // The channel's two songs both went to the singer; the duo split in two.
+        assertEquals(mapOf("channel" to "singer"), ArtistMerge.profileMoves(before, after))
+        // A name that still has songs keeps what it was told.
+        val partly = mapOf(1L to "singer", 2L to "channel", 3L to "duo", 4L to "duo", 5L to "kept")
+        assertEquals(emptyMap<String, String>(), ArtistMerge.profileMoves(before, partly))
+    }
 }

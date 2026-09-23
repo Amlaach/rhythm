@@ -888,7 +888,7 @@ private fun RhythmApp() {
                         if (renamed == song.artistName) null
                         else (existing[song.id] ?: TagOverrideEntity(songId = song.id)).copy(artistName = renamed)
                     }
-                    store.saveOverrides(rows)
+                    saveOverridesCarryingArtists(store, rows)
                     rows.size
                 }
             }.getOrNull()
@@ -1125,7 +1125,7 @@ private fun RhythmApp() {
         }
         scope.launch {
             val note = withContext(Dispatchers.IO) {
-                store.saveOverrides(overrides)
+                saveOverridesCarryingArtists(store, overrides)
                 if (!prefs.writeTagsToFiles) {
                     null
                 } else {
@@ -1143,7 +1143,8 @@ private fun RhythmApp() {
     fun editTags(songId: Long, title: String, artist: String) {
         scope.launch {
             withContext(Dispatchers.IO) {
-                store.saveOverrides(
+                saveOverridesCarryingArtists(
+                    store,
                     listOf(
                         TagOverrideEntity(
                             songId = songId,
@@ -2668,6 +2669,22 @@ private fun modelStatus(): String = when {
     Models.failure.isNotEmpty() -> "מודלי ה-AI לא נטענו במחשב הזה (${Models.failure}); הניתוח ממשיך בלעדיהם."
     Models.soundExpected() && Models.musicExpected() -> "מודלי ה-AI (YAMNet ו-Discogs-EffNet) כלולים בגירסה הזו."
     else -> "הגירסה הזו לא כוללת את מודלי ה-AI."
+}
+
+/**
+ * Saves tag corrections, and lets an artist's rating and styles follow their
+ * songs when a correction moves all of them to another name. Without that the
+ * old name kept them with no songs left, and dropped out of the artist list.
+ */
+private fun saveOverridesCarryingArtists(store: Store, rows: List<TagOverrideEntity>) {
+    val before = applyOverrides(store.songs(), store.overrides()).associate { it.id to it.artistKey }
+    store.saveOverrides(rows)
+    val after = applyOverrides(store.songs(), store.overrides())
+    val moves = ArtistMerge.profileMoves(before, after.associate { it.id to it.artistKey })
+    for ((old, key) in moves) {
+        val name = after.firstOrNull { it.artistKey == key }?.let { Names.primaryArtist(it.artistName) } ?: key
+        store.carryArtistProfile(old, key, name)
+    }
 }
 
 private fun applyOverrides(
