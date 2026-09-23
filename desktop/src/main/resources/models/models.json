@@ -1,0 +1,144 @@
+{
+ "about": "The phone's models in ONNX form for the Windows build, made by tools/models/to_onnx.py.",
+ "tf2onnx": "1.16.1",
+ "opset": 17,
+ "checkedWithOnnxRuntime": "1.26.0",
+ "models": [
+  {
+   "name": "yamnet",
+   "source": "app/src/main/assets/yamnet.tflite",
+   "sourceSha256": "194e4f4146688d58a59b84849ee4bba8072fd341c7aaf8be928c3d99c9851a0a",
+   "file": "yamnet.onnx",
+   "sha256": "790b2b7118e513ae1cb2ed69c5d05db507c78b90c10397fb6b5ba8762d10191f",
+   "bytes": 5080380,
+   "input": "waveform_binary",
+   "comparedWithTFLite": {
+    "songScoreMaxAbs": 0.0030517578125,
+    "songPrintMinCos": 0.999986253707653,
+    "top10Overlap": 10,
+    "frameScoreMaxAbs": 0.0859375
+   },
+   "biasesRestored": 1,
+   "printScale": 0.022328350692987442,
+   "printZeroPoint": -128
+  },
+  {
+   "name": "effnet",
+   "source": "app/src/main/assets/music/effnet.tflite",
+   "sourceSha256": "cd747d9d53bd114d064fdd18d13dc19e30f0989de7bb17f988c20261590e101b",
+   "file": "effnet.onnx",
+   "sha256": "7bc29117511ff093008b552fbeab5ce258d2457dc671d6b9e9f3f559b44fadc0",
+   "bytes": 8036645,
+   "input": "serving_default_melspectrogram",
+   "comparedWithTFLite": {
+    "maxAbs": 1.5422701835632324e-06,
+    "minCos": 0.9999999106029508
+   },
+   "fp16Weights": 3985344
+  },
+  {
+   "name": "mood_happy",
+   "source": "app/src/main/assets/music/mood_happy.tflite",
+   "sourceSha256": "eccdaee77927be2fa196b835fa6680af05a049e42666bb849388f05ac96cf81d",
+   "file": "mood_happy.onnx",
+   "sha256": "32fa06529429edbe69ed3434c89f0e9fc930690ab9a4f8259a7a557f1e55218f",
+   "bytes": 514171,
+   "input": "model/Placeholder",
+   "comparedWithTFLite": {
+    "maxAbs": 1.4901161193847656e-08,
+    "minCos": 0.9999999401861521
+   }
+  },
+  {
+   "name": "mood_sad",
+   "source": "app/src/main/assets/music/mood_sad.tflite",
+   "sourceSha256": "17fef04f182582bd7b450fde699bbb7937983e5869739db614aaee5908de0498",
+   "file": "mood_sad.onnx",
+   "sha256": "aa5ac04c4e65d42f6dcb057ed86dd1ecba3b02229b66113d857918dbd5c79efd",
+   "bytes": 514169,
+   "input": "model/Placeholder",
+   "comparedWithTFLite": {
+    "maxAbs": 1.1920928955078125e-07,
+    "minCos": 0.9999999999986955
+   }
+  },
+  {
+   "name": "mood_relaxed",
+   "source": "app/src/main/assets/music/mood_relaxed.tflite",
+   "sourceSha256": "f56b90baa500e1de346068fc24acf72588e5ea8a25b5f26e110ce16ad28a7cf7",
+   "file": "mood_relaxed.onnx",
+   "sha256": "058db65cbc1fcb9a9849bbaadb4580cf5e5ad7f3d6149131c68d910b95202ef4",
+   "bytes": 514173,
+   "input": "model/Placeholder",
+   "comparedWithTFLite": {
+    "maxAbs": 9.238719940185547e-07,
+    "minCos": 0.9999999397618393
+   }
+  },
+  {
+   "name": "mood_aggressive",
+   "source": "app/src/main/assets/music/mood_aggressive.tflite",
+   "sourceSha256": "9f693a4dcb806a36877da29bfca411074bb6ba7f3f526ef84570b2079f698c34",
+   "file": "mood_aggressive.onnx",
+   "sha256": "a5a9daf368368ce079087e99016adfef3c7dab3038bcf6a38461f301b7ae16f9",
+   "bytes": 514176,
+   "input": "model/Placeholder",
+   "comparedWithTFLite": {
+    "maxAbs": 8.731149137020111e-10,
+    "minCos": 0.9999999999989603
+   }
+  },
+  {
+   "name": "mood_party",
+   "source": "app/src/main/assets/music/mood_party.tflite",
+   "sourceSha256": "20016f13ee647d38113ffdf19497138dc0dd96c7897b95519bf684ecade539b8",
+   "file": "mood_party.onnx",
+   "sha256": "edd2bb98eb54a543fefce3792e6f3e4d27b6c8a6149535f605a2a356c100e3eb",
+   "bytes": 514171,
+   "input": "model/Placeholder",
+   "comparedWithTFLite": {
+    "maxAbs": 5.529727786779404e-10,
+    "minCos": 0.999999999998822
+   }
+  },
+  {
+   "name": "danceability",
+   "source": "app/src/main/assets/music/danceability.tflite",
+   "sourceSha256": "df14a4ca345d198c0c895ec919a1468fd4e7d3c3764fb2a4aa1056a25b3658e0",
+   "file": "danceability.onnx",
+   "sha256": "7de01302410626243b140e7abfe688baeed88c38fe59e869b69dafae5f9931b2",
+   "bytes": 514173,
+   "input": "model/Placeholder",
+   "comparedWithTFLite": {
+    "maxAbs": 4.0046870708465576e-08,
+    "minCos": 0.9999999274145822
+   }
+  },
+  {
+   "name": "mood_acoustic",
+   "source": "app/src/main/assets/music/mood_acoustic.tflite",
+   "sourceSha256": "5af13dae3ef451a940ab49d15ec16b9e02a8afad7e9e6d41b75fb4670230092f",
+   "file": "mood_acoustic.onnx",
+   "sha256": "a68baf2f15372cd9949ffedb36e065807d48d53f58c49a216b5273c12bb06a65",
+   "bytes": 514174,
+   "input": "model/Placeholder",
+   "comparedWithTFLite": {
+    "maxAbs": 1.7881393432617188e-07,
+    "minCos": 0.9999999292097344
+   }
+  },
+  {
+   "name": "mood_electronic",
+   "source": "app/src/main/assets/music/mood_electronic.tflite",
+   "sourceSha256": "ed638f50b173686b2dfaa30233b050a8684c529b6185da6eaf6d2a56fc647443",
+   "file": "mood_electronic.onnx",
+   "sha256": "9518254a5f1b17dc3438e26d811cc42cb81444d335c3b51dd49267e07b175204",
+   "bytes": 514176,
+   "input": "model/Placeholder",
+   "comparedWithTFLite": {
+    "maxAbs": 1.1920928955078125e-07,
+    "minCos": 0.9999999265798142
+   }
+  }
+ ]
+}

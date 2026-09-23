@@ -7,9 +7,12 @@ name: Convert music models
 on:
   push:
     branches-ignore: [ main, master ]
+    # Only the phone's converter. It rewrites the phone's model files and
+    # commits them, which must never happen as a side effect of a change to
+    # something else in this folder - tools/models/to_onnx.py included, which
+    # is run by hand and checked by build.yml instead.
     paths:
-      - 'tools/models/**'
-      - '.github/workflows/models.yml'
+      - 'tools/models/convert.py'
   workflow_dispatch:
 
 permissions:
@@ -32,18 +35,25 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install "tensorflow==2.15.*" "tf_keras==2.15.*" onnx==1.15.0 onnx2tf==1.20.0 \
-            onnx_graphsurgeon sng4onnx psutil "numpy<2" essentia-tensorflow
+            onnx_graphsurgeon sng4onnx psutil "numpy<2" essentia-tensorflow \
+            tf2onnx==1.16.1 onnxruntime==1.26.0
 
       - name: Convert and check against Essentia
         run: |
           set -o pipefail
           python tools/models/convert.py 2>&1 | tee convert.log
 
+      # The same models for the Windows build, from the files just written.
+      - name: Convert for the desktop and check against TensorFlow Lite
+        run: |
+          set -o pipefail
+          python tools/models/to_onnx.py 2>&1 | tee -a convert.log
+
       - name: Commit the models
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/src/main/assets/music engine/src/test/resources/effnet_reference.json
+          git add app/src/main/assets/music engine/src/test/resources/effnet_reference.json desktop/src/main/resources/models
           if git diff --cached --quiet; then echo "nothing changed"; exit 0; fi
           git commit -m "Add converted Discogs-EffNet and mood heads (MTG-UPF, CC BY-NC-SA 4.0)"
           # the branch may have moved on while this ran

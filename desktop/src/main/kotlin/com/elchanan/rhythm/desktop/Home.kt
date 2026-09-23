@@ -94,6 +94,8 @@ internal fun HomeScreen(
     albums: List<AlbumInfo>,
     stats: Map<Long, SongStatsEntity>,
     moods: List<Mood>,
+    /** The phone's rule: on, the chips stay under the header; off, they scroll away with the page. */
+    moodsPinned: Boolean = true,
     scanning: Boolean,
     analysing: Boolean,
     unanalysed: Int,
@@ -137,7 +139,7 @@ internal fun HomeScreen(
             if (scanning || analysing) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Accent)
             }
-            if (songCount > 0 && moods.isNotEmpty()) {
+            if (songCount > 0 && moods.isNotEmpty() && moodsPinned) {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = GUTTER, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -182,6 +184,18 @@ internal fun HomeScreen(
             contentPadding = PaddingValues(bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            if (!moodsPinned && moods.isNotEmpty()) {
+                item {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = GUTTER, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(moods) { mood ->
+                            Chip(label = mood.label, selected = false) { onMood(mood) }
+                        }
+                    }
+                }
+            }
             item { GreetingCard(songCount, ratedArtists) }
 
             // A one off pointer to the tag repair tool, ahead of the rest

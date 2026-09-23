@@ -86,6 +86,7 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; \
 ; Ship license notices alongside the JARs that the installer redistributes.
 Source: "THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "licenses\LGPL-2.1.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
+Source: "licenses\APACHE-2.0.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"

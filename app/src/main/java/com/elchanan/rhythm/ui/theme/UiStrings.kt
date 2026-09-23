@@ -24,22 +24,41 @@ object UiStrings {
         putAll(part16())
         putAll(part17())
         putAll(part18())
+        putAll(part19())
     } }
-    private data class Template(val pattern: Regex, val target: String, val names: List<String>)
+    private data class Template(val pattern: Regex, val target: String, val names: List<String>, val literal: Int)
     private val templates: List<Template> by lazy { exact.mapNotNull { (source, target) ->
         val matches = placeholder.findAll(source).toList()
         if (matches.isEmpty()) null else {
             val regex = buildString { append("^"); var from = 0; for (match in matches) { append(Regex.escape(source.substring(from, match.range.first))); append("(.*?)"); from = match.range.last + 1 }; append(Regex.escape(source.substring(from))); append("$") }
-            Template(Regex(regex, RegexOption.DOT_MATCHES_ALL), target, matches.map { it.value })
+            Template(Regex(regex, RegexOption.DOT_MATCHES_ALL), target, matches.map { it.value }, source.length - matches.sumOf { it.value.length })
         }
-    } }
+    // The most specific first: "top ten: $a (random: $b)" before "top ten: $x",
+    // or the looser one swallows the rest of the line untranslated.
+    }.sortedByDescending { it.literal } }
     private val cache = mutableMapOf<String, String>()
     private val fragments: List<Pair<String, String>> by lazy { exact.entries.asSequence()
         .filter { it.key.length >= 16 && it.key.length < 200 && !placeholder.containsMatchIn(it.key) && (it.key.startsWith(" ") || it.key.endsWith(" ") || it.key.endsWith(".") || it.key.endsWith("…")) }
         .map { it.key to it.value }.sortedByDescending { it.first.length }.toList() }
     fun translate(value: String, language: String): String {
         if (language != "en" || !hasHebrew(value)) return value
+        // A song's own title, artist or album is never "translated": it goes
+        // through the same Text as the interface, and a name that happens to
+        // equal a word the table knows - "בית", a title "אבי" - would
+        // otherwise be shown as something it is not called.
+        if (value in metadata) return value
         return synchronized(cache) { cache.getOrPut(value) { translateUncached(value) } }
+    }
+
+    @Volatile
+    private var metadata: Set<String> = emptySet()
+
+    /**
+     * The library's own names - titles, artists, albums - which [translate]
+     * leaves exactly as they are. Set whenever the library loads.
+     */
+    fun protectNames(names: Collection<String>) {
+        metadata = names.filterTo(HashSet()) { it.isNotBlank() && hasHebrew(it) }
     }
     private fun translateUncached(value: String): String {
         exact[value]?.let { return it }
@@ -1502,11 +1521,6 @@ object UiStrings {
         "\\bremix\\b|רמיקס" to "\\bremix\\b|Remix",
         "\\bcover\\b|קאבר|ביצוע" to "\\bcover\\b|Cover|Performance",
         "[\\(\\[][^\\)\\]]*[\\)\\]]|\\b(live|remix|רמיקס|קאבר|cover|אולפן|היכל|קיסריה|מנורה|unplugged)\\b|\\b20\\d{2}\\b" to "[\\(\\[][^\\)\\]]*[\\)\\]]|\\b(live|remix|remix|cover|cover|studio|hall|Caesaria|manora|unplugged)\\b|\\b20\\d{2}\\b",
-        "ישי ריבו" to "Hashi Rivo",
-        "ישי ריבו feat. מוטי שטיינמץ" to "Yishai Rivo feat. Motti Steinmetz",
-        "ישי" to "Yishai",
-        "אבי" to "my father",
-        "אביתר" to "Avitar",
         "ווקאלי" to "Vocal",
         "ווקלי" to "Vocal",
         "אקפלה" to "Acapella",
@@ -1537,5 +1551,77 @@ object UiStrings {
         "החל על \$applying שירים" to "Apply to \$applying songs",
         "לא בטוח · מוצע: \${proposal.newTitle} · \${proposal.newArtist}" to
             "Not sure · Suggested: \${proposal.newTitle} · \${proposal.newArtist}"
+    )
+    private fun part19(): Map<String, String> = mapOf(
+        "\$applying שירים ישתנו" to
+            "\$applying songs will change",
+        "מעברים שנבדקו: \${report.pairs}" to
+            "Transitions checked: \${report.pairs}",
+        "בעשירייה הראשונה: \$a (אקראי: \$b)" to
+            "In the top ten: \$a (random: \$b)",
+        "בחמישים הראשונים: \$a (אקראי: \$b)" to
+            "In the top fifty: \$a (random: \$b)",
+        "דירוג חציוני: \${report.medianRank} מתוך \${report.librarySize}" to
+            "Median rank: \${report.medianRank} of \${report.librarySize}",
+        "אין עדיין ספרייה לבדוק" to
+            "There is no library to check yet",
+        "הגירסה הזו לא כוללת את מודלי ה-AI." to
+            "This version does not include the AI models.",
+        "\${a}\${b} (\$n שירים)" to
+            "\${a}\${b} (\$n songs)",
+        "הייצוא נכשל — בדוק הרשאה ומקום פנוי" to
+            "The export failed — check permissions and free space",
+        "הכוונונים הוחזרו לברירת המחדל" to
+            "The tuning is back to its defaults",
+        "הפסים יחזרו לברירת המחדל, וכך גם הזמן שנספר כהשמעה. " to
+            "The sliders go back to their defaults, and so does the time that counts as a play. ",
+        "הדירוגים, הלייקים וההיסטוריה נשארים." to
+            "Ratings, likes and history stay.",
+        "ייצוא תוצאות הניתוח לטלפון" to
+            "Export analysis results to the phone",
+        "\$analysed שירים מוכנים להעברה, כולל המודלים · הטלפון לא יצטרך לנתח אותם שוב · הקובץ אינו כולל את קובצי המוזיקה" to
+            "\$analysed songs ready to transfer, models included · the phone will not need to analyse them again · the file does not contain the music files",
+        "כבוי: השיר מתחיל והנגן נשאר מכווץ למטה. דלוק: מסך הנגן נפתח מיד" to
+            "Off: the song starts and the player stays collapsed below. On: the player screen opens at once",
+        "לאפס את הלמידה?" to
+            "Reset learning?",
+        "כל הדירוגים, הלייקים, ההשמעות ומה שנלמד מהם יימחקו. " to
+            "Every rating, like and play, and everything learned from them, will be deleted. ",
+        "כרגע: \$it." to
+            "Currently: \$it.",
+        "לא בטוח · \$a — \$b" to
+            "Not sure · \$a — \$b",
+        "מדידת קצב, סולם, אנרגיה וגוון, ומודלי ה-AI של הטלפון — הכל על המחשב. " to
+            "Tempo, key, energy and timbre, and the phone's AI models — all on this computer. ",
+        "מה שלא נשמע טוב אחד אחרי השני, שורה לכל כלל. כרגע אין הפרדות" to
+            "What does not sound good one after the other, one rule per line. No separations yet",
+        "מודלי ה-AI (YAMNet ו-Discogs-EffNet) כלולים בגירסה הזו." to
+            "The AI models (YAMNet and Discogs-EffNet) are included in this version.",
+        "מודלי ה-AI לא נטענו במחשב הזה (\${Models.failure}); הניתוח ממשיך בלעדיהם." to
+            "The AI models did not load on this computer (\${Models.failure}); analysis continues without them.",
+        "מוריד את העוצמה של הנגן לאפס — ההשמעה נעצרת, ומתחדשת לבד כשמעלים בחזרה. בלי זה השיר ממשיך לרוץ בשקט" to
+            "Turning the player's volume down to zero pauses playback, and it resumes by itself when turned back up. Without this the song keeps running silently",
+        "מנתח…" to
+            "Analysing…",
+        "מנתח… \$done מתוך \$total" to
+            "Analysing… \$done of \$total",
+        "קובץ טקסט עם שם השיר, האמן והאלבום של כל שיר, כדי לבקש מצ'אט לתייג אמנים או לסדר רשימות. בלי קובצי מוזיקה ובלי היסטוריה" to
+            "A text file with the title, artist and album of every song, to ask a chat to tag artists or sort lists. No music files and no history",
+        "נשמרה רשימה של \${written.songs} שירים" to
+            "Saved a list of \${written.songs} songs",
+        "עובד על שירים שיש להם מילים — מקובץ LRC, מתגיות הקובץ, או שהקלדת" to
+            "Works on songs that have lyrics — from an LRC file, the file's tags, or typed in",
+        "קובץ טקסט (*.txt)" to
+            "Text file (*.txt)",
+        "שמור את רשימת הספרייה" to
+            "Save the library list",
+        "ההפרש הוא מה שהמסננים הסירו — אורך מינימלי, תיקיות מוחרגות, הקלטות וכפילויות. כל אחד מהם ניתן לכיבוי או לשינוי בהגדרות." to
+            "The difference is what the filters removed — minimum length, excluded folders, recordings and duplicates. Each of them can be turned off or changed in the settings.",
+        "זיהוי צלילים: YAMNet של Google, ברישיון Apache 2.0." to
+            "Sound recognition: Google's YAMNet, under the Apache 2.0 licence.",
+        "זיהוי סגנון ומצב רוח: Discogs-EffNet ומסווגי מצב הרוח של Essentia, מאת MTG, אוניברסיטת פומפאו פברה בברצלונה, ברישיון CC BY-NC-SA 4.0 — לשימוש לא מסחרי בלבד. אותם מודלים שבטלפון, שהומרו ל-ONNX ורצים ב-ONNX Runtime (Microsoft, רישיון MIT). מקור: essentia.upf.edu/models.html; רישיון: creativecommons.org/licenses/by-nc-sa/4.0/. פרטי הקרדיט והרישיונות מצורפים לתיקיית ההתקנה." to
+            "Style and mood recognition: Discogs-EffNet and Essentia's mood classifiers, by MTG, Universitat Pompeu Fabra in Barcelona, under CC BY-NC-SA 4.0 — non-commercial use only. The same models as on the phone, converted to ONNX and run with ONNX Runtime (Microsoft, MIT licence). Source: essentia.upf.edu/models.html; licence: creativecommons.org/licenses/by-nc-sa/4.0/. Credits and licences are included in the installation folder.",
+        "בנייה מקומית — לא נבנתה דרך GitHub Actions, ולכן אין לה מספר בנייה שאפשר להשוות אליו." to
+            "Local build — not built by GitHub Actions, so it has no build number to compare against."
     )
 }

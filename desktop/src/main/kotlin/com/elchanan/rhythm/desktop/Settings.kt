@@ -113,16 +113,16 @@ internal fun SettingsScreen(
     onRescan: () -> Unit,
     onAnalyze: () -> Unit,
     onResetAnalysis: () -> Unit,
-    onResetStats: () -> Unit,
     onPickLyricsFolder: () -> Unit,
     onImportPlaylist: () -> Unit,
     onImportPlayCounts: () -> Unit,
     onExportPlaylists: () -> Unit,
     onExportAnalysis: () -> Unit,
+    onExportCatalog: () -> Unit,
+    /** Whether the AI models loaded, in a sentence. */
+    modelStatus: String,
     busy: Boolean,
-    engineReport: String,
     taste: TasteReport?,
-    onEvaluate: () -> Unit,
     onExcludedChanged: () -> Unit,
     onShelvesChanged: () -> Unit
 ) {
@@ -131,12 +131,9 @@ internal fun SettingsScreen(
     // only here because a composable cannot re-read SQLite to redraw itself.
     var autoAnalyze by remember { mutableStateOf(prefs.autoAnalyze) }
     var hideDuplicates by remember { mutableStateOf(prefs.hideDuplicates) }
-    var searchPersonalized by remember { mutableStateOf(prefs.searchPersonalized) }
     var shelvesOpen by remember { mutableStateOf(false) }
     var foldersOpen by remember { mutableStateOf(false) }
-    var separationsOpen by remember { mutableStateOf(false) }
     var excluded by remember { mutableStateOf(prefs.excludedFolders) }
-    var separations by remember { mutableStateOf(prefs.styleSeparations) }
     var folderTree by remember { mutableStateOf(prefs.folderTree) }
     var stripForeign by remember { mutableStateOf(prefs.tagStripForeign) }
     var writeTags by remember { mutableStateOf(prefs.writeTagsToFiles) }
@@ -180,8 +177,9 @@ internal fun SettingsScreen(
                     )
                     LinkRow(
                         "המנוע",
-                        "מה עולה למעלה בפיד ובחיפוש, ומה לא יתערבב"
-                    ) { onOpenPage(SettingsPage.ENGINE) }
+                        "מה עולה למעלה בפיד ובחיפוש, ומה לא יתערבב",
+                        onOpenAlgorithm
+                    )
                     LinkRow(
                         "תגיות ומילות שיר",
                         "תיקון שמות אמנים, וכתיבה לתוך הקבצים"
@@ -197,18 +195,6 @@ internal fun SettingsScreen(
                 }
             }
 
-            // The weights themselves keep their own screen, reached from the
-            // engine page rather than from the top, so the door list stays
-            // seven lines long.
-            if (page == SettingsPage.ENGINE) {
-                item {
-                    LinkRow(
-                        "משקולות האלגוריתם",
-                        "חמש המשקולות שקובעות מה עולה למעלה, ולמידת הסגנונות",
-                        onOpenAlgorithm
-                    )
-                }
-            }
             if (page == SettingsPage.TAGS) {
                 item {
                     LinkRow(
@@ -219,8 +205,9 @@ internal fun SettingsScreen(
                 }
             }
 
+            // The phone's page, in its order: shelves, what opens first,
+            // folders in folders, duplicates, the mood row.
             if (page == SettingsPage.HOME) item {
-                SettingSection("הגדרות דף הבית", "אילו מדפים מופיעים, ובאיזה סדר הם נבנים")
                 ActionRow(
                     title = "מדפים במסך הבית",
                     subtitle = "כיבוי מדף לא מוחק כלום — הוא פשוט מפסיק להופיע, " +
@@ -230,12 +217,8 @@ internal fun SettingsScreen(
                     primary = false,
                     onClick = { shelvesOpen = true }
                 )
-            }
-
-            if (page == SettingsPage.HOME) item {
-                SettingSection("הגדרות הספרייה", "מה נפתח ראשון, וכפילויות")
                 Text(
-                    "מה נפתח ראשון",
+                    "מה נפתח ראשון בספרייה",
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.padding(horizontal = GUTTER, vertical = 6.dp)
                 )
@@ -252,6 +235,15 @@ internal fun SettingsScreen(
                 }
                 Spacer(Modifier.height(10.dp))
                 SwitchRow(
+                    title = "תיקיות בתוך תיקיות",
+                    subtitle = "מראה את התיקיות כמו שהן יושבות על הדיסק, " +
+                        "ולא כרשימה שטוחה אחת",
+                    checked = folderTree
+                ) {
+                    folderTree = it
+                    prefs.folderTree = it
+                }
+                SwitchRow(
                     title = "הסתרת כפילויות",
                     subtitle = "אותו שיר שהורד פעמיים תופס מקום אחד ולא שניים",
                     checked = hideDuplicates
@@ -260,8 +252,9 @@ internal fun SettingsScreen(
                     prefs.hideDuplicates = it
                 }
                 SwitchRow(
-                    title = "שורת מצבי רוח בדף הבית",
-                    subtitle = "רגוע, קצבי, ריכוז — מסננים על מה שנמדד",
+                    title = "פס מצבי הרוח נשאר למעלה",
+                    subtitle = "דלוק: הצ'יפים נשארים מתחת לכותרת והדף נגלל מתחתיהם. " +
+                        "כבוי: הם נגללים למעלה יחד עם כל השאר",
                     checked = pinMoodRow
                 ) {
                     pinMoodRow = it
@@ -269,28 +262,30 @@ internal fun SettingsScreen(
                 }
             }
 
-            if (page == SettingsPage.ENGINE) item {
-                SettingSection("הגדרות החיפוש", "איך תוצאות מסודרות")
-                SwitchRow(
-                    title = "התאמה אישית בתוצאות",
-                    subtitle = "מה שאתה מנגן הרבה עולה למעלה בתוצאות",
-                    checked = searchPersonalized
-                ) {
-                    searchPersonalized = it
-                    prefs.searchPersonalized = it
-                }
-            }
-
+            // The phone's page, in its order. The phone opens with importing
+            // what this computer measured; here that is its other half.
             if (page == SettingsPage.PORTING) item {
-                SettingSection("ייבוא מנגן אחר", "רשימות השמעה והיסטוריית האזנה, כמו בטלפון")
                 ActionRow(
-                    title = "ייבוא רשימת השמעה",
-                    subtitle = "קורא m3u או pls ומתאים אותו לשירים שבספרייה. " +
-                        "מה שלא נמצא נספר ונאמר, ולא נעלם בשקט",
-                    action = "בחר קובץ",
-                    enabled = true,
+                    title = "ייצוא תוצאות הניתוח לטלפון",
+                    subtitle = if (analysed == 0) {
+                        "עדיין אין תוצאות לייצא — יש להפעיל קודם את ניתוח הספרייה"
+                    } else {
+                        "$analysed שירים מוכנים להעברה, כולל המודלים · הטלפון לא יצטרך " +
+                            "לנתח אותם שוב · הקובץ אינו כולל את קובצי המוזיקה"
+                    },
+                    action = "שמור קובץ",
+                    enabled = analysed > 0 && !analysing,
                     primary = true,
-                    onClick = onImportPlaylist
+                    onClick = onExportAnalysis
+                )
+                ActionRow(
+                    title = "ייצוא רשימת הספרייה לבינה מלאכותית",
+                    subtitle = "קובץ טקסט עם שם השיר, האמן והאלבום של כל שיר, כדי לבקש " +
+                        "מצ'אט לתייג אמנים או לסדר רשימות. בלי קובצי מוזיקה ובלי היסטוריה",
+                    action = "שמור רשימה",
+                    enabled = songs > 0,
+                    primary = false,
+                    onClick = onExportCatalog
                 )
                 ActionRow(
                     title = "ייבוא היסטוריית השמעות",
@@ -304,31 +299,21 @@ internal fun SettingsScreen(
                     onClick = onImportPlayCounts
                 )
                 ActionRow(
+                    title = "ייבוא רשימת השמעה",
+                    subtitle = "קורא m3u או pls ומתאים אותו לשירים שבספרייה. " +
+                        "מה שלא נמצא נספר ונאמר, ולא נעלם בשקט",
+                    action = "בחר קובץ",
+                    enabled = true,
+                    primary = false,
+                    onClick = onImportPlaylist
+                )
+                ActionRow(
                     title = "ייצוא כל הרשימות",
                     subtitle = "כותב קובץ m3u לכל רשימה, כולל האהובים",
                     action = "בחר תיקייה",
                     enabled = true,
                     primary = false,
                     onClick = onExportPlaylists
-                )
-            }
-
-            if (page == SettingsPage.PORTING) item {
-                SettingSection(
-                    "העברת ניתוח ל־Android",
-                    "הטלפון יקבל את המדידות שכבר נעשו במחשב ולא יצטרך לבצע אותן שוב"
-                )
-                ActionRow(
-                    title = "ייצוא תוצאות הניתוח",
-                    subtitle = if (analysed == 0) {
-                        "עדיין אין תוצאות לייצא — יש להפעיל קודם את ניתוח הספרייה"
-                    } else {
-                        "$analysed שירים מוכנים להעברה · הקובץ אינו כולל את קובצי המוזיקה"
-                    },
-                    action = "שמור קובץ",
-                    enabled = analysed > 0 && !analysing,
-                    primary = true,
-                    onClick = onExportAnalysis
                 )
             }
 
@@ -353,37 +338,6 @@ internal fun SettingsScreen(
                 ) {
                     writeTags = it
                     prefs.writeTagsToFiles = it
-                }
-            }
-
-            if (page == SettingsPage.LIBRARY) item {
-                SettingSection("ניתוח אודיו", "מדידת קצב, סולם, אנרגיה וגוון — הכל על המחשב")
-                SwitchRow(
-                    title = "ניתוח אוטומטי",
-                    subtitle = "מודד כל קובץ חדש מיד אחרי סריקה",
-                    checked = autoAnalyze
-                ) {
-                    autoAnalyze = it
-                    prefs.autoAnalyze = it
-                }
-                Text(
-                    "$analysed מתוך $songs נותחו",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(horizontal = GUTTER)
-                )
-                Row(
-                    modifier = Modifier.padding(horizontal = GUTTER, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = onAnalyze,
-                        enabled = !analysing && analysed < songs,
-                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                    ) { Text("נתח עכשיו") }
-                    OutlinedButton(onClick = onResetAnalysis, enabled = !analysing) {
-                        Text("אפס ניתוח")
-                    }
                 }
             }
 
@@ -413,6 +367,29 @@ internal fun SettingsScreen(
                             Text("סרוק מחדש")
                         }
                     }
+                }
+                // Not a switch, because what gets left out is a list of
+                // whatever this particular disk happens to have on it.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = GUTTER, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("תיקיות שלא ייסרקו", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            text = excluded.joinToString(", ").ifBlank { "כרגע נסרק הכל" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Button(
+                        onClick = { foldersOpen = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("ערוך") }
                 }
                 Text(
                     "אורך מינימלי לשיר: ${minDuration.toInt()} שניות",
@@ -448,37 +425,40 @@ internal fun SettingsScreen(
                     resumeSpoken = it
                     prefs.resumeSpoken = it
                 }
+            }
+
+            if (page == SettingsPage.LIBRARY) item {
+                SettingSection(
+                    "ניתוח אודיו",
+                    "מדידת קצב, סולם, אנרגיה וגוון, ומודלי ה-AI של הטלפון — הכל על המחשב. " +
+                        modelStatus
+                )
                 SwitchRow(
-                    title = "תיקיות בתוך תיקיות",
-                    subtitle = "מראה את התיקיות כמו שהן יושבות על הדיסק, " +
-                        "ולא כרשימה שטוחה אחת",
-                    checked = folderTree
+                    title = "ניתוח אוטומטי",
+                    subtitle = "מודד כל קובץ חדש מיד אחרי סריקה",
+                    checked = autoAnalyze
                 ) {
-                    folderTree = it
-                    prefs.folderTree = it
+                    autoAnalyze = it
+                    prefs.autoAnalyze = it
                 }
-                // Not a switch, because what gets left out is a list of
-                // whatever this particular disk happens to have on it.
+                Text(
+                    "$analysed מתוך $songs נותחו",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(horizontal = GUTTER)
+                )
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = GUTTER, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(horizontal = GUTTER, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("תיקיות שלא ייסרקו", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            text = excluded.joinToString(", ").ifBlank { "כרגע נסרק הכל" },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
                     Button(
-                        onClick = { foldersOpen = true },
+                        onClick = onAnalyze,
+                        enabled = !analysing && analysed < songs,
                         colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                    ) { Text("ערוך") }
+                    ) { Text("נתח עכשיו") }
+                    OutlinedButton(onClick = onResetAnalysis, enabled = !analysing) {
+                        Text("אפס ניתוח")
+                    }
                 }
             }
 
@@ -504,57 +484,20 @@ internal fun SettingsScreen(
                 }
             }
 
-            if (page == SettingsPage.ENGINE) item {
-                SettingSection(
-                    "סגנונות שלא יתערבבו",
-                    "מה שלא נשמע טוב אחד אחרי השני, שורה לכל כלל"
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = GUTTER, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = separations.lines()
-                            .filter { it.isNotBlank() }
-                            .joinToString(" · ")
-                            .ifBlank { "אין כרגע הפרדות" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Button(
-                        onClick = { separationsOpen = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                    ) { Text("ערוך") }
-                }
-            }
-
-            if (page == SettingsPage.ABOUT) item {
-                SettingSection("בדיקת המנוע", "כמה טוב הוא מנחש מה באמת הושמע אחר כך")
-                Text(
-                    text = engineReport.ifBlank {
-                        "בודק את ההמלצות מול ההיסטוריה האמיתית שלך: לוקח מה ששמעת, " +
-                            "ושואל אם המנוע היה מציע את השיר הבא."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(horizontal = GUTTER)
-                )
-                Row(modifier = Modifier.padding(horizontal = GUTTER, vertical = 10.dp)) {
-                    Button(
-                        onClick = onEvaluate,
-                        enabled = !busy,
-                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                    ) { Text("בדוק עכשיו") }
-                }
-            }
-
             if (page == SettingsPage.ABOUT) item {
                 SettingSection("על האפליקציה", null)
+                Fact("גרסה", BuildInfo.version)
+                BuildInfo.build?.let { Fact("מספר בנייה", it) }
+                BuildInfo.commit?.let { Fact("קומיט", it) }
+                if (BuildInfo.build == null) {
+                    Text(
+                        "בנייה מקומית — לא נבנתה דרך GitHub Actions, ולכן אין לה " +
+                            "מספר בנייה שאפשר להשוות אליו.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(horizontal = GUTTER, vertical = 4.dp)
+                    )
+                }
                 Text(
                     "Rhythm — נגן מוזיקה עם מנוע המלצות מקומי.\n" +
                         "הכל קורה על המחשב הזה. שום דבר לא נשלח לשום מקום.",
@@ -567,30 +510,34 @@ internal fun SettingsScreen(
             if (page == SettingsPage.ABOUT) item {
                 SettingSection("הסריקה האחרונה", "כמה קבצים נמצאו, ומתי")
                 Fact("קבצים שנמצאו", "${prefs.lastScanCount}")
-                Fact("שירים בספרייה אחרי סינון", "$songs")
+                Fact("נכנסו לספרייה", "$songs")
                 Fact("נסרק לאחרונה", lastScanLabel(prefs.lastScanAt))
+                if (prefs.lastScanCount > songs) {
+                    Text(
+                        "ההפרש הוא מה שהמסננים הסירו — אורך מינימלי, תיקיות מוחרגות, " +
+                            "הקלטות וכפילויות. כל אחד מהם ניתן לכיבוי או לשינוי בהגדרות.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(horizontal = GUTTER, vertical = 4.dp)
+                    )
+                }
             }
 
             if (page == SettingsPage.ABOUT) item {
                 SettingSection("מה המנוע יודע עליך", null)
-                Fact("שירים בספרייה", "$songs")
-                Fact("שירים שנותחו", "$analysed מתוך $songs")
-                Fact("אמנים שדורגו", "$ratedArtists")
-                Fact("אמנים עם סגנון", "$taggedArtists")
-                Fact("שירים עם לייק", "$liked")
-                Fact("סך הנגינות", "$played")
-                Spacer(Modifier.height(10.dp))
-                // Last, and outlined rather than filled. It throws away every
-                // rating, like and play count in the database, which is the
-                // one thing here that months of listening cannot be got back.
                 val r = taste
-                if (r != null) {
+                if (r == null) {
+                    Text("עוד אין נתונים", color = TextSecondary, modifier = Modifier.padding(horizontal = GUTTER))
+                } else {
+                    Fact("שירים בספרייה", "${r.totalSongs}")
+                    Fact("אמנים", "${r.totalArtists} (מדורגים: ${r.ratedArtists})")
+                    Fact("שירים עם תגית סגנון", "${r.songsWithStyle}")
+                    Fact("שירים מדורגים", "${r.ratedSongs}")
                     Fact("קשרים סימטריים שנלמדו", "${r.learnedPairs}")
                     Fact("מעברים מכוונים שנלמדו", "${r.learnedTransitions}")
-                    Fact(
-                        "קצב חציוני בספרייה",
-                        if (r.medianBpm > 0) "${r.medianBpm} BPM" else "—"
-                    )
+                    Fact("שירים שנותחו אקוסטית", "${r.analyzedSongs}")
+                    Fact("קצב חציוני בספרייה", if (r.medianBpm > 0) "${r.medianBpm} BPM" else "—")
+                    Fact("שירים שסומנו בלייק", "$liked")
                     Spacer(Modifier.height(10.dp))
                     Text(
                         "הסגנונות המובילים שלך",
@@ -623,11 +570,23 @@ internal fun SettingsScreen(
                         }
                     }
                 }
-                Spacer(Modifier.height(10.dp))
-                OutlinedButton(
-                    onClick = onResetStats,
-                    modifier = Modifier.padding(horizontal = GUTTER)
-                ) { Text("אפס את כל ההיסטוריה", color = Accent) }
+            }
+
+            if (page == SettingsPage.ABOUT) item {
+                SettingSection("מודלים שבתוך האפליקציה", null)
+                Text(
+                    "זיהוי צלילים: YAMNet של Google, ברישיון Apache 2.0.\n" +
+                        "זיהוי סגנון ומצב רוח: Discogs-EffNet ומסווגי מצב הרוח של Essentia, " +
+                        "מאת MTG, אוניברסיטת פומפאו פברה בברצלונה, ברישיון " +
+                        "CC BY-NC-SA 4.0 — לשימוש לא מסחרי בלבד. אותם מודלים שבטלפון, " +
+                        "שהומרו ל-ONNX ורצים ב-ONNX Runtime (Microsoft, רישיון MIT). " +
+                        "מקור: essentia.upf.edu/models.html; רישיון: " +
+                        "creativecommons.org/licenses/by-nc-sa/4.0/. " +
+                        "פרטי הקרדיט והרישיונות מצורפים לתיקיית ההתקנה.\n\n" + modelStatus,
+                    modifier = Modifier.padding(horizontal = GUTTER, vertical = 6.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
             }
 
         }
@@ -650,23 +609,6 @@ internal fun SettingsScreen(
                 // something goes and looks again, so the rescan is part of
                 // saving rather than something to remember to do afterwards.
                 onExcludedChanged()
-            }
-        )
-    }
-
-    if (separationsOpen) {
-        LineListDialog(
-            title = "סגנונות שלא יתערבבו",
-            hint = "שורה לכל כלל, והסגנונות בתוכה מופרדים בפסיק. " +
-                "שני סגנונות באותה שורה לא יופיעו יחד באותו מיקס.\n\nלמשל:\n" +
-                "חסידי, מזרחי\nקלאסי, רוק",
-            initial = separations,
-            confirm = "שמור",
-            onDismiss = { separationsOpen = false },
-            onSave = { text ->
-                separations = text
-                prefs.styleSeparations = text
-                separationsOpen = false
             }
         )
     }
@@ -775,13 +717,14 @@ internal fun PlayerSettingsScreen(
     var resumePrompt by remember { mutableStateOf(prefs.resumePrompt) }
     var normalizeVolume by remember { mutableStateOf(prefs.normalizeVolume) }
     var tapArtwork by remember { mutableStateOf(prefs.tapArtworkToggles) }
+    var pauseOnSilence by remember { mutableStateOf(prefs.pauseOnSilence) }
     var arrangementOpen by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = "הגדרות הנגן והשמע", onBack = onBack)
         LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
+            // The phone's page, in its order and in its words.
             item {
-                SettingSection("הנגן", null)
                 ActionRow(
                     title = "סידור הכפתורים והתפריט",
                     subtitle = "לאיזו פעולה יהיה כפתור משלה במסך הנגן, לאיזו פריט " +
@@ -792,6 +735,15 @@ internal fun PlayerSettingsScreen(
                     onClick = { arrangementOpen = true }
                 )
                 SwitchRow(
+                    title = "לחיצה על שיר פותחת את הנגן",
+                    subtitle = "כבוי: השיר מתחיל והנגן נשאר מכווץ למטה. " +
+                        "דלוק: מסך הנגן נפתח מיד",
+                    checked = openPlayerOnPlay
+                ) {
+                    openPlayerOnPlay = it
+                    prefs.openPlayerOnPlay = it
+                }
+                SwitchRow(
                     title = "לחיצה על התמונה עוצרת וממשיכה",
                     subtitle = "התמונה הגדולה במסך הנגן היא הדבר הכי קל לפגוע בו " +
                         "בלי להסתכל",
@@ -799,22 +751,6 @@ internal fun PlayerSettingsScreen(
                 ) {
                     tapArtwork = it
                     prefs.tapArtworkToggles = it
-                }
-                SwitchRow(
-                    title = "פתיחת הנגן בהשמעה",
-                    subtitle = "המסך המלא נפתח ברגע שמשהו מתחיל",
-                    checked = openPlayerOnPlay
-                ) {
-                    openPlayerOnPlay = it
-                    prefs.openPlayerOnPlay = it
-                }
-                SwitchRow(
-                    title = "רדיו אינסופי",
-                    subtitle = "כשהתור נגמר, המנוע ממשיך עם מה שמתאים",
-                    checked = autoRadio
-                ) {
-                    autoRadio = it
-                    prefs.autoRadio = it
                 }
                 SwitchRow(
                     title = "הצעה להמשיך מהמיקום האחרון",
@@ -826,24 +762,26 @@ internal fun PlayerSettingsScreen(
                     resumePrompt = it
                     prefs.resumePrompt = it
                 }
+                // The app's own volume slider rather than the system's, which
+                // Windows does not report to an app. Same promise: down to
+                // zero pauses, back up resumes.
                 SwitchRow(
-                    title = "איזון עוצמה בין שירים",
-                    subtitle = "מנמיך את השירים החזקים במיוחד כדי שלא תצטרך לגעת " +
-                        "בעוצמה בכל מעבר. דורש שהשירים ינותחו קודם",
-                    checked = normalizeVolume
+                    title = "עצירה כשהעוצמה באפס",
+                    subtitle = "מוריד את העוצמה של הנגן לאפס — ההשמעה נעצרת, ומתחדשת לבד " +
+                        "כשמעלים בחזרה. בלי זה השיר ממשיך לרוץ בשקט",
+                    checked = pauseOnSilence
                 ) {
-                    normalizeVolume = it
-                    prefs.normalizeVolume = it
+                    pauseOnSilence = it
+                    prefs.pauseOnSilence = it
                 }
-                // No "pause when the volume reaches zero". On the phone that
-                // watches the system media stream, which the volume rocker
-                // moves; here the operating system owns the mixer and does
-                // not tell the app when someone drags it to the bottom. A
-                // switch that cannot see what it claims to watch is worse
-                // than the absence of one.
-            }
-            item {
-                SettingSection("אקולייזר", "31 תדרים, נשמר בין הפעלות")
+                SwitchRow(
+                    title = "רדיו אינסופי",
+                    subtitle = "כשהתור נגמר, ממשיך לבד לפי הטעם שנלמד",
+                    checked = autoRadio
+                ) {
+                    autoRadio = it
+                    prefs.autoRadio = it
+                }
                 ActionRow(
                     title = "אקולייזר",
                     subtitle = "31 תדרים עם עקומת התגובה שהשמע באמת מקבל, " +
@@ -853,6 +791,15 @@ internal fun PlayerSettingsScreen(
                     primary = false,
                     onClick = onOpenEqualizer
                 )
+                SwitchRow(
+                    title = "איזון עוצמה בין שירים",
+                    subtitle = "מנמיך את השירים החזקים במיוחד כדי שלא תצטרך לגעת " +
+                        "בעוצמה בכל מעבר. דורש שהשירים ינותחו קודם",
+                    checked = normalizeVolume
+                ) {
+                    normalizeVolume = it
+                    prefs.normalizeVolume = it
+                }
             }
         }
     }
@@ -926,6 +873,7 @@ private fun PlayerActionsDialog(prefs: Prefs, onDismiss: () -> Unit) {
 @Composable
 internal fun AlgorithmSettingsScreen(
     prefs: Prefs,
+    checks: AlgorithmChecks,
     tuning: EngineTuning,
     learning: Boolean,
     learningReport: String?,
@@ -939,6 +887,37 @@ internal fun AlgorithmSettingsScreen(
     onBack: () -> Unit
 ) {
     var autoLearn by remember { mutableStateOf(prefs.autoLearn) }
+    var searchPersonalized by remember { mutableStateOf(prefs.searchPersonalized) }
+    var searchLyrics by remember { mutableStateOf(prefs.searchLyrics) }
+    var separations by remember { mutableStateOf(prefs.styleSeparations) }
+    var separationsOpen by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
+    var confirmForget by remember { mutableStateOf(false) }
+    // Keyed on the tuning so a reset shows at once rather than on the next visit.
+    var minPlay by remember(tuning) { mutableStateOf(prefs.minPlaySeconds.toFloat()) }
+    if (confirmReset) {
+        ConfirmDialog(
+            title = "לאפס את הכוונונים?",
+            body = "הפסים יחזרו לברירת המחדל, וכך גם הזמן שנספר כהשמעה. " +
+                "הדירוגים, הלייקים וההיסטוריה נשארים.",
+            confirm = "אפס",
+            danger = false,
+            onConfirm = { confirmReset = false; checks.onResetTuning() },
+            onDismiss = { confirmReset = false }
+        )
+    }
+    if (confirmForget) {
+        ConfirmDialog(
+            title = "לאפס את הלמידה?",
+            body = "כל הדירוגים, הלייקים, ההשמעות ומה שנלמד מהם יימחקו. " +
+                "אי אפשר לבטל את זה.",
+            confirm = "אפס",
+            danger = true,
+            onConfirm = { confirmForget = false; checks.onResetLearning() },
+            onDismiss = { confirmForget = false }
+        )
+    }
+    // The phone's screen, in its order and in its words.
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = "הגדרות האלגוריתם", onBack = onBack)
         LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
@@ -949,69 +928,40 @@ internal fun AlgorithmSettingsScreen(
                         "ככל שגבוה יותר, יופיעו יותר שירים שלא שמעת"
                     ) { onChange(tuning.copy(discovery = it)) }
                     Knob(
-                        "משקל דירוג האמן", tuning.artistWeight, 0f..2f,
-                        "כמה הדירוג שנתת לאמן משפיע על השירים שלו"
+                        "משקל דירוגי האמנים", tuning.artistWeight, 0f..2f,
+                        "כמה הכוכבים שנתת לאמנים משפיעים על הפיד"
                     ) { onChange(tuning.copy(artistWeight = it)) }
                     Knob(
-                        "משקל הסגנון", tuning.styleWeight, 0f..2f,
-                        "כמה התאמת הסגנון מושכת שיר למעלה"
+                        "משקל הסגנונות", tuning.styleWeight, 0f..2f,
+                        "כמה תגיות הסגנון מכתיבות את הבחירה"
                     ) { onChange(tuning.copy(styleWeight = it)) }
+                    Knob(
+                        "משקל התאמת הסאונד", tuning.acousticWeight, 0f..2f,
+                        "כמה הקצב, האנרגיה והגוון שנמדדו מהקובץ משפיעים"
+                    ) { onChange(tuning.copy(acousticWeight = it)) }
                     Knob(
                         "מניעת חזרתיות", tuning.repeatGuard, 0f..2f,
                         "ככל שגבוה יותר, שיר שהתנגן לאחרונה ירד בדירוג"
                     ) { onChange(tuning.copy(repeatGuard = it)) }
-                    Knob(
-                        "משקל הדמיון האקוסטי", tuning.acousticWeight, 0f..2f,
-                        "כמה הצליל עצמו קובע, לעומת מה שכתוב על השיר"
-                    ) { onChange(tuning.copy(acousticWeight = it)) }
+                    // A slider moves under a pointer that was only passing,
+                    // and nothing said where it started. Asked first, because
+                    // a tuning someone set on purpose is just as easy to lose.
+                    TextButton(onClick = { confirmReset = true }) {
+                        Text("אפס לברירת המחדל", color = Accent)
+                    }
                 }
             }
             item {
-                SettingSection("למידת סגנונות", null)
                 ActionRow(
                     title = "למידת סגנונות מהספרייה",
                     subtitle = "לומד איך הסגנונות שהגדרת נשמעים — גם מתגיות האמנים " +
                         "המובנות בספרייה — ומשלים תגיות לשירים שלא תויגו. האפליקציה בודקת " +
                         "על אמנים שלא השתתפו באימון, וסופרת גם תגיות שגויות וחסרות. " +
-                        "אם הבדיקה אינה מספקת, לא משתנות תגיות " + StyleLearning.requirement(),
+                        "אם הבדיקה אינה מספקת היא לא משנה כלום " + StyleLearning.requirement(),
                     action = if (learning) "לומד…" else "למד",
                     enabled = !busy && !learning,
                     primary = true,
                     onClick = onLearn
-                )
-                var minPlay by remember { mutableStateOf(prefs.minPlaySeconds.toFloat()) }
-                Knob(
-                    label = if (minPlay < 1f) {
-                        "נספר כהשמעה: מיד"
-                    } else {
-                        "נספר כהשמעה אחרי ${minPlay.toInt()} שניות"
-                    },
-                    value = minPlay,
-                    range = 0f..Listening.MAX_MINIMUM_SEC.toFloat(),
-                    hint = "מי שמדפדף באוזן נוגע בעשרה שירים כדי למצוא אחד. " +
-                        "מתחת לזה לא נרשם כלום — לא השמעה ולא דילוג — כדי ששיר " +
-                        "שרק הוצץ בו לא ייחשב אהוב ולא ייקבר",
-                    onDone = {
-                        minPlay = it
-                        prefs.minPlaySeconds = it.toInt()
-                    }
-                )
-                ActionRow(
-                    title = "למידה אוטומטית",
-                    subtitle = if (autoLearn) {
-                        "לומד בעצמו אחרי כל ניתוח אודיו, בלי ללחוץ. הוא עדיין בודק " +
-                            "את עצמו על אמנים שלא אימן עליהם ולא כותב סגנון שאינו " +
-                            "מדייק בו — כך שריצה בלי מה לומר לא משנה כלום"
-                    } else {
-                        "כבויה. הלמידה תרוץ רק כשתלחץ על \"למד\""
-                    },
-                    action = if (autoLearn) "כבה" else "הדלק",
-                    enabled = true,
-                    primary = false,
-                    onClick = {
-                        autoLearn = !autoLearn
-                        prefs.autoLearn = autoLearn
-                    }
                 )
                 learningReport?.let { report ->
                     Text(
@@ -1020,6 +970,115 @@ internal fun AlgorithmSettingsScreen(
                         color = TextPrimary,
                         style = MaterialTheme.typography.bodyMedium
                     )
+                }
+            }
+            item {
+                SwitchRow(
+                    title = "ווקאלי רק בספירה ובשלושת השבועות",
+                    subtitle = "שירים ווקאליים לא מוצעים בשאר השנה. כשהאפשרות מופעלת, בימי ספירת " +
+                        "העומר (חוץ מל\"ג בעומר) ובשלושת השבועות מוצעים רק שירים ווקאליים. " +
+                        "שיר נחשב ווקאלי לפי השם שלו (ווקאלי, אקפלה), לפי תגית, לפי הצליל, " +
+                        "או לפי מה שסימנת בתפריט השיר. " +
+                        (checks.season?.let { "כרגע: $it." } ?: "כרגע לא בתקופות האלה."),
+                    checked = checks.onlyVocalInSeason
+                ) { checks.onOnlyVocal(it) }
+                ActionRow(
+                    title = "תעודת ציונים לאלגוריתם",
+                    subtitle = "בודק על ההיסטוריה שלך אם האלגוריתם יודע לחזות אילו שירים " +
+                        "תאהב לפני ששמעת אותם, ולומד ממנה כמה לסמוך על כל אות — " +
+                        "אמן, סגנון, סאונד ומצב רוח. " +
+                        (if (checks.usingLearned) "כרגע פעילים משקלים אישיים" else "כרגע פעילים המשקלים הרגילים"),
+                    action = if (checks.calibrating) "בודק…" else "בדוק",
+                    enabled = !checks.calibrating,
+                    primary = true,
+                    onClick = checks.onCalibrate
+                )
+                checks.calibration?.let { report ->
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER, vertical = 12.dp)) {
+                        Text(report, color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(10.dp))
+                        Row {
+                            if (checks.canApplyLearned) {
+                                Button(
+                                    onClick = checks.onApplyLearned,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                                ) { Text("הפעל משקלים אישיים") }
+                                Spacer(Modifier.width(10.dp))
+                            }
+                            if (checks.usingLearned) {
+                                OutlinedButton(onClick = checks.onResetLearned) { Text("חזור לרגילים") }
+                            }
+                        }
+                    }
+                }
+                ActionRow(
+                    title = "בדיקת טביעת הצליל",
+                    subtitle = "בודק על הספרייה שלך אם השירים שנשמעים דומה באמת מאותו " +
+                        "סגנון — פעם לפי מדידת הסאונד הנוכחית ופעם לפי טביעת " +
+                        "הצליל החדשה. לא משנה כלום; רק מודד",
+                    action = "בדוק",
+                    enabled = !busy,
+                    primary = true,
+                    onClick = checks.onSoundCheck
+                )
+                checks.soundCheck?.let { report ->
+                    Text(
+                        report,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER, vertical = 12.dp),
+                        color = TextPrimary,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                ActionRow(
+                    title = "בדיקת דיוק המודל המוזיקלי",
+                    subtitle = "משווה את למידת הסגנונות והזיהוי של מצבי רוח עם ובלי המודל, " +
+                        "על שירים מתויגים ותיקונים ידניים בספרייה שלך. הבדיקה לא משנה תגיות.",
+                    action = if (checks.modelChecking) "בודק…" else "בדוק",
+                    enabled = !checks.modelChecking,
+                    primary = true,
+                    onClick = checks.onModelCheck
+                )
+                checks.modelReport?.let { report ->
+                    Text(
+                        report,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER, vertical = 12.dp),
+                        color = TextPrimary,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+            item {
+                Column(modifier = Modifier.padding(horizontal = GUTTER)) {
+                    Knob(
+                        label = if (minPlay < 1f) {
+                            "נספר כהשמעה: מיד"
+                        } else {
+                            "נספר כהשמעה אחרי ${minPlay.toInt()} שניות"
+                        },
+                        value = minPlay,
+                        range = 0f..Listening.MAX_MINIMUM_SEC.toFloat(),
+                        hint = "מי שמדפדף באוזן נוגע בעשרה שירים כדי למצוא אחד. " +
+                            "מתחת לזה לא נרשם כלום — לא השמעה ולא דילוג — כדי ששיר " +
+                            "שרק הוצץ בו לא ייחשב אהוב ולא ייקבר",
+                        onDone = {
+                            minPlay = it
+                            prefs.minPlaySeconds = it.toInt()
+                        }
+                    )
+                }
+                SwitchRow(
+                    title = "למידה אוטומטית",
+                    subtitle = if (autoLearn) {
+                        "לומד בעצמו אחרי כל ניתוח אודיו, בלי ללחוץ. הוא עדיין בודק " +
+                            "את עצמו על אמנים שלא אימן עליהם ולא כותב סגנון שאינו " +
+                            "מדייק בו — כך שריצה בלי מה לומר לא משנה כלום"
+                    } else {
+                        "כבויה. הלמידה תרוץ רק כשתלחץ על \"למד\""
+                    },
+                    checked = autoLearn
+                ) {
+                    autoLearn = it
+                    prefs.autoLearn = it
                 }
                 // Between learning and clearing: it tagged something, what did
                 // it tag, and only then is throwing it away worth offering.
@@ -1045,9 +1104,120 @@ internal fun AlgorithmSettingsScreen(
                     onClick = onClearLearned
                 )
             }
+            item {
+                SwitchRow(
+                    title = "חיפוש גם במילות השיר",
+                    subtitle = "מוצא שיר לפי שורה שזכור לך ממנו, גם כשאת השם שכחת. " +
+                        "עובד על שירים שיש להם מילים — מקובץ LRC, מתגיות הקובץ, או שהקלדת",
+                    checked = searchLyrics
+                ) {
+                    searchLyrics = it
+                    prefs.searchLyrics = it
+                }
+                SwitchRow(
+                    title = "התאמה אישית בתוצאות",
+                    subtitle = "מה שאתה מנגן הרבה עולה למעלה בתוצאות",
+                    checked = searchPersonalized
+                ) {
+                    searchPersonalized = it
+                    prefs.searchPersonalized = it
+                }
+                ActionRow(
+                    title = "סגנונות שלא יתערבבו",
+                    subtitle = separations.lines().filter { it.isNotBlank() }.joinToString(" · ")
+                        .ifBlank { "מה שלא נשמע טוב אחד אחרי השני, שורה לכל כלל. כרגע אין הפרדות" },
+                    action = "ערוך",
+                    enabled = true,
+                    primary = true,
+                    onClick = { separationsOpen = true }
+                )
+            }
+            item {
+                SettingSection("בדיקת המנוע", "כמה טוב הוא מנחש מה באמת הושמע אחר כך")
+                Text(
+                    "עובר על ההיסטוריה ושואל, לכל מעבר בין שני שירים, באיזה מקום " +
+                        "מכל הספרייה המנוע היה מדרג את השיר שבאמת בא אחריו. " +
+                        "שינוי באלגוריתם שמשפר — מעלה את המספרים האלה.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(horizontal = GUTTER)
+                )
+                checks.engineReport?.let { report ->
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        report,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextPrimary,
+                        modifier = Modifier.padding(horizontal = GUTTER)
+                    )
+                }
+                Row(modifier = Modifier.padding(horizontal = GUTTER, vertical = 10.dp)) {
+                    Button(
+                        onClick = checks.onEvaluate,
+                        enabled = !busy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text("בדוק עכשיו") }
+                }
+            }
+            item {
+                // Last, and not a filled button. It throws away every rating,
+                // like and play count the engine ever learned from, which is
+                // the one thing here that months of listening cannot be got
+                // back. It sits under the engine because the engine is what
+                // it empties. The phone's place for it.
+                Row(modifier = Modifier.padding(horizontal = GUTTER, vertical = 14.dp)) {
+                    OutlinedButton(onClick = { confirmForget = true }) { Text("אפס למידה", color = Accent) }
+                }
+            }
         }
     }
+
+    if (separationsOpen) {
+        LineListDialog(
+            title = "סגנונות שלא יתערבבו",
+            hint = "שורה לכל כלל, והסגנונות בתוכה מופרדים בפסיק. " +
+                "שני סגנונות באותה שורה לא יופיעו יחד באותו מיקס.\n\nלמשל:\n" +
+                "חסידי, מזרחי\nקלאסי, רוק",
+            initial = separations,
+            confirm = "שמור",
+            onDismiss = { separationsOpen = false },
+            onSave = { text ->
+                separations = text
+                prefs.styleSeparations = text
+                separationsOpen = false
+                checks.onSeparationsChanged()
+            }
+        )
+    }
 }
+
+/** The algorithm screen's checks and the switches beside them; the state lives in Main. */
+internal class AlgorithmChecks(
+    val onResetTuning: () -> Unit,
+    val onlyVocalInSeason: Boolean,
+    val onOnlyVocal: (Boolean) -> Unit,
+    /** The Omer or the Three Weeks by name, when today is in one. */
+    val season: String?,
+    val usingLearned: Boolean,
+    val calibrating: Boolean,
+    /** The report card in words, with the mood reading's own report under it. */
+    val calibration: String?,
+    val canApplyLearned: Boolean,
+    val onCalibrate: () -> Unit,
+    val onApplyLearned: () -> Unit,
+    val onResetLearned: () -> Unit,
+    val soundCheck: String?,
+    val onSoundCheck: () -> Unit,
+    val modelChecking: Boolean,
+    val modelReport: String?,
+    val onModelCheck: () -> Unit,
+    /** How often the engine would have guessed what was played next, in words. */
+    val engineReport: String?,
+    val onEvaluate: () -> Unit,
+    /** Forgets every rating, like and play: the phone's "reset learning". */
+    val onResetLearning: () -> Unit,
+    val onSeparationsChanged: () -> Unit
+)
 
 @Composable
 private fun ActionRow(

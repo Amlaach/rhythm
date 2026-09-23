@@ -96,6 +96,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -132,6 +133,8 @@ import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.desktop.audio.Analyzer
 import com.elchanan.rhythm.desktop.audio.AudioPlayer
 import com.elchanan.rhythm.desktop.audio.Equalizer
+import com.elchanan.rhythm.desktop.audio.ModelCheck
+import com.elchanan.rhythm.desktop.audio.Models
 import com.elchanan.rhythm.desktop.data.Store
 import com.elchanan.rhythm.engine.Listening
 import com.elchanan.rhythm.engine.ActionPlacement
@@ -142,7 +145,17 @@ import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.Loudness
 import com.elchanan.rhythm.engine.LyricLine
 import com.elchanan.rhythm.engine.Lyrics
+import com.elchanan.rhythm.data.ArtistMerge
+import com.elchanan.rhythm.data.LibraryCatalogExport
 import com.elchanan.rhythm.engine.Mood
+import com.elchanan.rhythm.engine.MoodMarks
+import com.elchanan.rhythm.engine.JewishSeasons
+import com.elchanan.rhythm.engine.MusicModelEvaluation
+import com.elchanan.rhythm.engine.SoundCheck
+import com.elchanan.rhythm.engine.SignalWeights
+import com.elchanan.rhythm.engine.SignalCalibration
+import com.elchanan.rhythm.engine.MoodModel
+import com.elchanan.rhythm.engine.Vocal
 import com.elchanan.rhythm.engine.Names
 import com.elchanan.rhythm.engine.PlayerAction
 import com.elchanan.rhythm.engine.Recap
@@ -159,6 +172,7 @@ import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.RhythmTheme
 import com.elchanan.rhythm.ui.theme.UiLanguage
+import com.elchanan.rhythm.ui.theme.UiStrings
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface2
 import com.elchanan.rhythm.ui.theme.TextPrimary
@@ -190,7 +204,16 @@ import kotlinx.coroutines.withContext
  * the phone runs - the same compiled classes out of :engine, not a copy. This
  * file decides what a shelf looks like and nothing about what goes in one.
  */
-fun main() = application {
+fun main(args: Array<String>) {
+    // CI's check of the finished Windows image: the models, loaded and run
+    // the way the installed app will load and run them. No window.
+    args.firstOrNull { it.startsWith("--check-models=") }?.let { arg ->
+        kotlin.system.exitProcess(ModelCheck.runTo(File(arg.substringAfter('='))))
+    }
+    runApp()
+}
+
+private fun runApp() = application {
     // Swing's own look, for the folder chooser. It is the one dialog this app
     // borrows rather than draws, because Windows users know their own file
     // picker and a hand-drawn one would only be worse.
@@ -265,6 +288,10 @@ private fun RhythmApp() {
     // change. Empty until enough of the library has been analysed for a
     // percentile to mean anything, which is the same as the feature being off.
     val loudnessGains = remember(features) { Loudness.gains(features.values) }
+    // Songs whose analysis is complete, prints included - the phone's count.
+    // A song measured before this build had the models is not done: the pass
+    // goes back for it, and the count has to say so rather than read 100%.
+    val complete = remember(features) { features.values.count { !Analyzer.wantsModels(it) } }
     var volume by remember { mutableStateOf(1f) }
     var query by remember { mutableStateOf("") }
     // The scored library, held so a feed and a search are two questions to one
@@ -301,6 +328,17 @@ private fun RhythmApp() {
     var learningReport by remember { mutableStateOf<String?>(null) }
     var shuffling by remember { mutableStateOf(false) }
     var engineReport by remember { mutableStateOf("") }
+    // The algorithm screen's checks. Each measures and changes nothing,
+    // except the learned weights, which only apply when asked to.
+    var onlyVocal by remember { mutableStateOf(store.onlyVocalInSeason) }
+    var usingLearned by remember { mutableStateOf(store.learnedWeights.isNotEmpty()) }
+    var calibrating by remember { mutableStateOf(false) }
+    var calibrationText by remember { mutableStateOf<String?>(null) }
+    var calibrationWeights by remember { mutableStateOf<SignalWeights?>(null) }
+    var soundCheckText by remember { mutableStateOf<String?>(null) }
+    var modelChecking by remember { mutableStateOf(false) }
+    var merging by remember { mutableStateOf(false) }
+    var modelReportText by remember { mutableStateOf<String?>(null) }
     var repeat by remember { mutableStateOf(RepeatMode.OFF) }
     // The queue as it was before it was shuffled, so turning shuffle off puts
     // it back rather than leaving a scrambled order nobody can undo.
@@ -312,6 +350,11 @@ private fun RhythmApp() {
     // about the music. Held here rather than stored: a sitting is over when
     // the app closes.
     var sessionTail by remember { mutableStateOf<List<Long>>(emptyList()) }
+    // Where the song of a queue put back from the last session was left, and
+    // whether that song is still waiting for its first press.
+    var resumeRestoredAt by remember { mutableStateOf(0L) }
+    var restoredIdle by remember { mutableStateOf(false) }
+    var pausedByVolume by remember { mutableStateOf(false) }
     var lastCounted by remember { mutableStateOf(0L) }
     var lastCountedAt by remember { mutableStateOf(0L) }
 
@@ -341,12 +384,24 @@ private fun RhythmApp() {
             // names without any of them knowing a repair happened.
             val fixed = filterLibrary(applyOverrides(s, store.overrides()), st, prefs)
             val model = LibraryModel.build(fixed, ar, store.playlists(), store.playlistItems())
+            val built = eng?.buildFeed().orEmpty()
+            // Written back so the next feed can defend this answer instead of
+            // forming a fresh opinion about the listener every refresh - the
+            // mood shelf's hold, as on the phone.
+            eng?.pickedMood?.let { store.noteMood(it, System.currentTimeMillis()) }
             Loaded(
                 fixed, st, ar, model, store.folders, sd,
-                eng?.buildFeed().orEmpty(), ft, eng, tn,
+                built, ft, eng, tn,
                 store.bookmarks(), store.positions()
             )
         }
+        // The library's own names are shown as they are, never translated.
+        UiStrings.protectNames(
+            buildList {
+                for (song in loaded.songs) { add(song.title); add(song.artistName); add(song.albumName) }
+                for (artist in loaded.library.artists) add(artist.displayName)
+            }
+        )
         songs = loaded.songs
         stats = loaded.stats
         artists = loaded.artists
@@ -379,7 +434,42 @@ private fun RhythmApp() {
         volume = prefs.volume / 100f
         player.setVolume(volume)
         player.equalizer.restore(prefs.eqEnabled, prefs.eqBands, prefs.eqPreamp)
+        // The queue from the last session, back where it was and paused -
+        // the phone's restoreQueueIfNeeded. Nothing plays until asked.
+        if (queue.isEmpty()) {
+            val (restored, index, position) = withContext(Dispatchers.IO) {
+                val byId = songs.associateBy { it.id }
+                val saved = prefs.savedQueue.mapNotNull { byId[it] }
+                Triple(saved, prefs.savedQueueIndex, prefs.savedQueuePosition)
+            }
+            if (restored.isNotEmpty()) {
+                queue = restored
+                queueIndex = index.coerceIn(0, restored.size - 1)
+                resumeRestoredAt = position
+            }
+        }
     }
+
+    // What to keep of the queue for the next start: the list whenever it
+    // changes, and where in the song every few seconds while it plays.
+    LaunchedEffect(queue, queueIndex) {
+        val ids = queue.map { it.id }
+        val at = queueIndex
+        withContext(Dispatchers.IO) {
+            runCatching {
+                prefs.savedQueue = ids.take(MAX_SAVED_QUEUE)
+                prefs.savedQueueIndex = at.coerceAtLeast(0)
+            }
+        }
+    }
+    LaunchedEffect(player) {
+        while (true) {
+            kotlinx.coroutines.delay(5_000)
+            val st = player.state.value
+            if (st.playing) withContext(Dispatchers.IO) { runCatching { prefs.savedQueuePosition = st.positionMs } }
+        }
+    }
+
 
     /**
      * Records what happened to the song being left, then starts another.
@@ -389,7 +479,10 @@ private fun RhythmApp() {
      * the distinction the recommender's skip rate is built on.
      */
     fun play(list: List<SongEntity>, index: Int, previousCompleted: Boolean = false) {
-        val leaving = queue.getOrNull(queueIndex)
+        // A queue put back from the last session has a current song that
+        // never started; leaving it is not a skip.
+        val leaving = if (restoredIdle || player.state.value.file == null) null else queue.getOrNull(queueIndex)
+        restoredIdle = false
         if (leaving != null) {
             val heard = player.state.value.positionMs
             val counted = Listening.countsAsPlay(
@@ -475,6 +568,23 @@ private fun RhythmApp() {
     }
 
     /**
+     * Play and pause, and the first press after a start that put the last
+     * queue back: that one starts the song from where it was left.
+     */
+    fun playPause() {
+        if (player.state.value.file == null && queueIndex in queue.indices) {
+            val at = resumeRestoredAt
+            // Nothing is being left: the song on screen was never started.
+            restoredIdle = true
+            play(queue, queueIndex)
+            if (at > 0L) player.seekTo(at)
+            resumeRestoredAt = 0L
+        } else {
+            player.togglePause()
+        }
+    }
+
+    /**
      * Measures every song that has not been measured yet.
      *
      * Only the ones missing, because analysis is the expensive thing this
@@ -485,17 +595,30 @@ private fun RhythmApp() {
      * end, so a pass that is interrupted keeps what it had already measured.
      */
     fun analyze() {
-        val todo = songs.filter { it.id !in features }
-        if (todo.isEmpty()) return
+        if (analysing) return
+        // Songs never measured, and songs measured before this build had the
+        // models - the phone's queue, which goes back for rows without a
+        // sound print or a music print. Counted here without loading anything;
+        // the pass loads the models first and asks again.
+        if (songs.none { song -> features[song.id].let { it == null || Analyzer.wantsModels(it) } }) return
         analysing = true
-        // Said before any decoding starts. The first song used to take long
-        // enough that the counter sat at nothing for minutes, which reads as
-        // a button that did not work.
-        status = "מנתח… 0 מתוך ${todo.size}"
+        status = "מנתח…"
         analysisJob = scope.launch {
             var done = 0
             var unreadable = 0
             try {
+                val snapshot = features
+                val todo = withContext(Dispatchers.IO) {
+                    // Loaded off the interface thread: it is seventeen
+                    // megabytes of weights, and a failure to load is found out
+                    // here, before any song is queued for work it cannot do.
+                    Models.soundAvailable()
+                    songs.filter { song -> snapshot[song.id].let { it == null || Analyzer.wantsModels(it) } }
+                }
+                // Said before any decoding starts. The first song used to take
+                // long enough that the counter sat at nothing for minutes,
+                // which reads as a button that did not work.
+                status = "מנתח… 0 מתוך ${todo.size}"
                 // Several at a time. Decoding is arithmetic on one core and a
                 // desktop has several idle ones, where the phone has a
                 // hardware decoder and one job to give it. Bounded rather than
@@ -517,7 +640,16 @@ private fun RhythmApp() {
                                 // the two counters and the status line are
                                 // this coroutine's and are touched from every
                                 // lane.
-                                if (f != null) store.putFeature(f)
+                                if (f != null) {
+                                    store.putFeature(f)
+                                } else if (snapshot[song.id] != null && File(song.path).isFile) {
+                                    // Measured once and back only for its
+                                    // prints, and now it will not decode: the
+                                    // measurements stay and the prints are
+                                    // marked tried, or it would be back on
+                                    // every pass for ever. The phone's rule.
+                                    store.markPrintTried(song.id)
+                                }
                                 counter.withLock {
                                     done++
                                     if (f == null) unreadable++
@@ -615,6 +747,138 @@ private fun RhythmApp() {
         scope.launch {
             withContext(Dispatchers.IO) { store.tuning = next }
             reload()
+        }
+    }
+
+    /**
+     * The sliders back to the engine's own defaults, and the play bar with
+     * them. They are easy to nudge on the way past; the defaults are
+     * EngineTuning's, so there is one place that says what they are.
+     */
+    fun resetTuning() {
+        val d = EngineTuning()
+        prefs.minPlaySeconds = Listening.DEFAULT_MINIMUM_SEC
+        retune(
+            tuning.copy(
+                discovery = d.discovery, artistWeight = d.artistWeight, styleWeight = d.styleWeight,
+                repeatGuard = d.repeatGuard, acousticWeight = d.acousticWeight
+            )
+        )
+        status = "הכוונונים הוחזרו לברירת המחדל"
+    }
+
+    fun setOnlyVocal(value: Boolean) {
+        onlyVocal = value
+        scope.launch {
+            withContext(Dispatchers.IO) { store.onlyVocalInSeason = value }
+            reload()
+        }
+    }
+
+    /**
+     * The report card: scores every song the listening has answered for
+     * without its own history, and learns this listener's signal weights from
+     * it. Changes nothing until the weights are applied. The phone's.
+     */
+    fun runCalibration() {
+        val snapshot = engine ?: run { status = "אין עדיין ספרייה לבדוק"; return }
+        calibrating = true
+        scope.launch {
+            val done = runCatching {
+                withContext(Dispatchers.Default) {
+                    val report = SignalCalibration.run(snapshot.calibrationRows())
+                    val moods = MoodModel(features.values, MoodMarks.of(stats)).report()
+                    report to moods
+                }
+            }.getOrNull()
+            calibrating = false
+            if (done == null) {
+                status = "הבדיקה נכשלה"
+                return@launch
+            }
+            val (report, moods) = done
+            calibrationWeights = report.weights?.takeIf { report.accepted }
+            calibrationText = SignalCalibration.describe(report) +
+                if (moods.isEmpty()) "" else "\n\n" + MoodMarks.describe(moods)
+        }
+    }
+
+    fun applyLearnedWeights() {
+        val weights = calibrationWeights ?: return
+        scope.launch {
+            withContext(Dispatchers.IO) { store.learnedWeights = weights.encode() }
+            usingLearned = true
+            reload()
+            status = "המשקלים האישיים הופעלו"
+        }
+    }
+
+    fun resetLearnedWeights() {
+        scope.launch {
+            withContext(Dispatchers.IO) { store.learnedWeights = "" }
+            usingLearned = false
+            reload()
+            status = "חזרה למשקלים הרגילים"
+        }
+    }
+
+    /** Whether songs that sound alike share a style, by the sound features and by the sound print. Measures only. */
+    fun runSoundCheck() {
+        soundCheckText = "בודק…"
+        val lib = library
+        val rows = features
+        scope.launch {
+            val result = withContext(Dispatchers.Default) {
+                runCatching { SoundCheck.measure(lib.songs, rows, lib.artists.associate { it.key to it.styles }) }.getOrNull()
+            }
+            soundCheckText = SoundCheck.describe(result)
+        }
+    }
+
+    /** The music model against the same labelled songs, with and without it. Writes no tags. */
+    fun runModelEvaluation() {
+        if (modelChecking) return
+        modelChecking = true
+        modelReportText = "בודק את תרומת המודל המוזיקלי…"
+        val lib = library
+        val rows = features
+        val st = stats
+        val manual = artists.filter { it.styles.isNotBlank() }.associate { it.artistKey to it.styles }
+        scope.launch {
+            modelReportText = runCatching {
+                withContext(Dispatchers.Default) {
+                    MusicModelEvaluation.describe(MusicModelEvaluation.measure(lib.songs, st, manual, rows), prefs.language)
+                }
+            }.getOrElse { "בדיקת המודל לא הושלמה. נסה שוב." }
+            modelChecking = false
+        }
+    }
+
+    /**
+     * One artist's songs credited to the other's spelling, as tag
+     * corrections: the files are not touched, a guest credit beside the name
+     * stays where it is, and a title or album correction already made stays
+     * too. The phone's mergeArtist.
+     */
+    fun mergeArtists(source: ArtistInfo, target: ArtistInfo) {
+        if (merging || source.key == target.key) return
+        merging = true
+        scope.launch {
+            val count = runCatching {
+                withContext(Dispatchers.IO) {
+                    val existing = store.overrides()
+                    val rows = applyOverrides(store.songs(), existing).mapNotNull { song ->
+                        val renamed = ArtistMerge.renameCredit(song.artistName, source.key, target.displayName)
+                        if (renamed == song.artistName) null
+                        else (existing[song.id] ?: TagOverrideEntity(songId = song.id)).copy(artistName = renamed)
+                    }
+                    store.saveOverrides(rows)
+                    rows.size
+                }
+            }.getOrNull()
+            merging = false
+            reload()
+            status = if (count == null) "האיחוד נכשל. אפשר לנסות שוב." else "אוחדו $count שירים תחת ${target.displayName}"
         }
     }
 
@@ -768,9 +1032,37 @@ private fun RhythmApp() {
             engineReport = if (report == null) {
                 "אין עדיין מספיק היסטוריה כדי לבדוק. צריך רצף השמעות בספרייה של 20 שירים ומעלה."
             } else {
-                "נבדקו ${report.pairs} מעברים · " +
-                    "בעשירייה הראשונה: ${(report.recallAt10 * 100).toInt()}%"
+                // The phone's four numbers, and its caveat.
+                "מעברים שנבדקו: ${report.pairs}\n" +
+                    "בעשירייה הראשונה: ${(report.recallAt10 * 100).toInt()}% " +
+                    "(אקראי: ${(report.randomRecallAt10 * 100).toInt()}%)\n" +
+                    "בחמישים הראשונים: ${(report.recallAt50 * 100).toInt()}% " +
+                    "(אקראי: ${(report.randomRecallAt50 * 100).toInt()}%)\n" +
+                    "דירוג חציוני: ${report.medianRank} מתוך ${report.librarySize}\n\n" +
+                    "המספרים אופטימיים: הסטטיסטיקה שהמנוע מדרג לפיה כוללת כבר " +
+                    "את ההשמעות שהוא מנסה לנחש. הם מוטים באותו אופן בכל " +
+                    "ריצה, ולכן ההשוואה בין שתי ריצות תקפה גם אם אף אחת " +
+                    "מהן אינה הערכה נקייה."
             }
+        }
+    }
+
+    /**
+     * The library as a list of lines - title, artist, album - for asking a
+     * chat model to tag artists or sort lists. The phone's export, from the
+     * same :engine code, so the two files read the same.
+     */
+    fun exportCatalog(file: File) {
+        val target = if (file.extension.isEmpty()) File(file.parentFile, file.name + ".txt") else file
+        scope.launch {
+            val written = withContext(Dispatchers.IO) {
+                runCatching {
+                    val result = LibraryCatalogExport.create(store.songs())
+                    target.writeText(result.text, Charsets.UTF_8)
+                    result
+                }.getOrNull()
+            }
+            status = if (written == null) "הייצוא נכשל — בדוק הרשאה ומקום פנוי" else "נשמרה רשימה של ${written.songs} שירים"
         }
     }
 
@@ -794,9 +1086,9 @@ private fun RhythmApp() {
     fun buildProposals() {
         scope.launch {
             proposals = withContext(Dispatchers.Default) {
-                // Only the sure ones here: this screen has no way yet to show
-                // a proposal as uncertain, and those are never applied unasked.
-                TagFixer.propose(songs, dropForeign = prefs.tagStripForeign).filter { it.certain }
+                // Uncertain ones included, marked on screen and applied only
+                // when the listener asks for them, as on the phone.
+                TagFixer.propose(songs, dropForeign = prefs.tagStripForeign)
             }
         }
     }
@@ -809,8 +1101,8 @@ private fun RhythmApp() {
      * only half applied because a share was offline would otherwise leave the
      * library in a state nobody can reason about.
      */
-    fun applyTagFix(list: List<TagFixer.Proposal>) {
-        val overrides = TagFixer.toOverrides(list)
+    fun applyTagFix(list: List<TagFixer.Proposal>, includeUncertain: Boolean) {
+        val overrides = TagFixer.toOverrides(list, includeUncertain)
         if (overrides.isEmpty()) {
             status = "אין מה לתקן"
             return
@@ -1071,23 +1363,37 @@ private fun RhythmApp() {
     }
 
     fun openMood(mood: Mood) {
-        // Strongest example of the mood first. Matching is a yes or no, and a
-        // list of yeses in whatever order they were stored opens on whichever
-        // sorts first - which is how asking for קצבי handed back the quietest
-        // track that still cleared the bar.
-        val matching = Mood.strongest(library.songs, features, mood)
-        if (matching.isEmpty()) {
-            status = "אין שירים שמתאימים ל\"${mood.label}\" בספרייה הזאת"
-            return
-        }
-        stack = stack + Route.Detail(
-            DetailList(
-                title = mood.label,
-                subtitle = mood.subtitle,
-                songs = matching,
-                gradientKey = "mood:${mood.name}"
+        // The phone's answer, from the same engine: strongest example first,
+        // the listener's own mood marks counted, and what the feed keeps out
+        // kept out here too - shiurim, songs thumbed down, and vocal-only
+        // songs outside their weeks. Then ordered to flow, as the phone does.
+        val snapshot = engine
+        scope.launch {
+            val ordered = withContext(Dispatchers.Default) {
+                if (snapshot == null) {
+                    Mood.strongest(library.songs, features, mood, MoodMarks.of(stats))
+                } else {
+                    val found = snapshot.strongestIn(mood)
+                    if (found.isEmpty()) found else snapshot.sequence(found.first(), found.drop(1).take(80))
+                }
+            }
+            if (ordered.isEmpty()) {
+                status = if (snapshot != null && !snapshot.hasAnalysis) {
+                    "השירים עדיין לא נותחו. אפשר להתחיל ניתוח בהגדרות."
+                } else {
+                    "אין שירים שמתאימים ל\"${mood.label}\" בספרייה הזאת"
+                }
+                return@launch
+            }
+            stack = stack + Route.Detail(
+                DetailList(
+                    title = mood.label,
+                    subtitle = mood.subtitle,
+                    songs = ordered,
+                    gradientKey = "mood:${mood.name}"
+                )
             )
-        )
+        }
     }
 
     /**
@@ -1134,6 +1440,45 @@ private fun RhythmApp() {
                 store.stats()
             }
             status = if (spoken) "סומן כהרצאה" else "סומן כמוזיקה"
+        }
+    }
+
+    /** The listener saying a song is vocal-only (true), is not (false). Rebuilds the feed, as the phone does. */
+    fun setVocal(song: SongEntity, vocal: Boolean?) {
+        scope.launch {
+            withContext(Dispatchers.IO) { store.setVocal(song.id, vocal) }
+            reload()
+            status = when (vocal) {
+                true -> "סומן כווקאלי — יוצג רק בספירה ובשלושת השבועות"
+                false -> "סומן כלא ווקאלי"
+                null -> "חזר לזיהוי האוטומטי"
+            }
+        }
+    }
+
+    /**
+     * The listener correcting the mood reading for one song. A "no" said from
+     * inside that mood's list also takes the song out of the list on screen,
+     * so the correction is visible where it was made. The phone's rule.
+     */
+    fun setMoodMark(song: SongEntity, mood: Mood, value: Boolean?) {
+        scope.launch {
+            withContext(Dispatchers.IO) { store.setMoodMark(song.id, mood, value) }
+            if (value == false) {
+                stack = stack.map { route ->
+                    if (route is Route.Detail && route.list.gradientKey == "mood:${mood.name}") {
+                        Route.Detail(route.list.copy(songs = route.list.songs.filter { it.id != song.id }))
+                    } else {
+                        route
+                    }
+                }
+            }
+            reload()
+            status = when (value) {
+                true -> "סומן כ\"${mood.label}\" — האפליקציה תלמד מזה"
+                false -> "סומן כלא \"${mood.label}\" — האפליקציה תלמד מזה"
+                null -> "\"${mood.label}\" חזר לזיהוי האוטומטי"
+            }
         }
     }
 
@@ -1215,7 +1560,7 @@ private fun RhythmApp() {
     // pressed exactly when the window is not the thing being looked at.
     DisposableEffect(player) {
         MediaKeys.start(
-            onPlayPause = { player.togglePause() },
+            onPlayPause = { playPause() },
             onNext = { scope.launch { play(queue, queueIndex + 1) } },
             onPrevious = { scope.launch { play(queue, queueIndex - 1) } }
         )
@@ -1336,7 +1681,9 @@ private fun RhythmApp() {
                     val (plain, lrc) = saved
                     Words(plain = plain, lrc = lrc)
                 } else {
-                    SongLyrics.find(song, prefs.lyricsFolder)
+                    SongLyrics.find(song, prefs.lyricsFolder).also { seen ->
+                        runCatching { store.noteLyricsSeen(song.id, seen?.plain.orEmpty(), seen?.lrc.orEmpty()) }
+                    }
                 }
             }
         }
@@ -1375,6 +1722,27 @@ private fun RhythmApp() {
             onStyles = { setSongStyles(song, it) },
             onGenre = { setGenre(song, it) },
             onSpoken = { setSpoken(song, it) },
+            vocalNow = remember(song.id, stats, artists, features) {
+                Vocal.isVocal(
+                    song, stats[song.id], features[song.id],
+                    artists.firstOrNull { it.artistKey == song.artistKey }?.styles.orEmpty()
+                )
+            },
+            onVocal = { setVocal(song, it) },
+            moodReading = {
+                val snapshot = features
+                val marks = MoodMarks.of(stats) - song.id
+                withContext(Dispatchers.Default) {
+                    val f = snapshot[song.id]?.takeIf { it.energy > 0f }
+                    if (f == null) {
+                        emptyMap()
+                    } else {
+                        val model = MoodModel(snapshot.values.filter { it.energy > 0f }, marks)
+                        Mood.entries.associateWith { model.matches(it, f) }
+                    }
+                }
+            },
+            onMoodMark = { mood, value -> setMoodMark(song, mood, value) },
             onResetPlays = { resetPlayCount(song) },
             onDelete = { deleteSong(song) },
             onOpenArtist = {
@@ -1474,7 +1842,7 @@ private fun RhythmApp() {
                 }
             },
             onClose = { showPlayer = false },
-            onToggle = { player.togglePause() },
+            onToggle = { playPause() },
             onPrevious = { play(queue, queueIndex - 1) },
             onNext = { play(queue, queueIndex + 1) },
             onSeek = { player.seekTo(it) },
@@ -1607,7 +1975,7 @@ private fun RhythmApp() {
                     onOpenPage = { stack = stack + Route.Settings(it) },
                     prefs = prefs,
                     songs = songs.size,
-                    analysed = features.size,
+                    analysed = complete,
                     ratedArtists = artists.count { it.rating > 0 },
                     taggedArtists = artists.count { it.styles.isNotBlank() },
                     liked = stats.values.count { it.liked == 1 },
@@ -1631,13 +1999,6 @@ private fun RhythmApp() {
                             reload()
                         }
                     },
-                    onResetStats = {
-                        scope.launch {
-                            withContext(Dispatchers.IO) { store.clearStats() }
-                            recap = null
-                            reload()
-                        }
-                    },
                     onPickLyricsFolder = {
                         chooseFolder()?.let { prefs.lyricsFolder = it.absolutePath }
                     },
@@ -1645,12 +2006,12 @@ private fun RhythmApp() {
                     onImportPlayCounts = { choosePlayCountFile()?.let { importPlayCounts(it) } },
                     onExportPlaylists = { chooseFolder()?.let { exportPlaylists(it) } },
                     onExportAnalysis = { chooseAnalysisFile()?.let { exportAnalysis(it) } },
+                    onExportCatalog = { chooseCatalogFile()?.let { exportCatalog(it) } },
+                    modelStatus = modelStatus(),
                     busy = busy,
-                    engineReport = engineReport,
                     // Cheap enough to derive on the spot: it is a few sums
                     // over maps the recommender is already holding.
                     taste = remember(engine) { engine?.tasteReport() },
-                    onEvaluate = { evaluateEngine() },
                     onExcludedChanged = { scan(folders) },
                     onShelvesChanged = { scope.launch { reload() } }
                 )
@@ -1668,6 +2029,35 @@ private fun RhythmApp() {
 
                 Route.Algorithm -> AlgorithmSettingsScreen(
                     prefs = prefs,
+                    checks = AlgorithmChecks(
+                        onResetTuning = { resetTuning() },
+                        onlyVocalInSeason = onlyVocal,
+                        onOnlyVocal = { setOnlyVocal(it) },
+                        season = JewishSeasons.at(System.currentTimeMillis())?.label,
+                        usingLearned = usingLearned,
+                        calibrating = calibrating,
+                        calibration = calibrationText,
+                        canApplyLearned = calibrationWeights != null,
+                        onCalibrate = { runCalibration() },
+                        onApplyLearned = { applyLearnedWeights() },
+                        onResetLearned = { resetLearnedWeights() },
+                        soundCheck = soundCheckText,
+                        onSoundCheck = { runSoundCheck() },
+                        modelChecking = modelChecking,
+                        modelReport = modelReportText,
+                        onModelCheck = { runModelEvaluation() },
+                        engineReport = engineReport.ifBlank { null },
+                        onEvaluate = { evaluateEngine() },
+                        onResetLearning = {
+                            scope.launch {
+                                withContext(Dispatchers.IO) { store.clearStats() }
+                                recap = null
+                                reload()
+                                status = "היסטוריית הלמידה אופסה"
+                            }
+                        },
+                        onSeparationsChanged = { retune(tuning.copy(separations = prefs.styleSeparations)) }
+                    ),
                     tuning = tuning,
                     learning = learning,
                     learningReport = learningReport,
@@ -1705,7 +2095,7 @@ private fun RhythmApp() {
                         buildProposals()
                     },
                     onWriteToFiles = { prefs.writeTagsToFiles = it },
-                    onApply = { applyTagFix(it) },
+                    onApply = { list, uncertain -> applyTagFix(list, uncertain) },
                     onEdit = { id, title, artist -> editTags(id, title, artist) },
                     onBack = { stack = stack.dropLast(1) }
                 )
@@ -1759,7 +2149,9 @@ private fun RhythmApp() {
                         var words by remember(song.id) { mutableStateOf<Words?>(null) }
                         LaunchedEffect(song.id) {
                             words = withContext(Dispatchers.IO) {
-                                SongLyrics.find(song, prefs.lyricsFolder)
+                                SongLyrics.find(song, prefs.lyricsFolder).also { seen ->
+                                    runCatching { store.noteLyricsSeen(song.id, seen?.plain.orEmpty(), seen?.lrc.orEmpty()) }
+                                }
                             }
                         }
                         LyricsScreen(
@@ -1778,10 +2170,11 @@ private fun RhythmApp() {
                         ratedArtists = artists.count { it.rating > 0 },
                         albums = library.albums,
                         stats = stats,
-                        moods = if (prefs.pinMoodRow) Mood.entries.toList() else emptyList(),
+                        moods = Mood.entries.toList(),
+                        moodsPinned = prefs.pinMoodRow,
                         scanning = scanning,
                         analysing = analysing,
-                        unanalysed = songs.count { it.id !in features },
+                        unanalysed = songs.count { song -> features[song.id].let { it == null || Analyzer.wantsModels(it) } },
                         status = status,
                         hasFolders = folders.isNotEmpty(),
                         // The one library shape where every other nudge is
@@ -1821,16 +2214,28 @@ private fun RhythmApp() {
                     1 -> SearchPane(
                         query = query,
                         onQuery = { query = it },
-                        results = remember(query, engine) {
+                        results = produceState(emptyList<SongEntity>(), query, engine) {
                             if (query.isBlank()) {
-                                emptyList()
-                            } else {
-                                // Zero means text relevance alone; the
-                                // default leans on what this listener plays.
-                                val personal = if (prefs.searchPersonalized) 0.25 else 0.0
-                                engine?.search(query, personal = personal).orEmpty()
+                                value = emptyList()
+                                return@produceState
                             }
-                        },
+                            // Zero means text relevance alone; the
+                            // default leans on what this listener plays.
+                            val personal = if (prefs.searchPersonalized) 0.25 else 0.0
+                            val byText = engine?.search(query, personal = personal).orEmpty()
+                            value = byText
+                            // Words second, and below: the database is slower
+                            // than matching names in memory, and someone
+                            // typing a title wants the title. The phone's order.
+                            if (!prefs.searchLyrics) return@produceState
+                            val ids = withContext(Dispatchers.IO) {
+                                runCatching { store.songIdsWithLyrics(query) }.getOrDefault(emptyList())
+                            }.toSet()
+                            if (ids.isEmpty()) return@produceState
+                            val already = byText.mapTo(HashSet()) { it.id }
+                            val extra = songs.filter { it.id in ids && it.id !in already }
+                            if (extra.isNotEmpty()) value = byText + extra
+                        }.value,
                         library = library,
                         stats = stats,
                         current = current?.id,
@@ -1933,6 +2338,8 @@ private fun RhythmApp() {
                     )
                     else -> ArtistsPane(
                         artists = library.artists,
+                        merging = merging,
+                        onMerge = { source, target -> mergeArtists(source, target) },
                         onOpen = { stack = stack + Route.Artist(it.key) },
                         onBulkUpdate = { keys, rating, styles, replace ->
                             scope.launch {
@@ -1977,10 +2384,22 @@ private fun RhythmApp() {
                 volume = it
                 player.setVolume(it)
                 prefs.volume = (it * 100).toInt()
+                // The phone's "pause when the volume is at zero", on the
+                // app's own slider: down to nothing pauses, back up resumes -
+                // but only what this paused, never a song paused by hand.
+                if (prefs.pauseOnSilence) {
+                    if (it <= 0f && player.state.value.playing) {
+                        pausedByVolume = true
+                        player.pause()
+                    } else if (it > 0f && pausedByVolume) {
+                        pausedByVolume = false
+                        player.resume()
+                    }
+                }
             },
             onLike = { current?.let { like(it) } },
             onOpen = { if (current != null) showPlayer = true },
-            onToggle = { player.togglePause() },
+            onToggle = { playPause() },
             onNext = { play(queue, queueIndex + 1) },
             onSeek = { player.seekTo(it) }
         )
@@ -2159,6 +2578,16 @@ private fun filterLibrary(
  * exist at all - an artist key derived from the wrong name groups the library
  * by the wrong name.
  */
+/** Songs of the queue kept for the next start. Past this it is a radio that ran all night. */
+private const val MAX_SAVED_QUEUE = 500
+
+/** Whether the AI models are in this build and loaded, in one sentence for the settings. */
+private fun modelStatus(): String = when {
+    Models.failure.isNotEmpty() -> "מודלי ה-AI לא נטענו במחשב הזה (${Models.failure}); הניתוח ממשיך בלעדיהם."
+    Models.soundExpected() && Models.musicExpected() -> "מודלי ה-AI (YAMNet ו-Discogs-EffNet) כלולים בגירסה הזו."
+    else -> "הגירסה הזו לא כוללת את מודלי ה-AI."
+}
+
 private fun applyOverrides(
     songs: List<SongEntity>,
     overrides: Map<Long, TagOverrideEntity>
@@ -3352,8 +3781,8 @@ private fun windowSize(): Pair<Dp, Dp> {
 private fun choosePlaylistFile(): File? {
     val chooser = JFileChooser().apply {
         fileSelectionMode = JFileChooser.FILES_ONLY
-        dialogTitle = "בחר קובץ רשימת השמעה"
-        fileFilter = FileNameExtensionFilter("רשימות השמעה (m3u, m3u8, pls)", "m3u", "m3u8", "pls")
+        dialogTitle = localized("בחר קובץ רשימת השמעה").orEmpty()
+        fileFilter = FileNameExtensionFilter(localized("רשימות השמעה (m3u, m3u8, pls)").orEmpty(), "m3u", "m3u8", "pls")
     }
     return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
         chooser.selectedFile
@@ -3365,8 +3794,8 @@ private fun choosePlaylistFile(): File? {
 private fun choosePlayCountFile(): File? {
     val chooser = JFileChooser().apply {
         fileSelectionMode = JFileChooser.FILES_ONLY
-        dialogTitle = "בחר קובץ היסטוריית השמעות"
-        fileFilter = FileNameExtensionFilter("קובצי טבלה (csv, tsv, txt)", "csv", "tsv", "txt")
+        dialogTitle = localized("בחר קובץ היסטוריית השמעות").orEmpty()
+        fileFilter = FileNameExtensionFilter(localized("קובצי טבלה (csv, tsv, txt)").orEmpty(), "csv", "tsv", "txt")
     }
     return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
         chooser.selectedFile
@@ -3379,10 +3808,10 @@ private fun choosePlayCountFile(): File? {
 private fun chooseAnalysisFile(): File? {
     val chooser = JFileChooser().apply {
         fileSelectionMode = JFileChooser.FILES_ONLY
-        dialogTitle = "שמור תוצאות ניתוח עבור Android"
+        dialogTitle = localized("שמור תוצאות ניתוח עבור Android").orEmpty()
         selectedFile = File("rhythm-library.${AnalysisTransfer.EXTENSION}")
         fileFilter = FileNameExtensionFilter(
-            "תוצאות ניתוח של Rhythm (*.${AnalysisTransfer.EXTENSION})",
+            localized("תוצאות ניתוח של Rhythm (*.${AnalysisTransfer.EXTENSION})").orEmpty(),
             AnalysisTransfer.EXTENSION
         )
     }
@@ -3393,10 +3822,20 @@ private fun chooseAnalysisFile(): File? {
     }
 }
 
+private fun chooseCatalogFile(): File? {
+    val chooser = JFileChooser().apply {
+        fileSelectionMode = JFileChooser.FILES_ONLY
+        dialogTitle = localized("שמור את רשימת הספרייה").orEmpty()
+        selectedFile = File(LibraryCatalogExport.FILE_NAME)
+        fileFilter = FileNameExtensionFilter(localized("קובץ טקסט (*.txt)").orEmpty(), "txt")
+    }
+    return if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) chooser.selectedFile else null
+}
+
 private fun chooseFolder(): File? {
     val chooser = JFileChooser().apply {
         fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-        dialogTitle = "בחר תיקיית מוזיקה"
+        dialogTitle = localized("בחר תיקיית מוזיקה").orEmpty()
     }
     return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
         chooser.selectedFile

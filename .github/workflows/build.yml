@@ -40,6 +40,12 @@ jobs:
       - name: Check every name used is imported
         run: python3 tools/check_imports.py
 
+      # The Windows build runs the phone's models converted to ONNX. If the
+      # phone's models change and nobody converts them again, the two builds
+      # would quietly hear music differently; this says so instead.
+      - name: Check the desktop models match the phone's
+        run: python3 tools/models/to_onnx.py --check
+
       - name: Test the music engine
         run: ./gradlew --no-daemon :engine:test
 
@@ -83,6 +89,13 @@ jobs:
         run: |
           set -o pipefail
           ./gradlew --no-daemon :desktop:compileKotlin 2>&1 | tee desktop.log
+
+      # The desktop's models on a known signal, against the phone's TFLite
+      # and Essentia's own readings (desktop ModelCheck).
+      - name: Test the desktop module
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon :desktop:test 2>&1 | tee -a desktop.log
 
       # One grep over both logs put the Android build's output first and the
       # head cut the Kotlin errors off the end, which is how the last run
@@ -164,6 +177,19 @@ jobs:
         shell: pwsh
         run: |
           .\gradlew.bat --no-daemon :desktop:createDistributable "-PrhythmVersion=1.1.${{ github.run_number }}"
+
+      # The same check inside the finished application image, launched the
+      # way the installed app is launched: the bundled runtime, the trimmed
+      # ONNX Runtime and its Windows DLLs, the models out of the jar. This is
+      # the one place a packaging mistake shows before a user finds it.
+      - name: Check the models inside the application image
+        shell: pwsh
+        run: |
+          $exe = "$PWD\desktop\build\compose\binaries\main\app\Rhythm\Rhythm.exe"
+          $out = "$env:RUNNER_TEMP\model-check.txt"
+          $p = Start-Process -FilePath $exe -ArgumentList "--check-models=$out" -Wait -PassThru
+          if (Test-Path $out) { Get-Content $out; Get-Content $out | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append } else { Write-Host "no report was written" }
+          if ($p.ExitCode -ne 0) { throw "the model check failed (exit code $($p.ExitCode))" }
 
       - name: Show what jpackage said
         if: failure()
