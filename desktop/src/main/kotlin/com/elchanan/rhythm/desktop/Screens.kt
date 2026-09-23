@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.desktop
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -384,7 +386,7 @@ internal fun LibraryPane(
                                     IconButton(onClick = { filter = "" }) {
                                         Icon(
                                             Icons.Filled.Close,
-                                            contentDescription = "נקה",
+                                            contentDescription = localized("נקה"),
                                             tint = TextSecondary
                                         )
                                     }
@@ -736,7 +738,7 @@ internal fun LibraryPane(
                             IconButton(onClick = { onDeletePlaylist(info.playlist.id) }) {
                                 Icon(
                                     Icons.Filled.Delete,
-                                    contentDescription = "מחק",
+                                    contentDescription = localized("מחק"),
                                     tint = TextSecondary
                                 )
                             }
@@ -852,7 +854,7 @@ private fun SelectionBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(onClick = onClear) {
-            Icon(Icons.Filled.Close, contentDescription = "בטל", tint = TextSecondary)
+            Icon(Icons.Filled.Close, contentDescription = localized("בטל"), tint = TextSecondary)
         }
         Text(
             "$count נבחרו",
@@ -935,7 +937,7 @@ private fun BarAction(icon: ImageVector, label: String, onClick: () -> Unit) {
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(icon, contentDescription = label, tint = Accent, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = localized(label), tint = Accent, modifier = Modifier.size(20.dp))
         Text(label, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
     }
 }
@@ -1067,7 +1069,7 @@ internal fun ArtistsPane(
             IconButton(onClick = { importOpen = true }) {
                 Icon(
                     Icons.AutoMirrored.Filled.PlaylistAddCheck,
-                    contentDescription = "הזנה מרוכזת",
+                    contentDescription = localized("הזנה מרוכזת"),
                     tint = Accent
                 )
             }
@@ -1094,7 +1096,7 @@ internal fun ArtistsPane(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = { selection = emptySet() }) {
-                    Icon(Icons.Filled.Close, contentDescription = "בטל", tint = TextSecondary)
+                    Icon(Icons.Filled.Close, contentDescription = localized("בטל"), tint = TextSecondary)
                 }
                 Text(
                     "${selection.size} אמנים נבחרו",
@@ -1395,7 +1397,7 @@ internal fun DetailListScreen(
                             ) {
                                 Icon(
                                     Icons.Filled.Close,
-                                    contentDescription = "הסר מהרשימה",
+                                    contentDescription = localized("הסר מהרשימה"),
                                     tint = TextSecondary,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -2290,7 +2292,7 @@ private fun FolderTree(
                     IconButton(onClick = { tagging = child }) {
                         Icon(
                             Icons.Filled.LocalOffer,
-                            contentDescription = "תייג סגנון לתיקייה",
+                            contentDescription = localized("תייג סגנון לתיקייה"),
                             tint = TextTertiary,
                             modifier = Modifier.size(20.dp)
                         )

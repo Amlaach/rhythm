@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -114,7 +116,7 @@ fun EqualizerScreen(vm: MainViewModel, onBack: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "חזור", tint = TextSecondary)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = localized("חזור"), tint = TextSecondary)
             }
             Spacer(Modifier.width(4.dp))
             Text("אקולייזר", style = MaterialTheme.typography.titleLarge)

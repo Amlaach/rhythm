@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import android.Manifest
 import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -157,7 +159,7 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "חזור", tint = TextSecondary)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = localized("חזור"), tint = TextSecondary)
             }
             Spacer(Modifier.width(4.dp))
             Text("תיקון תגיות", style = MaterialTheme.typography.titleLarge)

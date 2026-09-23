@@ -9,3 +9,6 @@ object UiLanguage {
     var code by mutableStateOf("he")
     val english: Boolean get() = code == "en"
 }
+
+/** Also used for icon accessibility labels and native dialogs. */
+fun localized(text: String?): String? = text?.let { UiStrings.translate(it, UiLanguage.code) }

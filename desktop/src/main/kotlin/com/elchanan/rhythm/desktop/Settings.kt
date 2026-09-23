@@ -158,8 +158,8 @@ internal fun SettingsScreen(
             if (page == SettingsPage.DOORS) {
                 item {
                     LinkRow(
-                        "שפה / Language",
-                        if (UiLanguage.english) "English · Click for עברית" else "עברית · לחצו כדי לעבור ל־English"
+                        if (UiLanguage.english) "Language" else "שפה / Language",
+                        if (UiLanguage.english) "English · Click to switch to Hebrew" else "עברית · לחצו כדי לעבור ל־English"
                     ) {
                         val choice = if (UiLanguage.english) "he" else "en"
                         prefs.language = choice

@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.desktop
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -210,7 +212,7 @@ internal fun SongRow(
             IconButton(onClick = leading, modifier = Modifier.size(30.dp)) {
                 Icon(
                     imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
-                    contentDescription = if (selected) "בטל בחירה" else "בחר",
+                    contentDescription = localized(if (selected) "בטל בחירה" else "בחר"),
                     tint = if (selected) Accent else TextTertiary,
                     modifier = Modifier.size(20.dp)
                 )
@@ -269,7 +271,7 @@ internal fun SongRow(
             IconButton(onClick = onDislike, modifier = Modifier.size(34.dp)) {
                 Icon(
                     imageVector = if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
-                    contentDescription = "דיסלייק",
+                    contentDescription = localized("דיסלייק"),
                     tint = if (liked == -1) Accent else TextTertiary,
                     modifier = Modifier.size(18.dp)
                 )
@@ -279,7 +281,7 @@ internal fun SongRow(
             IconButton(onClick = onLike, modifier = Modifier.size(34.dp)) {
                 Icon(
                     imageVector = if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-                    contentDescription = "לייק",
+                    contentDescription = localized("לייק"),
                     tint = if (liked == 1) Accent else TextTertiary,
                     modifier = Modifier.size(18.dp)
                 )
@@ -289,7 +291,7 @@ internal fun SongRow(
             IconButton(onClick = onMore, modifier = Modifier.size(34.dp)) {
                 Icon(
                     Icons.Filled.MoreVert,
-                    contentDescription = "עוד",
+                    contentDescription = localized("עוד"),
                     tint = TextSecondary,
                     modifier = Modifier.size(20.dp)
                 )
@@ -326,7 +328,7 @@ internal fun StarRow(rating: Int, onRate: ((Int) -> Unit)? = null, size: Int = 2
             val filled = i <= rating
             Icon(
                 imageVector = if (filled) Icons.Filled.Star else Icons.Filled.StarBorder,
-                contentDescription = "דירוג $i",
+                contentDescription = localized("דירוג $i"),
                 tint = if (filled) Accent else TextSecondary,
                 modifier = Modifier
                     .size(size.dp)
@@ -373,7 +375,7 @@ internal fun DetailTopBar(title: String, onBack: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "חזור")
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = localized("חזור"))
         }
         Text(
             text = title,

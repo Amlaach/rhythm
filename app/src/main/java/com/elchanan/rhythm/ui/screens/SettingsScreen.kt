@@ -72,8 +72,8 @@ fun SettingsScreen(
         item {
             SettingsDoor(
                 icon = Icons.Filled.Info,
-                title = "שפה / Language",
-                subtitle = if (language == "en") "English · Tap for עברית" else "עברית · לחצו כדי לעבור ל־English",
+                title = if (language == "en") "Language" else "שפה / Language",
+                subtitle = if (language == "en") "English · Tap to switch to Hebrew" else "עברית · לחצו כדי לעבור ל־English",
                 onClick = { onLanguageChange(if (language == "en") "he" else "en") }
             )
         }

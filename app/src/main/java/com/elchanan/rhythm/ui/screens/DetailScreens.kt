@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -85,7 +87,7 @@ private fun DetailTopBar(title: String, onBack: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "חזור")
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = localized("חזור"))
         }
         Text(
             text = title,

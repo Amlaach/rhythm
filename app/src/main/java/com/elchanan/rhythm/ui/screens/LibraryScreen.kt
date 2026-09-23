@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -470,7 +472,7 @@ fun LibraryScreen(
                                 )
                             }
                             IconButton(onClick = { vm.deletePlaylist(info.playlist.id) }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "מחק", tint = TextSecondary)
+                                Icon(Icons.Filled.Delete, contentDescription = localized("מחק"), tint = TextSecondary)
                             }
                         }
                     }
@@ -768,7 +770,7 @@ internal fun SelectionBar(vm: MainViewModel) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(onClick = onClear) {
-            Icon(Icons.Filled.Close, contentDescription = "בטל", tint = TextSecondary)
+            Icon(Icons.Filled.Close, contentDescription = localized("בטל"), tint = TextSecondary)
         }
         // The count takes whatever room is left and gives it up first. It was
         // a fixed width, and the moment it reached three digits - a few
@@ -949,7 +951,7 @@ private fun BarAction(icon: ImageVector, label: String, onClick: () -> Unit) {
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(icon, contentDescription = label, tint = Accent, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = localized(label), tint = Accent, modifier = Modifier.size(20.dp))
         Text(label, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
     }
 }
@@ -1179,7 +1181,7 @@ private fun FolderTreeTab(
                         IconButton(onClick = { tagging = child }) {
                             Icon(
                                 Icons.Filled.LocalOffer,
-                                contentDescription = "תייג סגנון לתיקייה",
+                                contentDescription = localized("תייג סגנון לתיקייה"),
                                 tint = TextTertiary,
                                 modifier = Modifier.size(20.dp)
                             )

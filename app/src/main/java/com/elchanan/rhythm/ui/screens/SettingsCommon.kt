@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -60,7 +62,7 @@ internal fun SettingsScaffold(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "חזור")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = localized("חזור"))
             }
             Text(title, style = MaterialTheme.typography.headlineSmall)
         }

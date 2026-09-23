@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -402,7 +404,7 @@ private fun AlbumCardMenu(vm: MainViewModel, album: AlbumInfo, modifier: Modifie
         ) {
             Icon(
                 Icons.Filled.MoreVert,
-                contentDescription = "אפשרויות אלבום",
+                contentDescription = localized("אפשרויות אלבום"),
                 tint = Color.White,
                 modifier = Modifier.size(20.dp)
             )
@@ -531,13 +533,13 @@ private fun HomeTopBar(
             modifier = Modifier.weight(1f)
         )
         IconButton(onClick = onRefresh) {
-            Icon(Icons.Filled.Autorenew, contentDescription = "רענון", tint = TextSecondary)
+            Icon(Icons.Filled.Autorenew, contentDescription = localized("רענון"), tint = TextSecondary)
         }
         IconButton(onClick = onRecap) {
-            Icon(Icons.Filled.BarChart, contentDescription = "הסיכום שלך", tint = TextSecondary)
+            Icon(Icons.Filled.BarChart, contentDescription = localized("הסיכום שלך"), tint = TextSecondary)
         }
         IconButton(onClick = onSettings) {
-            Icon(Icons.Filled.Settings, contentDescription = "הגדרות", tint = TextSecondary)
+            Icon(Icons.Filled.Settings, contentDescription = localized("הגדרות"), tint = TextSecondary)
         }
     }
 }
@@ -605,7 +607,7 @@ private fun Banner(
             IconButton(onClick = onDismiss, modifier = Modifier.size(30.dp)) {
                 Icon(
                     Icons.Filled.Close,
-                    contentDescription = "סגור",
+                    contentDescription = localized("סגור"),
                     tint = TextSecondary,
                     modifier = Modifier.size(18.dp)
                 )
@@ -951,7 +953,7 @@ private fun QuickPickRow(
         IconButton(onClick = onMore, modifier = Modifier.size(34.dp)) {
             Icon(
                 Icons.Filled.MoreVert,
-                contentDescription = "עוד",
+                contentDescription = localized("עוד"),
                 tint = TextSecondary,
                 modifier = Modifier.size(20.dp)
             )

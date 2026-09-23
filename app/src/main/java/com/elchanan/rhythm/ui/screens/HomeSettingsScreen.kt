@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -79,7 +81,7 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             IconButton(onClick = onBack) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "חזור",
+                    contentDescription = localized("חזור"),
                     tint = TextSecondary
                 )
             }

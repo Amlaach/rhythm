@@ -88,7 +88,11 @@ class LibraryWorkService : Service() {
         work = holder.launch {
             try {
                 if (scan) {
-                    notify(getString(R.string.work_scanning), 0, 0)
+                    notify(
+                        if (app.repository.prefs.language == "en") "Scanning your library…"
+                        else getString(R.string.work_scanning),
+                        0, 0
+                    )
                     runCatching { app.repository.rescan() }
                     app.analysis.refreshCounts()
                 }
@@ -101,7 +105,8 @@ class LibraryWorkService : Service() {
                         val progress = app.analysis.progress.value
                         if (!progress.running && progress.remaining == 0) break
                         notify(
-                            getString(R.string.work_analyzing),
+                            if (app.repository.prefs.language == "en") "Analyzing your music…"
+                            else getString(R.string.work_analyzing),
                             progress.done,
                             progress.total
                         )

@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -130,14 +132,14 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
                 )
             }
             IconButton(onClick = { bulkOpen = true }) {
-                Icon(Icons.Filled.PostAdd, contentDescription = "הזנה מרוכזת", tint = Accent)
+                Icon(Icons.Filled.PostAdd, contentDescription = localized("הזנה מרוכזת"), tint = Accent)
             }
             IconButton(onClick = {
                 scope.launch {
                     clipboard.setText(AnnotatedString(vm.exportArtistsJson()))
                 }
             }) {
-                Icon(Icons.Filled.ContentCopy, contentDescription = "העתק גיבוי", tint = TextSecondary)
+                Icon(Icons.Filled.ContentCopy, contentDescription = localized("העתק גיבוי"), tint = TextSecondary)
             }
         }
 
@@ -232,7 +234,7 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = { selection = emptySet() }) {
-                    Icon(Icons.Filled.Close, contentDescription = "בטל", tint = TextSecondary)
+                    Icon(Icons.Filled.Close, contentDescription = localized("בטל"), tint = TextSecondary)
                 }
                 Text("${selection.size} אמנים נבחרו", style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.weight(1f))
