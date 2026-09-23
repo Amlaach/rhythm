@@ -1761,7 +1761,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         features
                     )
                 }
-                _musicModelReport.value = MusicModelEvaluation.describe(report)
+                _musicModelReport.value = MusicModelEvaluation.describe(report, prefs.language)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

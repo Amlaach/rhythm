@@ -21,7 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
+import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -58,6 +58,8 @@ internal fun displayNameOf(context: android.content.Context, uri: android.net.Ur
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    language: String,
+    onLanguageChange: (String) -> Unit,
     onOpenHomeSettings: () -> Unit = {},
     onOpenPlayerSettings: () -> Unit = {},
     onOpenAlgorithmSettings: () -> Unit = {},
@@ -67,6 +69,14 @@ fun SettingsScreen(
     onOpenAbout: () -> Unit = {}
 ) {
     SettingsScaffold(title = "הגדרות", onBack = onBack) {
+        item {
+            SettingsDoor(
+                icon = Icons.Filled.Info,
+                title = "שפה / Language",
+                subtitle = if (language == "en") "English · Tap for עברית" else "עברית · לחצו כדי לעבור ל־English",
+                onClick = { onLanguageChange(if (language == "en") "he" else "en") }
+            )
+        }
         item {
             SettingsDoor(
                 icon = Icons.Filled.Home,
@@ -241,4 +251,3 @@ internal fun SectionToggleRow(
         ) { Text(if (open) "סגור" else "פתח") }
     }
 }
-

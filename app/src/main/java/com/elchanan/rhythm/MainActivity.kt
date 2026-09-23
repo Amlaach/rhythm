@@ -16,6 +16,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.RhythmRoot
 import com.elchanan.rhythm.ui.theme.RhythmTheme
+import com.elchanan.rhythm.ui.theme.UiLanguage
+import com.elchanan.rhythm.data.Prefs
 
 class MainActivity : ComponentActivity() {
 
@@ -39,6 +41,8 @@ class MainActivity : ComponentActivity() {
 
         hasAudioPermission = ContextCompat.checkSelfPermission(this, audioPermission) ==
             PackageManager.PERMISSION_GRANTED
+
+        UiLanguage.code = Prefs(this).language
 
         setContent {
             RhythmTheme {

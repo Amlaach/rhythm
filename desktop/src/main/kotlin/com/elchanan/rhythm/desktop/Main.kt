@@ -85,7 +85,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -156,6 +156,7 @@ import com.elchanan.rhythm.engine.Versions
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.RhythmTheme
+import com.elchanan.rhythm.ui.theme.UiLanguage
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface2
 import com.elchanan.rhythm.ui.theme.TextPrimary
@@ -276,7 +277,7 @@ private fun RhythmApp() {
     // The song the options dialog is open on, if any. Held here rather than
     // inside each screen so every list in the app opens the same one.
     var options by remember { mutableStateOf<SongEntity?>(null) }
-    val prefs = remember(store) { Prefs(store) }
+    val prefs = remember(store) { Prefs(store).also { UiLanguage.code = it.language } }
     // Read once: a nudge that has been turned down stays down, and the flag
     // only ever changes from this screen.
     var tagTipVisible by remember { mutableStateOf(!prefs.tagTipSeen) }

@@ -15,6 +15,10 @@ class Prefs(context: Context) {
 
     private val sp = context.getSharedPreferences("rhythm_prefs", Context.MODE_PRIVATE)
 
+    var language: String
+        get() = sp.getString("ui_language", "he").orEmpty().let { if (it == "en") "en" else "he" }
+        set(value) = sp.edit { putString("ui_language", if (value == "en") "en" else "he") }
+
     var minDurationSec: Int
         get() = sp.getInt(KEY_MIN_DURATION, 45)
         set(value) = sp.edit { putInt(KEY_MIN_DURATION, value) }
