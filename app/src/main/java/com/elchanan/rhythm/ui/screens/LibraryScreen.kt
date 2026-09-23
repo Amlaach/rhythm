@@ -1042,6 +1042,22 @@ private fun FolderTreeTab(
     val trail = remember(root, here) { Folders.trail(root, here.path) }
     // Which folder the style dialog is about, or null while it is closed.
     var tagging by remember { mutableStateOf<Folders.Node?>(null) }
+    // Which folder the rating dialog is about, likewise.
+    var rating by remember { mutableStateOf<Folders.Node?>(null) }
+
+    rating?.let { node ->
+        val inside = remember(node) { Folders.allSongs(node) }
+        FolderRatingDialog(
+            folderName = node.name,
+            songs = inside,
+            stats = library.stats,
+            onDismiss = { rating = null },
+            onApply = { ids, stars ->
+                vm.bulkRateSongs(ids, stars)
+                rating = null
+            }
+        )
+    }
 
     tagging?.let { node ->
         val inside = remember(node) { Folders.allSongs(node) }
@@ -1114,6 +1130,7 @@ private fun FolderTreeTab(
                             vm.shuffleList(Folders.allSongs(here))
                         })
                         Chip(label = "תייג סגנון", selected = false, onClick = { tagging = here })
+                        Chip(label = "דרג", selected = false, onClick = { rating = here })
                     }
                 }
             }
@@ -1178,6 +1195,14 @@ private fun FolderTreeTab(
                         )
                     }
                     if (!selectionMode) {
+                        IconButton(onClick = { rating = child }) {
+                            Icon(
+                                Icons.Filled.Star,
+                                contentDescription = localized("דרג את כל השירים בתיקייה"),
+                                tint = TextTertiary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                         IconButton(onClick = { tagging = child }) {
                             Icon(
                                 Icons.Filled.LocalOffer,
@@ -1229,6 +1254,66 @@ private fun FolderTreeTab(
             }
         }
     }
+}
+
+/**
+ * One rating for every song in a folder, subfolders included.
+ *
+ * Whether songs already rated one by one keep their own is asked, and
+ * keeping them is the default: a rating given to one song on purpose says
+ * more than one given to a folder in passing.
+ */
+@Composable
+private fun FolderRatingDialog(
+    folderName: String,
+    songs: List<SongEntity>,
+    stats: Map<Long, com.elchanan.rhythm.data.db.SongStatsEntity>,
+    onDismiss: () -> Unit,
+    onApply: (List<Long>, Int) -> Unit
+) {
+    var stars by remember { mutableStateOf(0) }
+    var keepRated by remember { mutableStateOf(true) }
+    val rated = songs.count { (stats[it.id]?.rating ?: 0) > 0 }
+    val target = if (keepRated) songs.filter { (stats[it.id]?.rating ?: 0) == 0 } else songs
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("דירוג לתיקייה") },
+        text = {
+            Column {
+                Text(
+                    "\"$folderName\" · ${songs.size} שירים, כולל תת־תיקיות",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(14.dp))
+                StarRow(rating = stars, onRate = { stars = it }, size = 34)
+                if (rated > 0) {
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip(label = "רק שירים בלי דירוג", selected = keepRated, onClick = { keepRated = true })
+                        Chip(label = "כל השירים", selected = !keepRated, onClick = { keepRated = false })
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        if (keepRated) "$rated שירים שכבר דירגת אחד אחד ישמרו את הדירוג שלהם."
+                        else "גם $rated השירים שכבר דירגת יקבלו את הדירוג הזה.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = stars > 0 && target.isNotEmpty(),
+                onClick = { onApply(target.map { it.id }, stars) }
+            ) { Text("דרג ${target.size} שירים", color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("ביטול", color = TextSecondary) }
+        }
+    )
 }
 
 /**

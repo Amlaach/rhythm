@@ -869,6 +869,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         refreshFeed()
     }
 
+    fun setMedleyMinutes(value: Int) {
+        prefs.medleyMinutes = value
+        refreshFeed()
+    }
+
     /** What the user said about songs' moods, from the live stats. */
     private fun moodMarks(): Map<Long, Map<Mood, Boolean>> = MoodMarks.of(library.value.stats)
 

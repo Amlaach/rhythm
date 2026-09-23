@@ -116,8 +116,21 @@ data class EngineTuning(
      */
     val learned: SignalWeights? = null,
     /** During the Omer and the Three Weeks, generate from vocal songs only. */
-    val onlyVocalInSeason: Boolean = false
-)
+    val onlyVocalInSeason: Boolean = false,
+    /**
+     * From how many minutes a track counts as a medley even when its title
+     * does not say so, or 0 for the title alone. A set of several songs is
+     * often just called by the first of them, and its length is what gives it
+     * away. Off by default: a long niggun is not a medley, and where the line
+     * falls is the listener's to draw.
+     */
+    val medleyMinutes: Int = 0
+) {
+    companion object {
+        /** The lengths the settings offer for [medleyMinutes]; 0 is off. The same on both apps. */
+        val MEDLEY_CHOICES = listOf(0, 8, 10, 12, 15, 20, 30)
+    }
+}
 
 /**
  * How much each of the signals that can speak for a song before it has been
@@ -631,6 +644,14 @@ class Recommender(
 
     /** The signal weights in force: learned for this listener, or the defaults. */
     private val weights: SignalWeights = tuning.learned ?: SignalWeights.DEFAULT
+
+    /**
+     * A medley, by its title or - when the listener set a length - by being
+     * at least that long. Kept out of everything generated, as [isMedley] is.
+     */
+    private fun medley(song: SongEntity): Boolean =
+        isMedley(song.title) ||
+            (tuning.medleyMinutes > 0 && song.durationMs >= tuning.medleyMinutes * 60_000L)
 
     /** The taste vector before normalising, kept so one song can be taken out of it. */
     private val tasteRaw: Map<String, Double> = buildTasteVector()
@@ -1622,7 +1643,7 @@ class Recommender(
         // with only the seed's id excluded opened, reliably, on the same song
         // again - which is exactly the duplicate that was reported.
         val pool = playable.filter {
-            it.id != seed.id && (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title) &&
+            it.id != seed.id && (stats[it.id]?.liked ?: 0) != -1 && !medley(it) &&
                 !separated(seed.id, it.id) && !samePiece(seed.id, it.id)
         }
         val chosen = pick(
@@ -1657,7 +1678,7 @@ class Recommender(
         val heardPieces = (seedIds + exclude)
             .mapNotNullTo(HashSet()) { id -> pieceKeyById[id]?.takeIf { it.isNotBlank() } }
         val pool = playable.filter {
-            it.id !in exclude && (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title) &&
+            it.id !in exclude && (stats[it.id]?.liked ?: 0) != -1 && !medley(it) &&
                 pieceKeyById[it.id] !in heardPieces &&
                 // Against the track just played, not the whole of `recent`: a
                 // continuation follows what is happening now, and a sitting
@@ -1691,7 +1712,7 @@ class Recommender(
         // began halfway through. They are still there to be played on purpose
         // from the library, from search, and from a folder.
         val notDisliked = playable.filter {
-            (stats[it.id]?.liked ?: 0) != -1 && !isMedley(it.title)
+            (stats[it.id]?.liked ?: 0) != -1 && !medley(it)
         }
 
         // Speed dial: the handful of tracks actually returned to, first on the
@@ -1757,7 +1778,7 @@ class Recommender(
             )
         }
 
-        val liked = playable.filter { (stats[it.id]?.liked ?: 0) == 1 && !isMedley(it.title) }
+        val liked = playable.filter { (stats[it.id]?.liked ?: 0) == 1 && !medley(it) }
         if (liked.size >= 4) {
             // The liked half went straight in, untouched by any rule: two
             // liked takes of one song both appeared, and liked songs from two
@@ -2016,7 +2037,7 @@ class Recommender(
         // vocal song outside its weeks, and a shelf named after it would then
         // stand on a song the feed itself keeps out of sight.
         val lastLiked = playable
-            .filter { (stats[it.id]?.liked ?: 0) == 1 && !isMedley(it.title) }
+            .filter { (stats[it.id]?.liked ?: 0) == 1 && !medley(it) }
             .maxByOrNull { stats[it.id]?.likedAt ?: 0L }
         if (lastLiked != null) {
             val related = radio(lastLiked, 18).drop(1)
@@ -2342,7 +2363,7 @@ class Recommender(
         val space = acoustic ?: return emptyList()
         // Medleys stay out, as they do of every other generated mix: landing on
         // one unasked sounds like a song that started halfway through.
-        val entries = playable.filter { space.has(it.id) && !isMedley(it.title) }
+        val entries = playable.filter { space.has(it.id) && !medley(it) }
         if (entries.size < 40) return emptyList()
 
         val dims = AcousticSpace.DIMS

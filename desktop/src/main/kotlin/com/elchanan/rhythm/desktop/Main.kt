@@ -2033,6 +2033,13 @@ private fun RhythmApp() {
                         onResetTuning = { resetTuning() },
                         onlyVocalInSeason = onlyVocal,
                         onOnlyVocal = { setOnlyVocal(it) },
+                        medleyMinutes = tuning.medleyMinutes,
+                        onMedleyMinutes = { minutes ->
+                            scope.launch {
+                                withContext(Dispatchers.IO) { store.medleyMinutes = minutes }
+                                reload()
+                            }
+                        },
                         season = JewishSeasons.at(System.currentTimeMillis())?.label,
                         usingLearned = usingLearned,
                         calibrating = calibrating,
@@ -2281,6 +2288,9 @@ private fun RhythmApp() {
                                     store.bulkSetRating(ids, rating)
                                     store.stats()
                                 }
+                                // A rating moves recommendations; the phone
+                                // rebuilds its feed after one, and so does this.
+                                reload()
                                 status = "דורגו ${ids.size} שירים"
                             }
                         },

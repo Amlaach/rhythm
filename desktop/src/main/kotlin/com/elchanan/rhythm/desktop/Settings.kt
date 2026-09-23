@@ -982,6 +982,26 @@ internal fun AlgorithmSettingsScreen(
                         (checks.season?.let { "כרגע: $it." } ?: "כרגע לא בתקופות האלה."),
                     checked = checks.onlyVocalInSeason
                 ) { checks.onOnlyVocal(it) }
+                // A set of songs is often titled after the first of them;
+                // its length is what gives it away. Off unless chosen.
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER, vertical = 10.dp)) {
+                    Text("מחרוזת לפי אורך", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "שיר שאורכו לפחות כך נחשב מחרוזת, גם כשבשם שלו לא כתוב \"מחרוזת\". " +
+                            "מחרוזות לא נכנסות למיקסים, לרדיו ולמדפים — הן נשארות בספרייה.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(EngineTuning.MEDLEY_CHOICES) { minutes ->
+                            Chip(
+                                label = if (minutes == 0) "רק לפי השם" else "$minutes דקות ומעלה",
+                                selected = checks.medleyMinutes == minutes
+                            ) { checks.onMedleyMinutes(minutes) }
+                        }
+                    }
+                }
                 ActionRow(
                     title = "תעודת ציונים לאלגוריתם",
                     subtitle = "בודק על ההיסטוריה שלך אם האלגוריתם יודע לחזות אילו שירים " +
@@ -1196,6 +1216,8 @@ internal class AlgorithmChecks(
     val onResetTuning: () -> Unit,
     val onlyVocalInSeason: Boolean,
     val onOnlyVocal: (Boolean) -> Unit,
+    val medleyMinutes: Int,
+    val onMedleyMinutes: (Int) -> Unit,
     /** The Omer or the Three Weeks by name, when today is in one. */
     val season: String?,
     val usingLearned: Boolean,

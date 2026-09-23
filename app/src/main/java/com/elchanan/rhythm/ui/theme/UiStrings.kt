@@ -25,6 +25,7 @@ object UiStrings {
         putAll(part17())
         putAll(part18())
         putAll(part19())
+        putAll(part20())
     } }
     private data class Template(val pattern: Regex, val target: String, val names: List<String>, val literal: Int)
     private val templates: List<Template> by lazy { exact.mapNotNull { (source, target) ->
@@ -1623,5 +1624,19 @@ object UiStrings {
             "Style and mood recognition: Discogs-EffNet and Essentia's mood classifiers, by MTG, Universitat Pompeu Fabra in Barcelona, under CC BY-NC-SA 4.0 — non-commercial use only. The same models as on the phone, converted to ONNX and run with ONNX Runtime (Microsoft, MIT licence). Source: essentia.upf.edu/models.html; licence: creativecommons.org/licenses/by-nc-sa/4.0/. Credits and licences are included in the installation folder.",
         "בנייה מקומית — לא נבנתה דרך GitHub Actions, ולכן אין לה מספר בנייה שאפשר להשוות אליו." to
             "Local build — not built by GitHub Actions, so it has no build number to compare against."
+    )
+    private fun part20(): Map<String, String> = mapOf(
+        "מחרוזת לפי אורך" to "Medley by length",
+        "שיר שאורכו לפחות כך נחשב מחרוזת, גם כשבשם שלו לא כתוב \"מחרוזת\". " to "A track at least this long counts as a medley, even when its name does not say \"medley\". ",
+        "מחרוזות לא נכנסות למיקסים, לרדיו ולמדפים — הן נשארות בספרייה." to "Medleys stay out of mixes, radio and shelves — they stay in the library.",
+        "רק לפי השם" to "By name only",
+        "\$minutes דקות ומעלה" to "\$minutes minutes and up",
+        "דרג את כל השירים בתיקייה" to "Rate every song in the folder",
+        "דירוג לתיקייה" to "Rate a folder",
+        "\"\$folderName\" · \${songs.size} שירים, כולל תת־תיקיות" to "\"\$folderName\" · \${songs.size} songs, subfolders included",
+        "רק שירים בלי דירוג" to "Only unrated songs",
+        "\$rated שירים שכבר דירגת אחד אחד ישמרו את הדירוג שלהם." to "\$rated songs you already rated one by one keep their rating.",
+        "גם \$rated השירים שכבר דירגת יקבלו את הדירוג הזה." to "The \$rated songs you already rated get this rating too.",
+        "דרג \${target.size} שירים" to "Rate \${target.size} songs"
     )
 }

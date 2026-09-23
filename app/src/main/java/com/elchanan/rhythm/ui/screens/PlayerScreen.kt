@@ -266,6 +266,38 @@ fun PlayerScreen(
     val dragY = remember { Animatable(0f) }
     val dismissPx = with(LocalDensity.current) { 120.dp.toPx() }
 
+    // Pulled down from anywhere on the sheet, not only its header. The drag
+    // sits on a frame that does not move, around the sheet that does: a
+    // detector inside the moving sheet measures the finger against itself and
+    // loses half of every step. Anything under the finger that uses a vertical
+    // drag itself - the queue list, the lyrics - gets it first, as children
+    // always do, so they scroll as before; a sideways swipe on the cover still
+    // changes the song. Only a downward drag that nothing else took puts the
+    // player away.
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        scope.launch {
+                            if (dragY.value > dismissPx) {
+                                onCollapse()
+                                dragY.snapTo(0f)
+                            } else {
+                                dragY.animateTo(0f)
+                            }
+                        }
+                    },
+                    onDragCancel = { scope.launch { dragY.animateTo(0f) } }
+                ) { change, amount ->
+                    change.consume()
+                    scope.launch {
+                        dragY.snapTo((dragY.value + amount).coerceAtLeast(0f))
+                    }
+                }
+            }
+    ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -295,32 +327,7 @@ fun PlayerScreen(
                 .fillMaxSize()
                 .padding(top = topPad, bottom = bottomPad)
         ) {
-            // The drag lives on the header alone rather than the whole sheet, so it
-            // can never fight the scrubber, the queue list or the lyrics scroller.
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .pointerInput(Unit) {
-                        detectVerticalDragGestures(
-                            onDragEnd = {
-                                scope.launch {
-                                    if (dragY.value > dismissPx) {
-                                        onCollapse()
-                                        dragY.snapTo(0f)
-                                    } else {
-                                        dragY.animateTo(0f)
-                                    }
-                                }
-                            },
-                            onDragCancel = { scope.launch { dragY.animateTo(0f) } }
-                        ) { change, amount ->
-                            change.consume()
-                            scope.launch {
-                                dragY.snapTo((dragY.value + amount).coerceAtLeast(0f))
-                            }
-                        }
-                    }
-            ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 // The grab handle: the affordance that says this panel pulls down.
                 Box(
                     modifier = Modifier
@@ -736,6 +743,7 @@ fun PlayerScreen(
                 Spacer(Modifier.height(16.dp))
             }
         }
+    }
     }
 
     if (sleepOpen) SleepDialog(vm = vm, onDismiss = { sleepOpen = false })

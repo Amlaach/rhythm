@@ -268,6 +268,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_RESUME_SPOKEN, true)
         set(value) = sp.edit { putBoolean(KEY_RESUME_SPOKEN, value) }
 
+    /** From how many minutes a track counts as a medley, 0 for the title alone. See EngineTuning.medleyMinutes. */
+    var medleyMinutes: Int
+        get() = sp.getInt(KEY_MEDLEY_MINUTES, 0)
+        set(value) = sp.edit { putInt(KEY_MEDLEY_MINUTES, value) }
+
     /** In the Omer and the Three Weeks, recommend vocal-only songs and nothing else. */
     var onlyVocalInSeason: Boolean
         get() = sp.getBoolean(KEY_ONLY_VOCAL, true)
@@ -540,5 +545,6 @@ class Prefs(context: Context) {
         const val KEY_TAP_ARTWORK = "tap_artwork_toggles"
         const val KEY_RESUME_SPOKEN = "resume_spoken"
         const val KEY_ONLY_VOCAL = "only_vocal_in_season"
+        const val KEY_MEDLEY_MINUTES = "medley_minutes"
     }
 }
