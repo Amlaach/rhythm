@@ -252,6 +252,15 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_PIN_MOODS, true)
         set(value) = sp.edit { putBoolean(KEY_PIN_MOODS, value) }
 
+    /**
+     * What a tap on the cover in the player does: one of [ArtworkTap]. Until it is chosen, what the
+     * older on/off switch said.
+     */
+    var artworkTap: String
+        get() = sp.getString(KEY_ARTWORK_TAP_MODE, null)
+            ?: if (tapArtworkToggles) ArtworkTap.TOGGLE else ArtworkTap.NONE
+        set(value) = sp.edit { putString(KEY_ARTWORK_TAP_MODE, value) }
+
     /** Tap the artwork in the player to pause and carry on. */
     var tapArtworkToggles: Boolean
         get() = sp.getBoolean(KEY_TAP_ARTWORK, true)
@@ -552,5 +561,15 @@ class Prefs(context: Context) {
         const val KEY_ONLY_VOCAL = "only_vocal_in_season"
         const val KEY_MEDLEY_MINUTES = "medley_minutes"
         const val KEY_COMPACT = "compact_mode"
+        const val KEY_ARTWORK_TAP_MODE = "artwork_tap_mode"
     }
+}
+
+/** What a tap on the cover in the player does. See [Prefs.artworkTap]. */
+object ArtworkTap {
+    /** Pause and carry on. */
+    const val TOGGLE = "TOGGLE"
+    /** Open the cover full size. */
+    const val ZOOM = "ZOOM"
+    const val NONE = "NONE"
 }
