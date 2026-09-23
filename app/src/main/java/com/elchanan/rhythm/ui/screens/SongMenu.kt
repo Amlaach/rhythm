@@ -48,6 +48,7 @@ enum class SongMenuItem(val key: String, val label: String) {
     ARTIST("artist", "עבור לאמן"),
     ALBUM("album", "עבור לאלבום"),
     GENRE("genre", "שנה ז'אנר"),
+    EDIT("edit", "עריכת פרטי השיר"),
     SHARE("share", "שתף"),
     SPOKEN("spoken", "הרצאה או מוזיקה"),
     VOCAL("vocal", "ווקאלי"),

@@ -35,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
@@ -775,6 +776,7 @@ internal fun SelectionBar(vm: MainViewModel) {
     var rateOpen by remember { mutableStateOf(false) }
     var playlistOpen by remember { mutableStateOf(false) }
     var genreOpen by remember { mutableStateOf(false) }
+    var editOpen by remember { mutableStateOf(false) }
     var deleteOpen by remember { mutableStateOf(false) }
     var moreOpen by remember { mutableStateOf(false) }
     var styleOpen by remember { mutableStateOf(false) }
@@ -839,6 +841,11 @@ internal fun SelectionBar(vm: MainViewModel) {
                     onClick = { moreOpen = false; rateOpen = true }
                 )
                 DropdownMenuItem(
+                    text = { Text("עריכת פרטים") },
+                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                    onClick = { moreOpen = false; editOpen = true }
+                )
+                DropdownMenuItem(
                     text = { Text("ז'אנר") },
                     leadingIcon = { Icon(Icons.Filled.LocalOffer, contentDescription = null) },
                     onClick = { moreOpen = false; genreOpen = true }
@@ -867,6 +874,10 @@ internal fun SelectionBar(vm: MainViewModel) {
             onDismiss = { styleOpen = false },
             onApply = { styles, replace -> vm.tagFolder(songs, styles, replace); onClear() }
         )
+    }
+
+    if (editOpen) {
+        SongEditDialog(vm = vm, songs = songs, onDismiss = { editOpen = false }, onSaved = onClear)
     }
 
     if (genreOpen) {

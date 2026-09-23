@@ -208,6 +208,28 @@ fun RhythmRoot(
         if (queueRequest) playerOpen = true
     }
 
+    // Writing a song's details into its file needs the system's own
+    // permission dialog from Android 11 on, and only an activity can show it.
+    // Here rather than on one screen, because the edit can start anywhere -
+    // the player, a song's menu, a selection, the tag fixer.
+    val writePermission by vm.writePermissionRequest.collectAsStateWithLifecycle()
+    val writeLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        vm.onWritePermissionResult(result.resultCode == android.app.Activity.RESULT_OK)
+    }
+    LaunchedEffect(writePermission) {
+        writePermission?.let { writeLauncher.launch(IntentSenderRequest.Builder(it).build()) }
+    }
+    // Below Android 11 there is no per file dialog, only the old storage permission.
+    val legacyWrite by vm.legacyPermissionRequest.collectAsStateWithLifecycle()
+    val legacyLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> vm.onWritePermissionResult(granted) }
+    LaunchedEffect(legacyWrite) {
+        if (legacyWrite) legacyLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+    }
+
     val startedCount by vm.playbackStarted.collectAsStateWithLifecycle()
     LaunchedEffect(startedCount) {
         if (startedCount > 0 && vm.prefs.openPlayerOnPlay) playerOpen = true

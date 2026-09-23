@@ -27,6 +27,7 @@ object UiStrings {
         putAll(part19())
         putAll(part20())
         putAll(part21())
+        putAll(part22())
     } }
     private data class Template(val pattern: Regex, val target: String, val names: List<String>, val literal: Int)
     private val templates: List<Template> by lazy { exact.mapNotNull { (source, target) ->
@@ -1681,5 +1682,19 @@ object UiStrings {
         "בחר קבצים" to "Choose files",
         "בחר את הייצוא מ־Google Takeout" to "Choose the Google Takeout export",
         "ייצוא של Google Takeout (zip, csv, json, html)" to "Google Takeout export (zip, csv, json, html)"
+    )
+
+    private fun part22(): Map<String, String> = mapOf(
+        "הקובץ נוצר בגרסה חדשה יותר של Rhythm. צריך לעדכן את האפליקציה בטלפון ולייבא שוב" to "The file was made by a newer version of Rhythm. Update the app on the phone and import again",
+        "קובץ הניתוח פגום או חלקי" to "The analysis file is damaged or incomplete",
+        "פרטי השיר עודכנו" to "Song details updated",
+        "עודכנו \${songIds.size} שירים" to "Updated \${songIds.size} songs",
+        "נשמר באפליקציה. הקובץ אינו MP3, ולכן הוא עצמו לא שונה." to "Saved in the app. The file is not an MP3, so the file itself was not changed.",
+        "נכתבו \${outcome.written} קבצים · \${outcome.notMp3} אינם MP3 ונשמרו רק באפליקציה" to "Wrote \${outcome.written} files · \${outcome.notMp3} are not MP3 and were saved in the app only",
+        "עריכת פרטים" to "Edit details",
+        "עריכת פרטי השיר" to "Edit song details",
+        "עריכת \${songs.size} שירים" to "Edit \${songs.size} songs",
+        "ללא שינוי" to "Unchanged",
+        "נשמר באפליקציה ונכתב גם לתוך הקובץ עצמו (MP3), כך שכל נגן יראה אותו. העטיפה ושאר פרטי הקובץ נשמרים כמו שהם." to "Saved in the app and written into the file itself (MP3), so every player sees it. The cover and the rest of the file stay as they are."
     )
 }

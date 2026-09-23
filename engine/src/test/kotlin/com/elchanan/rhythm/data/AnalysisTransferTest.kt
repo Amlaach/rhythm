@@ -109,6 +109,25 @@ class AnalysisTransferTest {
         assertEquals(feature(0, tags = "1:0.5"), decoded.tracks.single().feature)
     }
 
+    @Test fun aFileFromANewerVersionSaysSo() {
+        val song = song(4, "C:\\a.mp3", "a", "b", 10, 200_000)
+        val current = AnalysisTransfer.encode(listOf(song), mapOf(4L to feature(4)))
+        // The same file, as a later release with a format this one does not know would write it.
+        val body = current.substringBefore("SHA256\t").lines().filter { it.isNotEmpty() }.mapIndexed { i, line ->
+            val p = line.split('\t')
+            if (i == 0) (listOf(p[0], (AnalysisTransfer.FORMAT_VERSION + 1).toString()) + p.drop(2)).joinToString("\t")
+            else line
+        }.joinToString("\n") + "\n"
+        val sha = java.security.MessageDigest.getInstance("SHA-256").digest(body.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        try {
+            AnalysisTransfer.decode(body + "SHA256\t" + sha + "\n")
+            fail("a newer format must be refused")
+        } catch (e: AnalysisTransfer.NewerVersionException) {
+            // expected: the phone says to update, not that the file is broken
+        }
+    }
+
     @Test fun importingDoesNotEraseThePhonesPrints() {
         val desktop = song(1, "C:\\song.mp3", "Song", "Artist", 1000, 200_000)
         val phone = song(2, "/Music/song.mp3", "Song", "Artist", 1000, 200_000)

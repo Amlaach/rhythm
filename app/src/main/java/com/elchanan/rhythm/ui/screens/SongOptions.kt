@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -116,6 +117,7 @@ fun SongOptionsSheet(
     var confirmReset by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var genreOpen by remember { mutableStateOf(false) }
+    var editOpen by remember { mutableStateOf(false) }
     var moodOpen by remember { mutableStateOf(false) }
     val detail by vm.detail.collectAsStateWithLifecycle()
     // Opened from inside a mood's list: the fastest place to say "not this".
@@ -273,6 +275,7 @@ fun SongOptionsSheet(
                     OptionRow(Icons.Filled.Album, "עבור לאלבום") { onOpenAlbum(); onDismiss() }
                 }
                 SongMenuItem.GENRE -> OptionRow(Icons.Filled.LocalOffer, "שנה ז'אנר") { genreOpen = true }
+                SongMenuItem.EDIT -> OptionRow(Icons.Filled.Edit, "עריכת פרטי השיר") { editOpen = true }
                 SongMenuItem.SHARE -> OptionRow(Icons.Filled.Share, "שתף") {
                     vm.shareSongs(listOf(song))
                     onDismiss()
@@ -322,6 +325,10 @@ fun SongOptionsSheet(
             marks = MoodMarks.parse(stats?.moods.orEmpty()),
             onDismiss = { moodOpen = false }
         )
+    }
+
+    if (editOpen) {
+        SongEditDialog(vm = vm, songs = listOf(song), onDismiss = { editOpen = false; onDismiss() })
     }
 
     if (genreOpen) {

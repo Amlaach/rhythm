@@ -1495,7 +1495,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun importAnalysis(uri: Uri) {
         viewModelScope.launch {
             _busy.value = true
-            val prepared = runCatching {
+            val attempt = runCatching {
                 withContext(Dispatchers.IO) {
                     val bytes = getApplication<Application>().contentResolver
                         .openInputStream(uri)?.use { input ->
@@ -1515,11 +1515,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     val current = repo.featureMap()
                     bundle to AnalysisTransfer.match(bundle, library.value.songs, current)
                 }
-            }.getOrNull()
+            }
+            val prepared = attempt.getOrNull()
 
             if (prepared == null) {
                 _busy.value = false
-                _message.value = "קובץ הניתוח פגום, חלקי או מגרסה שאינה נתמכת"
+                _message.value = if (attempt.exceptionOrNull() is AnalysisTransfer.NewerVersionException) {
+                    "הקובץ נוצר בגרסה חדשה יותר של Rhythm. צריך לעדכן את האפליקציה בטלפון ולייבא שוב"
+                } else {
+                    "קובץ הניתוח פגום או חלקי"
+                }
                 return@launch
             }
             val (bundle, matched) = prepared
@@ -1654,10 +1659,39 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun startFileWrite(changed: List<TagFixer.Proposal>) {
-        pendingWrites = changed.map {
-            TagFileWriter.Item(it.songId, it.newTitle, it.newArtist)
+    /**
+     * A song's details as the listener typed them - one song, or a selection.
+     *
+     * Null leaves that detail as it is. Kept in the app like any correction,
+     * and written into the file itself whatever the tag-fixing setting says:
+     * editing the file is what this was asked for.
+     */
+    fun editSongDetails(songIds: List<Long>, title: String?, artist: String?, album: String?) {
+        if (songIds.isEmpty() || (title == null && artist == null && album == null)) return
+        viewModelScope.launch {
+            val existing = repo.overrides().associateBy { it.songId }
+            repo.saveOverrides(
+                songIds.map { id ->
+                    val row = existing[id] ?: TagOverrideEntity(songId = id)
+                    row.copy(
+                        title = title ?: row.title,
+                        artistName = artist ?: row.artistName,
+                        albumName = album ?: row.albumName
+                    )
+                }
+            )
+            refreshFeed()
+            _message.value = if (songIds.size == 1) "פרטי השיר עודכנו" else "עודכנו ${songIds.size} שירים"
+            startFileWriteItems(songIds.map { TagFileWriter.Item(it, title, artist, album) })
         }
+    }
+
+    private fun startFileWrite(changed: List<TagFixer.Proposal>) {
+        startFileWriteItems(changed.map { TagFileWriter.Item(it.songId, it.newTitle, it.newArtist) })
+    }
+
+    private fun startFileWriteItems(items: List<TagFileWriter.Item>) {
+        pendingWrites = items
         val request = tagFiles.permissionRequest(pendingWrites)
         when {
             // Android 11 and up: the system asks about these exact files.
@@ -1707,7 +1741,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             writeRetried = false
             _message.value = when {
+                outcome.written == 0 && outcome.failed == 0 && outcome.notMp3 > 0 ->
+                    "נשמר באפליקציה. הקובץ אינו MP3, ולכן הוא עצמו לא שונה."
                 outcome.written == 0 -> "לא הצלחתי לכתוב לקבצים. התיקון נשמר באפליקציה."
+                outcome.notMp3 > 0 -> "נכתבו ${outcome.written} קבצים · ${outcome.notMp3} אינם MP3 ונשמרו רק באפליקציה"
                 outcome.ok -> "נכתבו ${outcome.written} קבצים"
                 else -> "נכתבו ${outcome.written}, נכשלו ${outcome.failed}"
             }

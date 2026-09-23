@@ -238,6 +238,7 @@ fun PlayerScreen(
     var whyOpen by remember { mutableStateOf(false) }
     var optionsOpen by remember { mutableStateOf(false) }
     var detailsOpen by remember { mutableStateOf(false) }
+    var editOpen by remember { mutableStateOf(false) }
     var speedOpen by remember { mutableStateOf(false) }
     var bookmarksOpen by remember { mutableStateOf(false) }
     var volumeOpen by remember { mutableStateOf(false) }
@@ -847,7 +848,15 @@ fun PlayerScreen(
     if (sleepOpen) SleepDialog(vm = vm, onDismiss = { sleepOpen = false })
     if (whyOpen) WhyDialog(vm = vm, song = song, onDismiss = { whyOpen = false })
     if (detailsOpen) {
-        SongDetailsDialog(song = song, feature = feature, onDismiss = { detailsOpen = false })
+        SongDetailsDialog(
+            song = song,
+            feature = feature,
+            onDismiss = { detailsOpen = false },
+            onEdit = { detailsOpen = false; editOpen = true }
+        )
+    }
+    if (editOpen) {
+        SongEditDialog(vm = vm, songs = listOf(song), onDismiss = { editOpen = false })
     }
     if (speedOpen) {
         SpeedDialog(vm = vm, onDismiss = { speedOpen = false })
@@ -895,7 +904,8 @@ fun PlayerScreen(
 private fun SongDetailsDialog(
     song: SongEntity,
     feature: com.elchanan.rhythm.data.db.AudioFeatureEntity?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onEdit: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -926,7 +936,9 @@ private fun SongDetailsDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } },
+        // The name, artist and album, into the file itself.
+        dismissButton = { TextButton(onClick = onEdit) { Text("ערוך", color = Accent) } }
     )
 }
 
