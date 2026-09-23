@@ -99,11 +99,14 @@ object ArtistStyles {
         // Further catalogue names and common credits checked against the artist
         // index at https://mostlymusic.com/pages/artists . The style is an
         // editorial seed, not a claim that every recording has one sound.
+        // "שלוימי", as these singers spell it: "שלומי כהן" is also an Israeli
+        // pop singer, and a seed that matched him would teach the learner
+        // that his sound is Hasidic.
         Seed("יצחק הוניג", HASIDIC, listOf("Isaac Honig", "Yitzchok Honig")),
         Seed("שאולי ולדנר", HASIDIC, listOf("Shauly Waldner")),
-        Seed("שלומי כהן", HASIDIC, listOf("Shloime Cohen")),
-        Seed("שלומי דאקס", HASIDIC, listOf("Shloime Dachs")),
-        Seed("שלומי דסקל", HASIDIC, listOf("Shloime Daskal")),
+        Seed("שלוימי כהן", HASIDIC, listOf("Shloime Cohen")),
+        Seed("שלוימי דאקס", HASIDIC, listOf("Shloime Dachs")),
+        Seed("שלוימי דסקל", HASIDIC, listOf("Shloime Daskal")),
         Seed("אברימי רוט", HASIDIC, listOf("Avremi Roth", "Avromi Roth")),
         Seed("מיכאל שניצלר", HASIDIC, listOf("Michoel Schnitzler")),
         Seed("ישראל ורדיגר", HASIDIC, listOf("Yisroel Werdyger")),
@@ -228,7 +231,6 @@ object ArtistStyles {
         Seed("דיקלה", MIZRAHI, listOf("Dikla")),
         // Additional Mizrahi performers checked in MusicBrainz and music
         // catalogues, e.g. https://musicbrainz.org/artist/1b3ac43c-81de-4573-bc85-21b96b1a229a .
-        Seed("אבי ביטר", MIZRAHI, listOf("Avi Bitter")),
         Seed("ישי לוי", MIZRAHI, listOf("Yishay Levi", "Ishay Levi")),
         Seed("איציק קלה", MIZRAHI, listOf("Itzik Kala")),
         Seed("זהבה בן", MIZRAHI, listOf("Zehava Ben")),
