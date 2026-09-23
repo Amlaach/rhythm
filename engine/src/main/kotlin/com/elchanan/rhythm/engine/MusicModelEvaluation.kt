@@ -36,18 +36,31 @@ object MusicModelEvaluation {
     fun measure(
         songs: List<SongEntity>,
         stats: Map<Long, SongStatsEntity>,
+        /** Only artist styles explicitly entered by the listener, never catalogue seeds. */
         stylesByArtist: Map<String, String>,
         features: Map<Long, AudioFeatureEntity>
     ): Report {
-        val labelled = StyleTraining.rows(songs, features, stylesByArtist, stats).size
+        // The regular learner deliberately trains on the shipped catalogue. A
+        // measurement against those same catalogue labels would only measure
+        // agreement with our assumptions, not accuracy against user evidence.
+        val manuallyLabelled = songs.filter { song ->
+            val own = stats[song.id]
+            (own?.stylesAuto == 0 && Styles.parse(own.styles).isNotEmpty()) ||
+                Styles.parse(stylesByArtist[song.artistKey].orEmpty()).isNotEmpty()
+        }
+        val labelled = StyleTraining.rows(manuallyLabelled, features, stylesByArtist, stats).size
         val printed = features.filterValues { MusicPrint.unpack(it.musicPrint) != null }
-        val printedLabelled = StyleTraining.rows(songs, printed, stylesByArtist, stats).size
+        val printedLabelled = StyleTraining.rows(manuallyLabelled, printed, stylesByArtist, stats).size
 
         // learn() computes held-out scores and proposed tags but has no writes.
         // Filtering first makes the with/without scores directly comparable.
-        val style = StyleLearning.learn(songs, stats, stylesByArtist, printed)
-        val printedSongs = songs.filter { it.id in printed }
-        val sound = SoundCheck.measure(printedSongs, printed, stylesByArtist)
+        val style = StyleLearning.learn(manuallyLabelled, stats, stylesByArtist, printed)
+        // SoundCheck measures artist genres, so one-off song tags cannot be
+        // treated as artist-wide truth in this separate diagnostic.
+        val soundSongs = manuallyLabelled.filter { song ->
+            song.id in printed && Styles.parse(stylesByArtist[song.artistKey].orEmpty()).isNotEmpty()
+        }
+        val sound = SoundCheck.measure(soundSongs, printed, stylesByArtist)
 
         val marked = MoodMarks.of(stats).filterKeys { id ->
             MusicMoods.parse(features[id]?.musicMoods.orEmpty()).isNotEmpty()
@@ -70,7 +83,8 @@ object MusicModelEvaluation {
         fun pct(value: Double) = "${(value * 100).roundToInt()}%"
         append("בדיקה לקריאה בלבד — לא משנה תגיות או המלצות.")
         append("\n\nסגנונות: למודל עצמו אין פלט של שם ז׳אנר. נמדדת התרומה שלו ללמידת התגיות שלך, על אמנים שלא השתתפו באימון.")
-        append("\nשירים מתויגים: ${r.labelledSongs}; עם טביעה מוזיקלית: ${r.printedLabelledSongs}.")
+        append("\nשירים שתייגת בעצמך ושנותחו: ${r.labelledSongs}; עם טביעה מוזיקלית: ${r.printedLabelledSongs}.")
+        append(" תגיות האמנים המובנות אינן נחשבות תשובת אמת בבדיקה הזאת.")
         val without = r.style.withoutMusicF1
         val with = r.style.withMusicF1
         if (without != null && with != null && r.style.validation != null) {
@@ -78,7 +92,7 @@ object MusicModelEvaluation {
             append("\nF1 משלב תגיות נכונות, תגיות שגויות ותגיות שהוחמצו; הוא אינו אחוז השירים שהמודל זיהה.")
             append(if (r.style.usedMusic) " הלמידה בוחרת להשתמש בטביעה." else " הלמידה אינה בוחרת בטביעה כעת.")
         } else {
-            append("\nאין עדיין מספיק שירים מתויגים עם טביעת מודל, אמנים וסגנונות מגוונים כדי לתת ציון F1 השוואתי.")
+            append("\nאין עדיין מספיק שירים שתייגת בעצמך עם טביעת מודל, אמנים וסגנונות מגוונים כדי לתת ציון F1 השוואתי.")
         }
         val sound = r.sound
         if (sound?.music != null) {

@@ -73,6 +73,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -1750,10 +1751,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val lib = library.value
                 val features = repo.featureMap()
+                val manualArtistStyles = repo.artists.first()
+                    .filter { it.styles.isNotBlank() }
+                    .associate { it.artistKey to it.styles }
                 val report = withContext(Dispatchers.Default) {
                     MusicModelEvaluation.measure(
                         lib.songs, lib.stats,
-                        lib.artists.associate { it.key to it.styles },
+                        manualArtistStyles,
                         features
                     )
                 }
