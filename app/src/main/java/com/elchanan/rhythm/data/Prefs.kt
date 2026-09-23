@@ -319,6 +319,15 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_LAST_MOOD, "").orEmpty()
         set(value) = sp.edit { putString(KEY_LAST_MOOD, value) }
 
+    /**
+     * The signal weights learned from this listener's history, encoded by
+     * SignalWeights.encode, or empty for the defaults. Only ever written when
+     * the report card showed they predict better on held-out artists.
+     */
+    var learnedWeights: String
+        get() = sp.getString(KEY_LEARNED_WEIGHTS, "").orEmpty()
+        set(value) = sp.edit { putString(KEY_LEARNED_WEIGHTS, value) }
+
     var onboarded: Boolean
         get() = sp.getBoolean(KEY_ONBOARDED, false)
         set(value) = sp.edit { putBoolean(KEY_ONBOARDED, value) }
@@ -474,6 +483,7 @@ class Prefs(context: Context) {
         const val KEY_FEED_SEED = "feed_seed"
         const val KEY_ONBOARDED = "onboarded"
         const val KEY_LAST_MOOD = "last_mood"
+        const val KEY_LEARNED_WEIGHTS = "learned_weights"
         const val KEY_ACOUSTIC_WEIGHT = "acoustic_weight"
         const val KEY_AUTO_ANALYZE = "auto_analyze"
         const val KEY_EXCLUDED = "excluded_folders"

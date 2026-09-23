@@ -208,7 +208,7 @@ class StyleLearningTest {
         val vector = StyleTraining.featuresFor(
             Analysis.blankFor(1).copy(energy = 0.5f, bpm = 120f, tags = "271:0.9")
         )!!
-        assertEquals(AudioTags.ALL.size + 36, vector.size)
+        assertEquals(AudioTags.ALL.size + 36 + StyleTraining.TEXT_INPUTS, vector.size)
         // The heard classes come first, in their own order.
         AudioTags.ALL.forEachIndexed { i, group ->
             assertEquals(group.label, StyleLearner.featureName(i))
@@ -222,6 +222,9 @@ class StyleLearningTest {
         assertEquals("הרמוניה 1", StyleLearner.featureName(base + 18))
         assertEquals("מהלך השיר 1", StyleLearner.featureName(base + 30))
         assertEquals("מהלך השיר 6", StyleLearner.featureName(base + 35))
+        // Then what the name is written in.
+        assertEquals("אותיות לטיניות בשם", StyleLearner.featureName(base + 36))
+        assertEquals("אותיות עבריות בשם", StyleLearner.featureName(base + 37))
         // Every position in the vector has a name of its own.
         val names = vector.indices.map { StyleLearner.featureName(it) }
         assertEquals(names.size, names.distinct().size)

@@ -14,7 +14,21 @@ import kotlin.math.sqrt
  * the user's own library. "Loud" therefore means loud *relative to what this
  * person owns*, which is exactly the comparison that matters here.
  */
-class AcousticSpace(features: Collection<AudioFeatureEntity>) {
+class AcousticSpace(
+    features: Collection<AudioFeatureEntity>,
+    /**
+     * Whether YAMNet's sound print takes part where both songs have one. Off
+     * only for the sound check, which has to measure the hand-made features
+     * on their own to compare them with anything.
+     */
+    usePrints: Boolean = true,
+    /**
+     * Whether Discogs-EffNet's music print takes part. Where both songs have
+     * one it is used before YAMNet's: it was trained on the difference between
+     * styles of music, YAMNet on the difference between sounds of every kind.
+     */
+    useMusic: Boolean = true
+) {
 
     companion object {
         private const val CORE = 6          // logBpm, energy, brightness, flatness, dynamics, onsetRate
@@ -41,6 +55,52 @@ class AcousticSpace(features: Collection<AudioFeatureEntity>) {
             }
         }
         private val WEIGHT_SUM = WEIGHTS.sum()
+
+        /**
+         * How much of a similarity the sound print is, where both songs have
+         * one: all of it. Measured on a real library - how often a song's
+         * nearest neighbours by other artists share its style - the print
+         * scored 30%, the hand-made features 12%, picking at random 25%, and
+         * a 60/40 blend of the two 22%. The features were not merely weaker,
+         * they pulled the blend below chance: their similarities spread wider,
+         * so even at 40% they decided the order. They remain for songs that
+         * have no print yet.
+         */
+        const val PRINT_SHARE = 1.0
+
+        /** The print folded to this many dimensions, to keep a library of them small in memory. */
+        const val PRINT_DIMS = 128
+
+        /**
+         * Feature hashing: each of the print's dimensions lands in one bucket
+         * with a fixed random sign. Linear, one pass, and inner products are
+         * kept on average - so a cosine between folded prints is a fair
+         * estimate of the cosine between the full ones, at an eighth the size.
+         */
+        private val WIDEST = maxOf(SoundPrint.DIMS, MusicPrint.DIMS)
+        private val BUCKET = IntArray(WIDEST)
+        private val SIGN = FloatArray(WIDEST)
+
+        init {
+            val r = java.util.Random(0x5EED)
+            for (i in 0 until WIDEST) {
+                BUCKET[i] = r.nextInt(PRINT_DIMS)
+                SIGN[i] = if (r.nextBoolean()) 1f else -1f
+            }
+        }
+
+        /** [fold] to a smaller width: the same hashing, buckets taken modulo [width]. */
+        fun foldTo(p: FloatArray, width: Int): DoubleArray {
+            val out = DoubleArray(width)
+            for (i in p.indices) out[BUCKET[i] % width] += (SIGN[i] * p[i]).toDouble()
+            return out
+        }
+
+        private fun fold(p: FloatArray): DoubleArray {
+            val out = DoubleArray(PRINT_DIMS)
+            for (i in p.indices) out[BUCKET[i]] += (SIGN[i] * p[i]).toDouble()
+            return out
+        }
 
         internal fun rawVector(f: AudioFeatureEntity): DoubleArray {
             val out = DoubleArray(DIMS)
@@ -130,6 +190,63 @@ class AcousticSpace(features: Collection<AudioFeatureEntity>) {
      * bounded 0..1 similarity rather than an unbounded distance.
      */
     fun similarity(a: Long, b: Long): Double {
+        val ma = music[a]
+        val mb = music[b]
+        if (ma != null && mb != null) return printSimilarity(ma, mb)
+        val pa = prints[a] ?: return featureSimilarity(a, b)
+        val pb = prints[b] ?: return featureSimilarity(a, b)
+        val print = printSimilarity(pa, pb)
+        if (PRINT_SHARE >= 1.0) return print
+        return (1.0 - PRINT_SHARE) * featureSimilarity(a, b) + PRINT_SHARE * print
+    }
+
+    private fun printSimilarity(pa: DoubleArray, pb: DoubleArray): Double {
+        var dot = 0.0
+        for (i in 0 until PRINT_DIMS) dot += pa[i] * pb[i]
+        // The same curve as the features: for unit vectors the squared distance
+        // is 2(1 - cos), so a pair of unrelated songs lands where it does there.
+        return exp(-(1.0 - dot.coerceIn(-1.0, 1.0)) / 0.8)
+    }
+
+    /**
+     * Folded, centred, unit length prints, or none at all when too few songs
+     * have one to know what the library's average sounds like.
+     */
+    private val prints: Map<Long, DoubleArray> =
+        if (!usePrints) emptyMap() else folded(features) { SoundPrint.unpack(it.soundPrint) }
+
+    private val music: Map<Long, DoubleArray> =
+        if (!useMusic) emptyMap() else folded(features) { MusicPrint.unpack(it.musicPrint) }
+
+    private fun folded(
+        features: Collection<AudioFeatureEntity>,
+        read: (AudioFeatureEntity) -> FloatArray?
+    ): Map<Long, DoubleArray> {
+        val folded = HashMap<Long, DoubleArray>()
+        for (f in features) {
+            val p = read(f) ?: continue
+            folded[f.songId] = fold(p)
+        }
+        return if (folded.size < 8) emptyMap() else {
+            // Folding is linear, so the folded mean is the fold of the mean.
+            val mean = DoubleArray(PRINT_DIMS)
+            for (v in folded.values) for (i in 0 until PRINT_DIMS) mean[i] += v[i]
+            for (i in 0 until PRINT_DIMS) mean[i] = mean[i] / folded.size
+            folded.mapValues { (_, v) ->
+                var norm = 0.0
+                for (i in 0 until PRINT_DIMS) {
+                    v[i] -= mean[i]
+                    norm += v[i] * v[i]
+                }
+                val length = sqrt(norm)
+                if (length > 1e-9) for (i in 0 until PRINT_DIMS) v[i] /= length
+                v
+            }
+        }
+    }
+
+    /** The hand-made features alone: tempo, loudness, timbre, harmony, shape. */
+    fun featureSimilarity(a: Long, b: Long): Double {
         val va = vectors[a] ?: return 0.0
         val vb = vectors[b] ?: return 0.0
         var acc = 0.0

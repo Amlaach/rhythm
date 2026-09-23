@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.engine
 
+import java.util.Locale
+
 /**
  * The AudioSet classes this app cares about, and what it calls them.
  *
@@ -179,7 +181,7 @@ object AudioTags {
             .sortedByDescending { scores[it] }
             .take(keep)
             .filter { scores[it] > 0.001f }
-            .joinToString(",") { "$it:${"%.4f".format(scores[it])}" }
+            .joinToString(",") { "$it:${String.format(Locale.US, "%.4f", scores[it])}" }
 
     /**
      * Reads a handful of classes out of a stored string without rebuilding it.

@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -441,6 +442,20 @@ class MusicRepository(
         ids.chunked(400).forEach { dao.deleteStats(it) }
     }
 
+    /** The user saying a song is, or is not, in a mood - or (null) handing it back to the audio. */
+    suspend fun setMoodMark(songId: Long, mood: com.elchanan.rhythm.engine.Mood, value: Boolean?) =
+        withContext(Dispatchers.IO) {
+            // Read, change, write: two chips tapped quickly must not both read
+            // the old marks and have the second write erase the first.
+            moodMarkLock.withLock {
+                dao.ensureStats(songId)
+                val current = dao.stats(songId)?.moods.orEmpty()
+                dao.setMoods(songId, com.elchanan.rhythm.engine.MoodMarks.with(current, mood, value))
+            }
+        }
+
+    private val moodMarkLock = kotlinx.coroutines.sync.Mutex()
+
     /** The user overruling the speech detector, either way. */
     suspend fun setSpoken(songId: Long, spoken: Boolean) = withContext(Dispatchers.IO) {
         dao.ensureStats(songId)
@@ -590,7 +605,9 @@ class MusicRepository(
 
     /** Songs still to analyse with an id above [after], in id order. */
     suspend fun songsNeedingAnalysis(after: Long, limit: Int): List<SongEntity> =
-        withContext(Dispatchers.IO) { dao.songsNeedingAnalysis(after, limit) }
+        withContext(Dispatchers.IO) {
+            dao.songsNeedingAnalysis(after, limit, com.elchanan.rhythm.engine.AudioAnalyzer.musicAvailable(context))
+        }
 
     /** Raw inventory, before the UI hides duplicate files. */
     suspend fun allSongsForExport(): List<SongEntity> =
@@ -646,7 +663,9 @@ class MusicRepository(
         rescan()
     }
 
-    suspend fun analyzedCount(): Int = withContext(Dispatchers.IO) { dao.featureCount() }
+    suspend fun analyzedCount(): Int = withContext(Dispatchers.IO) {
+        dao.featureCount(com.elchanan.rhythm.engine.AudioAnalyzer.musicAvailable(context))
+    }
 
     /** Song ids whose lyrics contain [query], as a plain substring. */
     suspend fun songIdsWithLyrics(query: String): List<Long> = withContext(Dispatchers.IO) {
@@ -667,6 +686,8 @@ class MusicRepository(
      * so an action started from a screen that is not watching it sees an empty
      * map and wrongly concludes that nothing has been analysed.
      */
+    suspend fun feature(songId: Long): AudioFeatureEntity? = withContext(Dispatchers.IO) { dao.feature(songId) }
+
     suspend fun featureMap(): Map<Long, AudioFeatureEntity> = withContext(Dispatchers.IO) {
         dao.allFeatures().filter { it.energy > 0f }.associateBy { it.songId }
     }
@@ -764,7 +785,8 @@ class MusicRepository(
                 repeatGuard = prefs.repeatGuard,
                 acousticWeight = prefs.acousticWeight,
                 separations = prefs.styleSeparations,
-                lastMood = prefs.lastMood
+                lastMood = prefs.lastMood,
+                learned = com.elchanan.rhythm.engine.SignalWeights.decode(prefs.learnedWeights)
             ),
             now = System.currentTimeMillis(),
             feedSeed = prefs.feedSeed.toLong(),

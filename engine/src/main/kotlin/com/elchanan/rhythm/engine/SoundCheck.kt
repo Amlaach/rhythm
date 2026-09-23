@@ -38,7 +38,11 @@ object SoundCheck {
         /** The sound features the engine uses today. */
         val current: Double,
         /** YAMNet's sound print. */
-        val print: Double
+        val print: Double,
+        /** The two together, as the engine now compares songs. */
+        val combined: Double = 0.0,
+        /** Discogs-EffNet's music print, or null until every song checked has one. */
+        val music: Double? = null
     )
 
     const val MIN_SONGS = 30
@@ -51,7 +55,9 @@ object SoundCheck {
     ): Result? {
         val usable = features.values.filter { it.energy > 0f }
         if (usable.size < 8) return null
-        val space = AcousticSpace(usable)
+        val space = AcousticSpace(usable, usePrints = false, useMusic = false)
+        val both = AcousticSpace(usable)
+        val musicOnly = AcousticSpace(usable, usePrints = false, useMusic = true)
 
         val labelled = songs.mapNotNull { song ->
             val f = features[song.id] ?: return@mapNotNull null
@@ -77,6 +83,9 @@ object SoundCheck {
         var chance = 0.0
         var current = 0.0
         var print = 0.0
+        var combined = 0.0
+        var music = 0.0
+        val allHaveMusic = all.all { MusicPrint.unpack(features[it.first.id]?.musicPrint.orEmpty()) != null }
         var counted = 0
         for ((song, style, _) in scorable) {
             val others = all.filter { it.first.artistKey != song.artistKey }
@@ -86,6 +95,14 @@ object SoundCheck {
             current += others
                 .sortedByDescending { space.similarity(song.id, it.first.id) }
                 .take(k).count { it.second == style }.toDouble() / k
+            combined += others
+                .sortedByDescending { both.similarity(song.id, it.first.id) }
+                .take(k).count { it.second == style }.toDouble() / k
+            if (allHaveMusic) {
+                music += others
+                    .sortedByDescending { musicOnly.similarity(song.id, it.first.id) }
+                    .take(k).count { it.second == style }.toDouble() / k
+            }
             val mine = prints.getValue(song.id)
             print += others
                 .sortedByDescending { SoundPrint.similarity(mine, prints.getValue(it.first.id)) }
@@ -101,7 +118,9 @@ object SoundCheck {
             lonely = lonely,
             chance = chance / counted,
             current = current / counted,
-            print = print / counted
+            print = print / counted,
+            combined = combined / counted,
+            music = if (allHaveMusic) music / counted else null
         )
     }
 
@@ -128,6 +147,8 @@ object SoundCheck {
             append("ונבדק כמה מהם באותו סגנון.\n")
             append("• מדידת הסאונד הנוכחית: ${pct(r.current)}\n")
             append("• טביעת הצליל החדשה: ${pct(r.print)}\n")
+            r.music?.let { append("• הטביעה המוזיקלית (המודל המוזיקלי החדש): ${pct(it)}\n") }
+            append("• מה שהאלגוריתם משתמש בו עכשיו: ${pct(r.combined)}\n")
             append("• בחירה אקראית, להשוואה: ${pct(r.chance)}")
             if (r.lonely > 0) {
                 append("\n\n${r.lonely} שירים לא נבדקו: הסגנון שלהם שייך כאן לאמן אחד בלבד, ")

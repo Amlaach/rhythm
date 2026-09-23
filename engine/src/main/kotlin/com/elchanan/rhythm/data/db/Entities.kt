@@ -97,7 +97,13 @@ data class SongStatsEntity(
      * fresh each time, because the audio evidence for it only exists while the
      * file is being analysed.
      */
-    val spoken: Int = -1
+    val spoken: Int = -1,
+    /**
+     * Moods the user said this song is, or is not: "CALM,-ENERGETIC". Read by
+     * MoodMarks. What the user said always wins over what the audio suggests,
+     * and the marks are what the mood reading learns this listener's ear from.
+     */
+    val moods: String = ""
 )
 
 /** User supplied artist profile: rating 1..5 and free style tags. */
@@ -211,7 +217,14 @@ data class AudioFeatureEntity(
      * Empty means never made; [SoundPrint.TRIED] means attempted and failed,
      * so the pass that fills these in does not retry it for ever.
      */
-    val soundPrint: String = ""
+    val soundPrint: String = "",
+    /**
+     * Discogs-EffNet's 1280 value summary, packed by MusicPrint. Empty means
+     * never made; MusicPrint.TRIED means attempted and failed.
+     */
+    val musicPrint: String = "",
+    /** What MTG's mood heads read off [musicPrint], encoded by MusicMoods. */
+    val musicMoods: String = ""
 )
 
 /**

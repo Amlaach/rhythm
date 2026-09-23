@@ -2,6 +2,9 @@ package com.elchanan.rhythm.engine
 
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.SongEntity
+import com.elchanan.rhythm.data.db.SongStatsEntity
+import kotlin.math.exp
+import kotlin.math.roundToInt
 
 /**
  * Quick filters over the measured audio features.
@@ -19,9 +22,10 @@ enum class Mood(val label: String, val subtitle: String) {
         fun filter(
             songs: List<SongEntity>,
             features: Map<Long, AudioFeatureEntity>,
-            mood: Mood
+            mood: Mood,
+            marks: Map<Long, Map<Mood, Boolean>> = emptyMap()
         ): List<SongEntity> {
-            val model = MoodModel(features.values)
+            val model = MoodModel(features.values, marks)
             return songs.filter { model.matches(mood, features[it.id]) }
         }
 
@@ -37,9 +41,10 @@ enum class Mood(val label: String, val subtitle: String) {
         fun strongest(
             songs: List<SongEntity>,
             features: Map<Long, AudioFeatureEntity>,
-            mood: Mood
+            mood: Mood,
+            marks: Map<Long, Map<Mood, Boolean>> = emptyMap()
         ): List<SongEntity> {
-            val model = MoodModel(features.values)
+            val model = MoodModel(features.values, marks)
             return songs.filter { model.matches(mood, features[it.id]) }
                 .sortedByDescending { model.strength(mood, features[it.id]) }
         }
@@ -75,7 +80,11 @@ enum class Mood(val label: String, val subtitle: String) {
  * asked what a clip sounded like - the only part of any of this trained on the
  * question actually being asked.
  */
-class MoodModel(all: Collection<AudioFeatureEntity>) {
+class MoodModel(
+    all: Collection<AudioFeatureEntity>,
+    /** What the user said about songs' moods; see [MoodMarks]. */
+    private val marks: Map<Long, Map<Mood, Boolean>> = emptyMap()
+) {
 
     private val usable = all.filter { it.energy > 0f }
 
@@ -146,11 +155,33 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
      */
     private val swingScale = scaleOf(swing.values.toList())
 
+    /**
+     * What MTG's heads said, per song, where the music model ran: arousal and
+     * valence on 0..1, from the regression heads trained on people's ratings
+     * and the mood classifiers on top of them.
+     *
+     * The rules below read a mood off tempo, key and brightness - proxies,
+     * and on this music often wrong ones: a fast niggun that everyone hears as
+     * calm, a minor key wedding song nobody hears as sad. These heads were
+     * trained on the question itself, by people asked how a song felt, so
+     * where they exist they carry most of the answer.
+     */
+    private val heard: Map<Long, Pair<Double?, Double?>> = buildMap {
+        for (f in usable) {
+            val m = MusicMoods.parse(f.musicMoods)
+            if (m.isEmpty()) continue
+            put(f.songId, musicArousal(m) to musicValence(m))
+        }
+    }
+
     /** Arousal and valence before the library is taken into account. */
     private val rawArousal: Map<Long, Double> =
-        usable.associate { it.songId to absoluteArousal(it) }
+        usable.associate { it.songId to blend(absoluteArousal(it), heard[it.songId]?.first) }
     private val rawValence: Map<Long, Double> =
-        usable.associate { it.songId to absoluteValence(it) }
+        usable.associate { it.songId to blend(absoluteValence(it), heard[it.songId]?.second) }
+
+    private fun blend(rules: Double, model: Double?): Double =
+        if (model == null) rules else (1 - MUSIC_WEIGHT) * rules + MUSIC_WEIGHT * model
 
     private val arousalScale = scaleOf(rawArousal.values.toList())
     private val valenceScale = scaleOf(rawValence.values.toList())
@@ -272,18 +303,33 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
 
     /** Half what the anchors say, half where the library puts it. */
     fun arousal(f: AudioFeatureEntity): Double {
-        val raw = rawArousal[f.songId] ?: absoluteArousal(f)
+        val raw = rawArousal[f.songId] ?: blend(absoluteArousal(f), heardOf(f)?.first)
         return 0.5 * raw + 0.5 * rank(arousalScale, raw)
     }
 
     fun valence(f: AudioFeatureEntity): Double {
-        val raw = rawValence[f.songId] ?: absoluteValence(f)
+        val raw = rawValence[f.songId] ?: blend(absoluteValence(f), heardOf(f)?.second)
         return 0.5 * raw + 0.5 * rank(valenceScale, raw)
     }
 
+    /**
+     * Whether a track is in a mood.
+     *
+     * What the user said about this very song first - nothing the audio
+     * suggests overrides a person saying "this is not calm". Then, for a mood
+     * the user has corrected enough songs in, the reading learned from those
+     * corrections, where it proved more accurate than the rules. Otherwise
+     * the rules.
+     */
     fun matches(mood: Mood, f: AudioFeatureEntity?): Boolean {
         val feature = f ?: return false
+        marks[feature.songId]?.get(mood)?.let { return it }
         if (feature.energy <= 0f) return false
+        learner(mood)?.let { return it.probability(feature) >= 0.5 }
+        return ruleMatches(mood, feature)
+    }
+
+    private fun ruleMatches(mood: Mood, feature: AudioFeatureEntity): Boolean {
         val a = arousal(feature)
         val v = valence(feature)
         val bright = rank(brightScale, feature.brightness.toDouble())
@@ -314,7 +360,13 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
      */
     fun strength(mood: Mood, f: AudioFeatureEntity?): Double {
         val feature = f ?: return 0.0
+        if (marks[feature.songId]?.get(mood) == true) return 1.0
         if (feature.energy <= 0f) return 0.0
+        learner(mood)?.let { return it.probability(feature) }
+        return ruleStrength(mood, feature)
+    }
+
+    private fun ruleStrength(mood: Mood, feature: AudioFeatureEntity): Double {
         val a = arousal(feature)
         val v = valence(feature)
         val bright = rank(brightScale, feature.brightness.toDouble())
@@ -333,8 +385,184 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
         }
     }
 
+    private fun heardOf(f: AudioFeatureEntity): Pair<Double?, Double?>? = heard[f.songId]
+        ?: MusicMoods.parse(f.musicMoods).takeIf { it.isNotEmpty() }?.let { musicArousal(it) to musicValence(it) }
+
     private fun rankTag(heard: FloatArray, slot: Int): Double =
         rank(tagScales[slot], heard[slot].toDouble())
+
+    // -----------------------------------------------------------------------
+    // Learning the listener's ear
+    // -----------------------------------------------------------------------
+
+    private val byId: Map<Long, AudioFeatureEntity> = usable.associateBy { it.songId }
+
+    /**
+     * Per mood, the marked songs as examples: true for "is", false for "is
+     * not" - and a song marked as an opposite mood counts as "is not", so
+     * marking something קצבי also teaches רגוע.
+     */
+    private val examples: Map<Mood, List<Pair<Long, Boolean>>> = Mood.entries.associateWith { mood ->
+        marks.mapNotNull { (id, said) ->
+            if (id !in byId) return@mapNotNull null
+            val direct = said[mood]
+            when {
+                direct != null -> id to direct
+                OPPOSITES[mood].orEmpty().any { said[it] == true } -> id to false
+                else -> null
+            }
+        }
+    }
+
+    /**
+     * The library's average print, so a print can be centred without holding
+     * every print in memory: a layer of ReLUs points everything the same way,
+     * and only the departure from the average tells songs apart.
+     */
+    private val printMean: DoubleArray? by lazy {
+        if (marks.isEmpty()) return@lazy null
+        val mean = DoubleArray(SoundPrint.DIMS)
+        var count = 0
+        for (f in usable) {
+            val p = SoundPrint.unpack(f.soundPrint) ?: continue
+            for (i in 0 until SoundPrint.DIMS) mean[i] = mean[i] + p[i]
+            count++
+        }
+        if (count < 8) return@lazy null
+        for (i in 0 until SoundPrint.DIMS) mean[i] = mean[i] / count
+        mean
+    }
+
+    private fun centredPrint(f: AudioFeatureEntity): FloatArray? {
+        val mean = printMean ?: return null
+        val p = SoundPrint.unpack(f.soundPrint) ?: return null
+        var norm = 0.0
+        val out = FloatArray(SoundPrint.DIMS)
+        for (i in 0 until SoundPrint.DIMS) {
+            val d = p[i] - mean[i]
+            out[i] = d.toFloat()
+            norm += d * d
+        }
+        val length = kotlin.math.sqrt(norm)
+        if (length < 1e-9) return null
+        for (i in 0 until SoundPrint.DIMS) out[i] = (out[i] / length).toFloat()
+        return out
+    }
+
+    /** The prints of the marked songs only - the rest are read one at a time. */
+    private val markedPrints: Map<Long, FloatArray> by lazy {
+        buildMap {
+            for (id in marks.keys) {
+                val f = byId[id] ?: continue
+                centredPrint(f)?.let { put(id, it) }
+            }
+        }
+    }
+
+    /**
+     * Per mood, the summed prints of the songs marked as it and as not it.
+     * A print's dot product with a sum, over the count, is its average
+     * similarity to every song in the group - so one pass per song, however
+     * many songs were marked.
+     */
+    private class Groups(val yes: DoubleArray, val yesCount: Int, val no: DoubleArray, val noCount: Int)
+
+    private val groups: Map<Mood, Groups> by lazy {
+        Mood.entries.mapNotNull { mood ->
+            val yes = DoubleArray(SoundPrint.DIMS)
+            val no = DoubleArray(SoundPrint.DIMS)
+            var y = 0
+            var n = 0
+            for ((id, label) in examples[mood].orEmpty()) {
+                val p = markedPrints[id] ?: continue
+                val target = if (label) yes else no
+                for (k in 0 until SoundPrint.DIMS) target[k] = target[k] + p[k]
+                if (label) y++ else n++
+            }
+            if (y == 0 || n == 0) null else mood to Groups(yes, y, no, n)
+        }.toMap()
+    }
+
+    /**
+     * How much more a track sounds like the songs marked as the mood than
+     * like the ones marked as not it, the track itself left out of both.
+     * Zero when there is no print to go on.
+     */
+    private fun soundLean(mood: Mood, songId: Long, print: FloatArray?): Double {
+        val p = print ?: return 0.0
+        val g = groups[mood] ?: return 0.0
+        val own = examples[mood].orEmpty().firstOrNull { it.first == songId }?.second
+            ?.takeIf { markedPrints[songId] != null }
+        var dotYes = 0.0
+        var dotNo = 0.0
+        for (k in 0 until SoundPrint.DIMS) {
+            dotYes += p[k] * g.yes[k]
+            dotNo += p[k] * g.no[k]
+        }
+        var yesCount = g.yesCount
+        var noCount = g.noCount
+        // a song is always exactly like itself: take it out of its own group
+        if (own == true) { dotYes -= 1.0; yesCount-- }
+        if (own == false) { dotNo -= 1.0; noCount-- }
+        if (yesCount <= 0 || noCount <= 0) return 0.0
+        return dotYes / yesCount - dotNo / noCount
+    }
+
+    /** A mood's reading learned from the user's marks. */
+    private inner class Learner(val mood: Mood, val w: DoubleArray) {
+        fun probability(f: AudioFeatureEntity): Double {
+            val print = markedPrints[f.songId] ?: centredPrint(f)
+            return sigmoid(dot(w, inputs(mood, f, print)))
+        }
+    }
+
+    private fun inputs(mood: Mood, f: AudioFeatureEntity, print: FloatArray?): DoubleArray =
+        doubleArrayOf(1.0, ruleStrength(mood, f) - 0.5, soundLean(mood, f.songId, print))
+
+    /**
+     * How well the rules and the learned reading each do on the songs the user
+     * marked, every song judged by a reading that was not taught with it.
+     */
+    class MoodReport(
+        val mood: Mood,
+        val yes: Int,
+        val no: Int,
+        val ruleAccuracy: Double,
+        val learnedAccuracy: Double?,
+        val usingLearned: Boolean
+    )
+
+    private val learned = HashMap<Mood, Pair<Learner?, MoodReport?>>()
+
+    @Synchronized
+    private fun learnt(mood: Mood): Pair<Learner?, MoodReport?> = learned.getOrPut(mood) { train(mood) }
+
+    private fun learner(mood: Mood): Learner? = if (marks.isEmpty()) null else learnt(mood).first
+
+    fun report(): List<MoodReport> = Mood.entries.mapNotNull { learnt(it).second }
+
+    private fun train(mood: Mood): Pair<Learner?, MoodReport?> {
+        val list = examples[mood].orEmpty()
+        val yes = list.count { it.second }
+        val no = list.size - yes
+        if (yes == 0 && no == 0) return null to null
+        val rows = list.map { (id, label) ->
+            val f = byId.getValue(id)
+            inputs(mood, f, markedPrints[id]) to label
+        }
+        val ruleAccuracy = balanced(list.map { (id, label) -> ruleMatches(mood, byId.getValue(id)) to label })
+        if (yes < MIN_MARKS || no < MIN_MARKS) {
+            return null to MoodReport(mood, yes, no, ruleAccuracy, null, false)
+        }
+        val held = rows.indices.map { i ->
+            val w = fit(rows.filterIndexed { j, _ -> j != i })
+            (sigmoid(dot(w, rows[i].first)) >= 0.5) to rows[i].second
+        }
+        val learnedAccuracy = balanced(held)
+        val use = learnedAccuracy >= ruleAccuracy
+        val learner = if (use) Learner(mood, fit(rows)) else null
+        return learner to MoodReport(mood, yes, no, ruleAccuracy, learnedAccuracy, use)
+    }
 
     internal companion object {
 
@@ -386,6 +614,104 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
         const val STEADY_ENOUGH = 0.70
 
 
+        /** How much of each axis the music model's heads decide, where they ran. */
+        const val MUSIC_WEIGHT = 0.7
+
+        /** The regression heads' 1..9 rating scale onto 0..1. */
+        private fun nine(v: Float): Double = ((v - 1.0) / 8.0).coerceIn(0.0, 1.0)
+
+        private fun ratings(m: Map<String, Float>, axis: String): Double? =
+            m.filterKeys { it.endsWith(".$axis") }.values.map(::nine).takeIf { it.isNotEmpty() }?.average()
+
+        /**
+         * Arousal from the heads: the rated arousal where there is one, with
+         * the aggressive and relaxed classifiers pulling either way.
+         */
+        fun musicArousal(m: Map<String, Float>): Double? {
+            val rated = ratings(m, "arousal")
+            val pull = listOfNotNull(
+                m["aggressive"]?.toDouble(),
+                m["relaxed"]?.let { 1.0 - it },
+                m["party"]?.toDouble()
+            ).takeIf { it.isNotEmpty() }?.average()
+            return when {
+                rated != null && pull != null -> 0.6 * rated + 0.4 * pull
+                else -> rated ?: pull
+            }
+        }
+
+        /** Valence likewise: rated valence, with happy and sad pulling. */
+        fun musicValence(m: Map<String, Float>): Double? {
+            val rated = ratings(m, "valence")
+            val pull = listOfNotNull(
+                m["happy"]?.toDouble(),
+                m["sad"]?.let { 1.0 - it }
+            ).takeIf { it.isNotEmpty() }?.average()
+            return when {
+                rated != null && pull != null -> 0.6 * rated + 0.4 * pull
+                else -> rated ?: pull
+            }
+        }
+
+        /** Marks each way a mood needs before it is learned rather than ruled. */
+        const val MIN_MARKS = 3
+
+        /** Moods that a song cannot be at once, so marking one teaches the other. */
+        val OPPOSITES: Map<Mood, Set<Mood>> = mapOf(
+            Mood.CALM to setOf(Mood.ENERGETIC, Mood.WORKOUT),
+            Mood.NIGHT to setOf(Mood.ENERGETIC, Mood.WORKOUT),
+            Mood.ENERGETIC to setOf(Mood.CALM, Mood.NIGHT),
+            Mood.WORKOUT to setOf(Mood.CALM, Mood.NIGHT),
+            Mood.BRIGHT to setOf(Mood.DEEP),
+            Mood.DEEP to setOf(Mood.BRIGHT)
+        )
+
+        /** The mean of the two recalls, so a mood marked mostly one way cannot score by always answering that way. */
+        fun balanced(pairs: List<Pair<Boolean, Boolean>>): Double {
+            val pos = pairs.filter { it.second }
+            val neg = pairs.filter { !it.second }
+            val parts = listOfNotNull(
+                pos.takeIf { it.isNotEmpty() }?.let { l -> l.count { it.first }.toDouble() / l.size },
+                neg.takeIf { it.isNotEmpty() }?.let { l -> l.count { !it.first }.toDouble() / l.size }
+            )
+            return if (parts.isEmpty()) 0.0 else parts.average()
+        }
+
+        /**
+         * Logistic regression over [bias, rule strength, sound lean], the
+         * classes balanced and the weights held near a start that trusts the
+         * rules: with a handful of marks, the rules are the prior and the
+         * marks move them, rather than a few examples replacing everything.
+         */
+        fun fit(rows: List<Pair<DoubleArray, Boolean>>): DoubleArray {
+            val start = doubleArrayOf(0.0, 8.0, 0.0)
+            val w = start.copyOf()
+            val pos = rows.count { it.second }.coerceAtLeast(1)
+            val neg = (rows.size - rows.count { it.second }).coerceAtLeast(1)
+            val n = rows.size.coerceAtLeast(1).toDouble()
+            repeat(400) {
+                val g = DoubleArray(3)
+                for ((x, label) in rows) {
+                    val err = (sigmoid(dot(w, x)) - if (label) 1.0 else 0.0) *
+                        (if (label) n / (2.0 * pos) else n / (2.0 * neg))
+                    for (i in 0 until 3) g[i] += err * x[i]
+                }
+                for (i in 0 until 3) {
+                    val pull = if (i == 0) 0.0 else 0.05 * (w[i] - start[i])
+                    w[i] -= 0.8 * (g[i] / n + pull)
+                }
+            }
+            return w
+        }
+
+        fun dot(w: DoubleArray, x: DoubleArray): Double {
+            var s = 0.0
+            for (i in w.indices) s += w[i] * x[i]
+            return s
+        }
+
+        fun sigmoid(z: Double) = 1.0 / (1.0 + exp(-z.coerceIn(-30.0, 30.0)))
+
         // Positions within AudioTags.MOOD_INDICES.
         const val SLOT_LULLABY = 0
         const val SLOT_HAPPY = 1
@@ -411,6 +737,73 @@ class MoodModel(all: Collection<AudioFeatureEntity>) {
                 if (scale[mid] <= value) low = mid + 1 else high = mid
             }
             return low.toDouble() / scale.size
+        }
+    }
+}
+
+/**
+ * What the user said about songs' moods, as stored on the song's stats:
+ * "CALM,-ENERGETIC" - a mood by name for "it is", a minus for "it is not".
+ */
+object MoodMarks {
+    fun parse(raw: String): Map<Mood, Boolean> {
+        if (raw.isBlank()) return emptyMap()
+        val out = LinkedHashMap<Mood, Boolean>()
+        for (part in raw.split(',')) {
+            val t = part.trim()
+            if (t.isEmpty()) continue
+            val no = t.startsWith("-")
+            val mood = Mood.entries.firstOrNull { it.name == t.removePrefix("-") } ?: continue
+            out[mood] = !no
+        }
+        return out
+    }
+
+    fun encode(marks: Map<Mood, Boolean>): String =
+        marks.entries.joinToString(",") { (mood, yes) -> if (yes) mood.name else "-${mood.name}" }
+
+    /** One song's marks with one mood set to yes, no, or (null) left to the audio. */
+    fun with(raw: String, mood: Mood, value: Boolean?): String {
+        val m = LinkedHashMap(parse(raw))
+        if (value == null) m.remove(mood) else m[mood] = value
+        return encode(m)
+    }
+
+    /** The mood part of the report card, in words. */
+    fun describe(reports: List<MoodModel.MoodReport>): String {
+        if (reports.isEmpty()) {
+            return "מצבי רוח: עוד לא תיקנת אף שיר. אפשר מתפריט השיר ← \"מצב רוח\", " +
+                "או מתוך רשימת מצב רוח ← \"לא מתאים\". מ-${MoodModel.MIN_MARKS} תיקונים לכל " +
+                "כיוון, האפליקציה לומדת לזהות את מצב הרוח הזה לפי האוזן שלך."
+        }
+        fun pct(v: Double) = "${(v * 100).roundToInt()}%"
+        return buildString {
+            append("מצבי רוח — עד כמה הזיהוי צודק בשירים שתיקנת:\n")
+            for (r in reports) {
+                append("• ${r.mood.label}: ${r.yes} כן · ${r.no} לא — ")
+                append("הזיהוי האוטומטי ${pct(r.ruleAccuracy)}")
+                when {
+                    r.learnedAccuracy == null -> {
+                        val need = listOfNotNull(
+                            (MoodModel.MIN_MARKS - r.yes).takeIf { it > 0 }?.let { "עוד $it \"כן\"" },
+                            (MoodModel.MIN_MARKS - r.no).takeIf { it > 0 }?.let { "עוד $it \"לא\"" }
+                        ).joinToString(" ו")
+                        append(" · כדי ללמוד צריך $need")
+                    }
+                    r.usingLearned -> append(", אחרי לימוד ${pct(r.learnedAccuracy)} (פעיל)")
+                    else -> append(", אחרי לימוד ${pct(r.learnedAccuracy)} (לא טוב יותר, לא הופעל)")
+                }
+                append("\n")
+            }
+            append("הסימונים שלך תמיד גוברים על הזיהוי.")
+        }
+    }
+
+    fun of(stats: Map<Long, SongStatsEntity>): Map<Long, Map<Mood, Boolean>> = buildMap {
+        for ((id, st) in stats) {
+            if (st.moods.isBlank()) continue
+            val m = parse(st.moods)
+            if (m.isNotEmpty()) put(id, m)
         }
     }
 }

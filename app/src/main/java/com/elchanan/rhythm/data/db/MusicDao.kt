@@ -133,6 +133,9 @@ interface MusicDao {
     @Query("UPDATE song_stats SET spoken = :spoken WHERE songId = :id")
     suspend fun setSpoken(id: Long, spoken: Int)
 
+    @Query("UPDATE song_stats SET moods = :moods WHERE songId = :id")
+    suspend fun setMoods(id: Long, moods: String)
+
     @Query("DELETE FROM song_stats WHERE songId IN (:ids)")
     suspend fun deleteStats(ids: List<Long>)
 
@@ -253,11 +256,17 @@ interface MusicDao {
      * impossible. A row analysed before prints existed is not done: the pass
      * goes back for it, and progress has to say so rather than read 100%.
      */
-    @Query("SELECT COUNT(*) FROM audio_features WHERE soundPrint != '' OR energy <= 0")
-    suspend fun featureCount(): Int
+    @Query(
+        "SELECT COUNT(*) FROM audio_features WHERE " +
+            "(soundPrint != '' AND (:music = 0 OR musicPrint != '')) OR energy <= 0"
+    )
+    suspend fun featureCount(music: Boolean): Int
 
     @Query("DELETE FROM audio_features")
     suspend fun clearFeatures()
+
+    @Query("SELECT * FROM audio_features WHERE songId = :id")
+    suspend fun feature(id: Long): AudioFeatureEntity?
 
     /**
      * Songs never analysed, then songs analysed before the sound print existed.
@@ -277,10 +286,11 @@ interface MusicDao {
     @Query(
         "SELECT * FROM songs WHERE id > :after AND (" +
             "id NOT IN (SELECT songId FROM audio_features) " +
-            "OR id IN (SELECT songId FROM audio_features WHERE soundPrint = '' AND energy > 0)" +
+            "OR id IN (SELECT songId FROM audio_features WHERE " +
+            "(soundPrint = '' OR (:music = 1 AND musicPrint = '')) AND energy > 0)" +
             ") ORDER BY id LIMIT :limit"
     )
-    suspend fun songsNeedingAnalysis(after: Long, limit: Int): List<SongEntity>
+    suspend fun songsNeedingAnalysis(after: Long, limit: Int, music: Boolean): List<SongEntity>
 
     /**
      * Marks an already analysed song as having had its print attempted.
@@ -291,7 +301,12 @@ interface MusicDao {
      *
      * @return rows changed: 0 when there was no analysed row to keep.
      */
-    @Query("UPDATE audio_features SET soundPrint = '-' WHERE songId = :id AND energy > 0")
+    @Query(
+        "UPDATE audio_features SET " +
+            "soundPrint = CASE WHEN soundPrint = '' THEN '-' ELSE soundPrint END, " +
+            "musicPrint = CASE WHEN musicPrint = '' THEN '-' ELSE musicPrint END " +
+            "WHERE songId = :id AND energy > 0"
+    )
     suspend fun markPrintTried(id: Long): Int
 
     // ---------- history ----------

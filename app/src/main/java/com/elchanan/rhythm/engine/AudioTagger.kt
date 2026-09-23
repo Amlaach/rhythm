@@ -24,10 +24,9 @@ import java.nio.channels.FileChannel
  * music, Choir, Chant, Accordion, Clarinet, along with Happy, Sad, Tender and
  * Exciting music.
  *
- * Both the model and its weights are Apache 2.0, which is why this is YAMNet
- * rather than one of the better music-specific models from MTG - those are
- * CC BY-NC-SA, and ShareAlike on a model that ships inside an app is a
- * condition worth avoiding entirely.
+ * Both the model and its weights are Apache 2.0. The app also bundles
+ * separate MTG-UPF music models under CC BY-NC-SA 4.0; their attribution
+ * and conversion notice are in assets/THIRD_PARTY_NOTICES.txt.
  */
 class AudioTagger private constructor(private val interpreter: Interpreter) {
 

@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.SentimentSatisfied
+import androidx.compose.material.icons.filled.SentimentDissatisfied
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
@@ -48,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,6 +68,8 @@ import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.Features
 import com.elchanan.rhythm.engine.Capo
 import com.elchanan.rhythm.engine.MusicalMode
+import com.elchanan.rhythm.engine.Mood
+import com.elchanan.rhythm.engine.MoodMarks
 import com.elchanan.rhythm.engine.Styles
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.Artwork
@@ -108,6 +113,12 @@ fun SongOptionsSheet(
     var confirmReset by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var genreOpen by remember { mutableStateOf(false) }
+    var moodOpen by remember { mutableStateOf(false) }
+    val detail by vm.detail.collectAsStateWithLifecycle()
+    // Opened from inside a mood's list: the fastest place to say "not this".
+    val listMood = detail?.takeIf { d -> d.songs.any { it.id == song.id } }?.let { d ->
+        Mood.entries.firstOrNull { d.gradientKey == "mood:${it.name}" }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -229,6 +240,13 @@ fun SongOptionsSheet(
             OptionRow(Icons.Filled.MusicNote, "אקורדים וקאפו") { showCapo = true }
             OptionRow(Icons.Filled.Insights, "למה זה הומלץ לי") { showWhy = true }
             OptionRow(Icons.Filled.LocalOffer, "תגיות סגנון לשיר") { showTags = true }
+            if (listMood != null) {
+                OptionRow(Icons.Filled.SentimentDissatisfied, "לא מתאים ל\"${listMood.label}\"") {
+                    vm.setMoodMark(song, listMood, false)
+                    onDismiss()
+                }
+            }
+            OptionRow(Icons.Filled.SentimentSatisfied, "מצב רוח") { moodOpen = true }
 
             if (onOpenArtist != null) {
                 OptionRow(Icons.Filled.Person, "עבור לאמן") { onOpenArtist(); onDismiss() }
@@ -269,6 +287,15 @@ fun SongOptionsSheet(
                 confirmDelete = true
             }
         }
+    }
+
+    if (moodOpen) {
+        MoodDialog(
+            vm = vm,
+            song = song,
+            marks = MoodMarks.parse(stats?.moods.orEmpty()),
+            onDismiss = { moodOpen = false }
+        )
     }
 
     if (genreOpen) {
@@ -722,4 +749,69 @@ private fun OptionRow(
         Spacer(Modifier.width(16.dp))
         Text(label, style = MaterialTheme.typography.bodyLarge, color = tint ?: MaterialTheme.colorScheme.onBackground)
     }
+}
+
+/**
+ * The song's moods: what the audio reading says, and the user's own answer
+ * for each, which always wins and is what the reading learns from.
+ */
+@Composable
+private fun MoodDialog(
+    vm: MainViewModel,
+    song: SongEntity,
+    marks: Map<Mood, Boolean>,
+    onDismiss: () -> Unit
+) {
+    val reading by produceState<Map<Mood, Boolean>?>(null, song.id) {
+        value = vm.moodReading(song.id)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("מצב הרוח של השיר") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "מה שתסמן גובר על הזיהוי האוטומטי, והאפליקציה לומדת ממנו " +
+                        "לזהות נכון שירים שנשמעים דומה. לחיצה שנייה מחזירה לאוטומטי.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(10.dp))
+                for (mood in Mood.entries) {
+                    val said = marks[mood]
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(mood.label, style = MaterialTheme.typography.titleSmall)
+                            val auto = reading?.get(mood)
+                            Text(
+                                when {
+                                    said != null -> "סימנת בעצמך"
+                                    reading == null -> "…"
+                                    reading!!.isEmpty() -> "השיר עוד לא נותח"
+                                    auto == true -> "זוהה אוטומטית"
+                                    else -> "לא זוהה"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextTertiary
+                            )
+                        }
+                        Chip("כן", selected = said == true) {
+                            vm.setMoodMark(song, mood, if (said == true) null else true)
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        Chip("לא", selected = said == false) {
+                            vm.setMoodMark(song, mood, if (said == false) null else false)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("סגור", color = Accent) }
+        }
+    )
 }

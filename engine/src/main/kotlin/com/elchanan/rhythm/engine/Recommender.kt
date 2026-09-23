@@ -96,8 +96,51 @@ data class EngineTuning(
      * Carried in so the shelf can defend its previous answer rather than
      * recomputing an opinion about someone from scratch every refresh.
      */
-    val lastMood: String = ""
+    val lastMood: String = "",
+    /**
+     * Weights for the signals that predict an unheard song, learned from this
+     * listener's own history by [SignalCalibration] - or null for the
+     * defaults. The sliders above still multiply them.
+     */
+    val learned: SignalWeights? = null
 )
+
+/**
+ * How much each of the signals that can speak for a song before it has been
+ * heard counts: the artist's rating, listening to the artist's other songs,
+ * the style match, the sound match and the mood match.
+ *
+ * These are the whole of the app's promise - to know what you will like
+ * before you have played it - and they were five numbers chosen by hand, the
+ * same for everyone. Someone whose taste follows the artist and someone whose
+ * taste follows the sound were ranked by one guess about which matters more.
+ */
+data class SignalWeights(
+    val artistRating: Double,
+    val artistListening: Double,
+    val style: Double,
+    val acoustic: Double,
+    val mood: Double
+) {
+    fun toArray() = doubleArrayOf(artistRating, artistListening, style, acoustic, mood)
+
+    fun encode(): String = toArray().joinToString(",") { "%.4f".format(java.util.Locale.ROOT, it) }
+
+    companion object {
+        /** The hand-picked defaults, the ones every listener got before. */
+        val DEFAULT = SignalWeights(1.35, 1.0, 1.55, 1.15, 0.9)
+
+        val LABELS = listOf("דירוג האמן", "האזנה לאמן", "התאמת סגנון", "התאמת סאונד", "התאמת מצב רוח")
+
+        fun of(v: DoubleArray) = SignalWeights(v[0], v[1], v[2], v[3], v[4])
+
+        fun decode(raw: String): SignalWeights? {
+            val parts = raw.split(',').mapNotNull { it.trim().toDoubleOrNull() }
+            if (parts.size != 5 || parts.any { !it.isFinite() || it < 0.0 }) return null
+            return of(parts.toDoubleArray())
+        }
+    }
+}
 
 data class TransitionEdge(val weight: Double, val penalty: Double)
 
@@ -522,7 +565,16 @@ class Recommender(
     /** how strongly the user's behaviour endorses each song, positive or negative */
     private val behaviour: Map<Long, Double> = songs.associate { it.id to behaviourWeight(it.id) }
 
-    private val taste: Map<String, Double> = buildTasteVector()
+    /** The signal weights in force: learned for this listener, or the defaults. */
+    private val weights: SignalWeights = tuning.learned ?: SignalWeights.DEFAULT
+
+    /** The taste vector before normalising, kept so one song can be taken out of it. */
+    private val tasteRaw: Map<String, Double> = buildTasteVector()
+
+    private val taste: Map<String, Double> = run {
+        val norm = sqrt(tasteRaw.values.sumOf { it * it })
+        if (norm < 1e-9) emptyMap() else tasteRaw.mapValues { it.value / norm }
+    }
 
     /**
      * What the listening says about each artist: the sum of what it says
@@ -564,7 +616,7 @@ class Recommender(
     }
 
     /** The mood reading of the analysed library, built once per snapshot. */
-    private val moodModel: MoodModel = MoodModel(features.values)
+    private val moodModel: MoodModel = MoodModel(features.values, MoodMarks.of(stats))
 
     /** Which moods each analysed song expresses, worked out once. */
     private val moodsOf: Map<Long, List<Mood>> =
@@ -671,15 +723,17 @@ class Recommender(
         acousticFitById = if (space == null || acousticPositives.isEmpty()) {
             emptyMap()
         } else {
-            songs.associate { song ->
-                val positive = space.similarityToSet(song.id, acousticPositives, 3)
-                val negative = if (acousticNegatives.isEmpty()) 0.0
-                else space.similarityToSet(song.id, acousticNegatives, 2)
-                song.id to (2.0 * positive - 1.0 - 0.9 * negative).coerceIn(-1.5, 1.0)
-            }
+            songs.associate { song -> song.id to acousticFit(space, song.id, acousticPositives, acousticNegatives) }
         }
 
         baseScores = songs.associate { it.id to computeBase(it) }
+    }
+
+    private fun acousticFit(space: AcousticSpace, songId: Long, positives: List<Long>, negatives: List<Long>): Double {
+        if (positives.isEmpty()) return 0.0
+        val positive = space.similarityToSet(songId, positives, 3)
+        val negative = if (negatives.isEmpty()) 0.0 else space.similarityToSet(songId, negatives, 2)
+        return (2.0 * positive - 1.0 - 0.9 * negative).coerceIn(-1.5, 1.0)
     }
 
     /**
@@ -862,9 +916,7 @@ class Recommender(
             }
         }
 
-        val norm = sqrt(acc.values.sumOf { it * it })
-        if (norm < 1e-9) return emptyMap()
-        return acc.mapValues { it.value / norm }
+        return acc
     }
 
     private fun styleFit(songId: Long): Double {
@@ -924,10 +976,84 @@ class Recommender(
             // a rating on the song itself is the most specific thing the user
             // ever says, so it outranks the artist level rating
             songRating > 0 -> 1.9 * ((songRating - 3) / 2.0) +
-                if (artistRating > 0) 0.45 * ((artistRating - 3) / 2.0) else 0.0
-            artistRating > 0 -> 1.35 * ((artistRating - 3) / 2.0)
+                if (artistRating > 0) {
+                    0.45 * (weights.artistRating / SignalWeights.DEFAULT.artistRating) *
+                        ((artistRating - 3) / 2.0)
+                } else 0.0
+            artistRating > 0 -> weights.artistRating * ((artistRating - 3) / 2.0)
             else -> -0.06
         }
+    }
+
+    /**
+     * The style match with this song's own listening taken out of the taste
+     * vector. Without that, a song played a hundred times matches the taste it
+     * built - which says nothing about whether the taste predicts it.
+     */
+    private fun styleFitWithout(songId: Long): Double {
+        val v = unitVector(tokensBySong[songId].orEmpty())
+        if (v.isEmpty()) return 0.0
+        val own = behaviour[songId] ?: 0.0
+        val adjusted = HashMap(tasteRaw)
+        if (abs(own) > 1e-9 && songId in playableIds) {
+            for ((k, value) in v) adjusted[k] = (adjusted[k] ?: 0.0) - own * value
+        }
+        val norm = sqrt(adjusted.values.sumOf { it * it })
+        if (norm < 1e-9) return 0.0
+        var dot = 0.0
+        for ((k, value) in v) dot += value * ((adjusted[k] ?: 0.0) / norm)
+        return dot.coerceIn(-1.0, 1.0)
+    }
+
+    private val playableIds: Set<Long> = playable.mapTo(HashSet()) { it.id }
+
+    /**
+     * What the engine can say about a song without its own history: the five
+     * signals of [SignalWeights], each read with the song itself left out.
+     *
+     * The honest test of the whole app. A song's own plays, likes and skips
+     * trivially predict its own label; these five are what speak for a song
+     * nobody has played yet.
+     */
+    fun blindSignals(song: SongEntity): DoubleArray {
+        val artistRating = artists[song.artistKey]?.rating ?: 0
+        return doubleArrayOf(
+            if (artistRating > 0) (artistRating - 3) / 2.0 else 0.0,
+            artistListeningTerm(song),
+            styleFitWithout(song.id),
+            // similarityToSet already leaves the song out of its own neighbourhood
+            acousticFitById[song.id] ?: 0.0,
+            moodTerm(song)
+        )
+    }
+
+    /**
+     * Songs the listening has clearly answered for: true for loved, false for
+     * rejected, absent when it has not said enough.
+     */
+    fun verdict(songId: Long): Boolean? {
+        val st = stats[songId] ?: return null
+        if (st.liked == 1 || st.rating >= 4) return true
+        if (st.liked == -1 || st.rating in 1..2) return false
+        val attempts = st.playCount + st.skipCount
+        if (attempts < 2) return null
+        val skipRate = st.skipCount.toDouble() / attempts
+        val finished = if (st.playCount > 0) st.completeCount.toDouble() / st.playCount else 0.0
+        // Plays imported from another player carry no "finished" count, so a
+        // song played thirty times there read as never finished and was never
+        // counted as loved. Three plays that were not skipped say enough alone.
+        return when {
+            skipRate >= 0.6 -> false
+            st.playCount >= 3 && skipRate <= 0.34 -> true
+            st.playCount >= 2 && skipRate <= 0.34 && finished >= 0.6 -> true
+            else -> null
+        }
+    }
+
+    /** Every answered song with its blind signals, for [SignalCalibration]. */
+    fun calibrationRows(): List<SignalCalibration.Row> = playable.mapNotNull { song ->
+        val label = verdict(song.id) ?: return@mapNotNull null
+        SignalCalibration.Row(song.artistKey, blindSignals(song), label)
     }
 
     /** The skip penalty, or null when the song has never been tried. */
@@ -973,10 +1099,10 @@ class Recommender(
         var score = 0.0
 
         score += tuning.artistWeight * ratingTerm(song)
-        score += ARTIST_LISTEN_WEIGHT * tuning.artistWeight * artistListeningTerm(song)
-        score += 1.55 * tuning.styleWeight * styleFit(song.id)
-        score += 1.15 * tuning.acousticWeight * (acousticFitById[song.id] ?: 0.0)
-        score += MOOD_WEIGHT * tuning.acousticWeight * moodTerm(song)
+        score += weights.artistListening * tuning.artistWeight * artistListeningTerm(song)
+        score += weights.style * tuning.styleWeight * styleFit(song.id)
+        score += weights.acoustic * tuning.acousticWeight * (acousticFitById[song.id] ?: 0.0)
+        score += weights.mood * tuning.acousticWeight * moodTerm(song)
 
         when (st?.liked ?: 0) {
             1 -> score += 1.5
@@ -1027,7 +1153,7 @@ class Recommender(
             out.add(
                 ScoreTerm(
                     "האזנה לאמן",
-                    ARTIST_LISTEN_WEIGHT * tuning.artistWeight * listening,
+                    weights.artistListening * tuning.artistWeight * listening,
                     if (listening > 0) "אתה שומע שירים אחרים של ${song.artistName}"
                     else "אתה מדלג על שירים אחרים של ${song.artistName}"
                 )
@@ -1036,7 +1162,7 @@ class Recommender(
         out.add(
             ScoreTerm(
                 "התאמת סגנון",
-                1.55 * tuning.styleWeight * styleFit(song.id),
+                weights.style * tuning.styleWeight * styleFit(song.id),
                 tokensBySong[song.id].orEmpty()
                     .filterNot { it.startsWith("decade:") || it.startsWith("len:") }
                     .joinToString(", ").ifEmpty { "אין תגיות" }
@@ -1046,7 +1172,7 @@ class Recommender(
         out.add(
             ScoreTerm(
                 "התאמת סאונד",
-                1.15 * tuning.acousticWeight * (acousticFit ?: 0.0),
+                weights.acoustic * tuning.acousticWeight * (acousticFit ?: 0.0),
                 features[song.id]?.let { f ->
                     "${f.bpm.toInt()} BPM · ${Features.keyLabel(f.musicalKey, f.mode)}"
                 } ?: "השיר עוד לא נותח"
@@ -1058,7 +1184,7 @@ class Recommender(
             out.add(
                 ScoreTerm(
                     "התאמת מצב רוח",
-                    MOOD_WEIGHT * tuning.acousticWeight * mood,
+                    weights.mood * tuning.acousticWeight * mood,
                     if (mood > 0) "$labels — מצבי רוח שאתה שומע יותר"
                     else "$labels — מצבי רוח שאתה מדלג עליהם יותר"
                 )
@@ -2418,25 +2544,11 @@ class Recommender(
         private const val SAME_EVENT_MS = 1_000L
 
         /**
-         * How much listening to an artist's other songs speaks for this one,
-         * at most. Level with a four-to-five star rating, below the five star
-         * one: a rating is said on purpose, listening is inferred.
-         */
-        private const val ARTIST_LISTEN_WEIGHT = 1.0
-
-        /**
          * Where artist listening saturates. Roughly: a handful of songs heard a
          * few times each is most of the way there, and the hundredth play adds
          * almost nothing more.
          */
         private const val ARTIST_LISTEN_SCALE = 6.0
-
-        /**
-         * How much the mood term can move a score, at most. Below the style
-         * match: a mood is read off the audio by a model, a style was said by
-         * the user.
-         */
-        private const val MOOD_WEIGHT = 0.9
 
         /** A mood needs about this many touched songs before it is half believed. */
         private const val MOOD_PRIOR_SONGS = 5.0

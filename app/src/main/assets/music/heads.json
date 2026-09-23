@@ -1,0 +1,80 @@
+{
+ "license": "Essentia models by MTG-UPF, CC BY-NC-SA 4.0",
+ "embedding": 1280,
+ "patch": 128,
+ "bands": 96,
+ "heads": [
+  {
+   "name": "mood_happy",
+   "classes": [
+    "happy",
+    "non_happy"
+   ],
+   "type": "multi-class classifier",
+   "dataset": "In-house MTG collection"
+  },
+  {
+   "name": "mood_sad",
+   "classes": [
+    "non_sad",
+    "sad"
+   ],
+   "type": "multi-class classifier",
+   "dataset": "In-house MTG collection"
+  },
+  {
+   "name": "mood_relaxed",
+   "classes": [
+    "non_relaxed",
+    "relaxed"
+   ],
+   "type": "multi-class classifier",
+   "dataset": "In-house MTG collection"
+  },
+  {
+   "name": "mood_aggressive",
+   "classes": [
+    "aggressive",
+    "not_aggressive"
+   ],
+   "type": "multi-class classifier",
+   "dataset": "In-house MTG collection "
+  },
+  {
+   "name": "mood_party",
+   "classes": [
+    "non_party",
+    "party"
+   ],
+   "type": "multi-class classifier",
+   "dataset": "In-house MTG collection"
+  },
+  {
+   "name": "danceability",
+   "classes": [
+    "danceable",
+    "not_danceable"
+   ],
+   "type": "multi-class classifier",
+   "dataset": "In-house MTG collection"
+  },
+  {
+   "name": "mood_acoustic",
+   "classes": [
+    "acoustic",
+    "non_acoustic"
+   ],
+   "type": "multi-class classifier",
+   "dataset": "In-house MTG collection"
+  },
+  {
+   "name": "mood_electronic",
+   "classes": [
+    "electronic",
+    "non_electronic"
+   ],
+   "type": "multi-class classifier",
+   "dataset": "In-house MTG collection"
+  }
+ ]
+}

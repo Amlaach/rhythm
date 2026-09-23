@@ -48,7 +48,7 @@ object AudioAnalyzer {
             val stats = runCatching { Analysis.windowStats(samples, sr) }.getOrNull() ?: continue
             windows.add(stats)
             runCatching {
-                forTagging.add(Analysis.decimate(raw, sampleRate, AudioTagger.SAMPLE_RATE).first)
+                forTagging.add(Analysis.resampleMono(raw, sampleRate, AudioTagger.SAMPLE_RATE))
             }
         }
 
@@ -68,7 +68,72 @@ object AudioAnalyzer {
         val print = heard?.print?.let { runCatching { SoundPrint.pack(it) }.getOrNull() }
             ?: SoundPrint.TRIED
 
-        return merged.copy(tags = tags, soundPrint = print)
+        // The music model reads the same probes, each on its own - a patch
+        // that ran across the seam between two probes would be a splice of two
+        // moments of the song that never sounded together.
+        //
+        // A build without the model leaves the print empty rather than marked
+        // tried: the queue only asks for music prints when the model is there,
+        // so the songs wait for a build that has it instead of being written
+        // off by one that does not.
+        val available = musicAvailable(context)
+        val music = if (!available) null else runCatching { musicTagger(context)?.listen(forTagging) }.getOrNull()
+        val musicPrint = when {
+            !available -> ""
+            else -> music?.let { runCatching { MusicPrint.pack(it.print) }.getOrNull() } ?: MusicPrint.TRIED
+        }
+        val musicMoods = music?.let { MusicMoods.encode(it.moods) }.orEmpty()
+
+        return merged.copy(tags = tags, soundPrint = print, musicPrint = musicPrint, musicMoods = musicMoods)
+    }
+
+    @Volatile
+    private var hasMusicModel: Boolean? = null
+
+    /** Whether this build ships the music model. Asked once; an apk's assets do not change. */
+    fun musicAvailable(context: Context): Boolean = hasMusicModel ?: runCatching {
+        context.assets.list("music")?.contains("effnet.tflite") == true
+    }.getOrDefault(false).also { hasMusicModel = it }
+
+    @Volatile
+    private var music: MusicTagger? = null
+
+    @Volatile
+    private var musicAttempted = false
+
+    private fun musicTagger(context: Context): MusicTagger? {
+        if (musicAttempted) return music
+        synchronized(this) {
+            if (!musicAttempted) {
+                musicAttempted = true
+                music = MusicTagger.create(context.applicationContext)
+            }
+        }
+        return music
+    }
+
+    /**
+     * Only the music model, for a song whose other measurements are already
+     * stored: the probes are decoded and resampled for it and nothing else is
+     * computed. Null when the file will not decode now.
+     */
+    fun addMusic(context: Context, song: SongEntity, existing: AudioFeatureEntity): AudioFeatureEntity? {
+        if (!musicAvailable(context)) return existing
+        val uri = MediaItems.songUri(song.id)
+        val probes = ArrayList<FloatArray>(Analysis.PROBE_POINTS.size)
+        for (fraction in Analysis.PROBE_POINTS) {
+            val startUs = Analysis.probeStart(song.durationMs, fraction)
+            val decoded = runCatching {
+                decodeMono(context, uri, startUs, Analysis.PROBE_SECONDS)
+            }.getOrNull() ?: continue
+            val (raw, sampleRate) = decoded
+            if (raw.size < Analysis.WINDOW * 8) continue
+            runCatching { probes.add(Analysis.resampleMono(raw, sampleRate, MusicMel.SAMPLE_RATE)) }
+        }
+        if (probes.isEmpty()) return null
+        val music = runCatching { musicTagger(context)?.listen(probes) }.getOrNull()
+        val print = music?.let { runCatching { MusicPrint.pack(it.print) }.getOrNull() } ?: MusicPrint.TRIED
+        return existing.copy(musicPrint = print, musicMoods = music?.let { MusicMoods.encode(it.moods) }.orEmpty())
     }
 
     @Volatile
@@ -102,6 +167,9 @@ object AudioAnalyzer {
             tagger?.close()
             tagger = null
             taggerAttempted = false
+            music?.close()
+            music = null
+            musicAttempted = false
         }
     }
 
