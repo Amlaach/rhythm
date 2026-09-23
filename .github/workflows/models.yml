@@ -7,9 +7,12 @@ name: Convert music models
 on:
   push:
     branches-ignore: [ main, master ]
+    # Only the phone's converter. It rewrites the phone's model files and
+    # commits them, which must never happen as a side effect of a change to
+    # something else in this folder - tools/models/to_onnx.py included, which
+    # is run by hand and checked by build.yml instead.
     paths:
-      - 'tools/models/**'
-      - '.github/workflows/models.yml'
+      - 'tools/models/convert.py'
   workflow_dispatch:
 
 permissions:

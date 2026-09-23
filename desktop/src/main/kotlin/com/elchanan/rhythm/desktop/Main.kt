@@ -145,6 +145,9 @@ import com.elchanan.rhythm.engine.Loudness
 import com.elchanan.rhythm.engine.LyricLine
 import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.engine.Mood
+import com.elchanan.rhythm.engine.MoodMarks
+import com.elchanan.rhythm.engine.MoodModel
+import com.elchanan.rhythm.engine.Vocal
 import com.elchanan.rhythm.engine.Names
 import com.elchanan.rhythm.engine.PlayerAction
 import com.elchanan.rhythm.engine.Recap
@@ -1113,23 +1116,37 @@ private fun RhythmApp() {
     }
 
     fun openMood(mood: Mood) {
-        // Strongest example of the mood first. Matching is a yes or no, and a
-        // list of yeses in whatever order they were stored opens on whichever
-        // sorts first - which is how asking for קצבי handed back the quietest
-        // track that still cleared the bar.
-        val matching = Mood.strongest(library.songs, features, mood)
-        if (matching.isEmpty()) {
-            status = "אין שירים שמתאימים ל\"${mood.label}\" בספרייה הזאת"
-            return
-        }
-        stack = stack + Route.Detail(
-            DetailList(
-                title = mood.label,
-                subtitle = mood.subtitle,
-                songs = matching,
-                gradientKey = "mood:${mood.name}"
+        // The phone's answer, from the same engine: strongest example first,
+        // the listener's own mood marks counted, and what the feed keeps out
+        // kept out here too - shiurim, songs thumbed down, and vocal-only
+        // songs outside their weeks. Then ordered to flow, as the phone does.
+        val snapshot = engine
+        scope.launch {
+            val ordered = withContext(Dispatchers.Default) {
+                if (snapshot == null) {
+                    Mood.strongest(library.songs, features, mood, MoodMarks.of(stats))
+                } else {
+                    val found = snapshot.strongestIn(mood)
+                    if (found.isEmpty()) found else snapshot.sequence(found.first(), found.drop(1).take(80))
+                }
+            }
+            if (ordered.isEmpty()) {
+                status = if (snapshot != null && !snapshot.hasAnalysis) {
+                    "השירים עדיין לא נותחו. אפשר להתחיל ניתוח בהגדרות."
+                } else {
+                    "אין שירים שמתאימים ל\"${mood.label}\" בספרייה הזאת"
+                }
+                return@launch
+            }
+            stack = stack + Route.Detail(
+                DetailList(
+                    title = mood.label,
+                    subtitle = mood.subtitle,
+                    songs = ordered,
+                    gradientKey = "mood:${mood.name}"
+                )
             )
-        )
+        }
     }
 
     /**
@@ -1176,6 +1193,45 @@ private fun RhythmApp() {
                 store.stats()
             }
             status = if (spoken) "סומן כהרצאה" else "סומן כמוזיקה"
+        }
+    }
+
+    /** The listener saying a song is vocal-only (true), is not (false). Rebuilds the feed, as the phone does. */
+    fun setVocal(song: SongEntity, vocal: Boolean?) {
+        scope.launch {
+            withContext(Dispatchers.IO) { store.setVocal(song.id, vocal) }
+            reload()
+            status = when (vocal) {
+                true -> "סומן כווקאלי — יוצג רק בספירה ובשלושת השבועות"
+                false -> "סומן כלא ווקאלי"
+                null -> "חזר לזיהוי האוטומטי"
+            }
+        }
+    }
+
+    /**
+     * The listener correcting the mood reading for one song. A "no" said from
+     * inside that mood's list also takes the song out of the list on screen,
+     * so the correction is visible where it was made. The phone's rule.
+     */
+    fun setMoodMark(song: SongEntity, mood: Mood, value: Boolean?) {
+        scope.launch {
+            withContext(Dispatchers.IO) { store.setMoodMark(song.id, mood, value) }
+            if (value == false) {
+                stack = stack.map { route ->
+                    if (route is Route.Detail && route.list.gradientKey == "mood:${mood.name}") {
+                        Route.Detail(route.list.copy(songs = route.list.songs.filter { it.id != song.id }))
+                    } else {
+                        route
+                    }
+                }
+            }
+            reload()
+            status = when (value) {
+                true -> "סומן כ\"${mood.label}\" — האפליקציה תלמד מזה"
+                false -> "סומן כלא \"${mood.label}\" — האפליקציה תלמד מזה"
+                null -> "\"${mood.label}\" חזר לזיהוי האוטומטי"
+            }
         }
     }
 
@@ -1417,6 +1473,27 @@ private fun RhythmApp() {
             onStyles = { setSongStyles(song, it) },
             onGenre = { setGenre(song, it) },
             onSpoken = { setSpoken(song, it) },
+            vocalNow = remember(song.id, stats, artists, features) {
+                Vocal.isVocal(
+                    song, stats[song.id], features[song.id],
+                    artists.firstOrNull { it.artistKey == song.artistKey }?.styles.orEmpty()
+                )
+            },
+            onVocal = { setVocal(song, it) },
+            moodReading = {
+                val snapshot = features
+                val marks = MoodMarks.of(stats) - song.id
+                withContext(Dispatchers.Default) {
+                    val f = snapshot[song.id]?.takeIf { it.energy > 0f }
+                    if (f == null) {
+                        emptyMap()
+                    } else {
+                        val model = MoodModel(snapshot.values.filter { it.energy > 0f }, marks)
+                        Mood.entries.associateWith { model.matches(it, f) }
+                    }
+                }
+            },
+            onMoodMark = { mood, value -> setMoodMark(song, mood, value) },
             onResetPlays = { resetPlayCount(song) },
             onDelete = { deleteSong(song) },
             onOpenArtist = {

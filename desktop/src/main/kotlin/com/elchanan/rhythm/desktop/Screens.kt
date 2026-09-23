@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
@@ -77,6 +78,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -99,6 +101,8 @@ import com.elchanan.rhythm.engine.AlphabetIndexing
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.Capo
 import com.elchanan.rhythm.engine.Folders
+import com.elchanan.rhythm.engine.Mood
+import com.elchanan.rhythm.engine.MoodMarks
 import com.elchanan.rhythm.engine.MusicalMode
 import com.elchanan.rhythm.engine.ScoreTerm
 import com.elchanan.rhythm.engine.Styles
@@ -1446,9 +1450,16 @@ internal fun SongOptionsDialog(
     onGenre: (String) -> Unit,
     onSpoken: (Boolean) -> Unit,
     onResetPlays: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    /** Whether the song counts as vocal-only now, by the phone's rule. */
+    vocalNow: Boolean = false,
+    onVocal: (Boolean) -> Unit = {},
+    /** What the audio reading says about each mood, the listener's own marks on this song left out. */
+    moodReading: suspend () -> Map<Mood, Boolean> = { emptyMap() },
+    onMoodMark: (Mood, Boolean?) -> Unit = { _, _ -> }
 ) {
     var picking by remember { mutableStateOf(false) }
+    var moodOpen by remember { mutableStateOf(false) }
     var naming by remember { mutableStateOf(false) }
     var whyOpen by remember { mutableStateOf(false) }
     var capoOpen by remember { mutableStateOf(false) }
@@ -1468,6 +1479,15 @@ internal fun SongOptionsDialog(
     }
     if (capoOpen) {
         CapoDialog(feature = feature, onDismiss = { capoOpen = false })
+        return
+    }
+    if (moodOpen) {
+        MoodDialog(
+            marks = MoodMarks.parse(stat?.moods.orEmpty()),
+            reading = moodReading,
+            onMark = onMoodMark,
+            onDismiss = { moodOpen = false }
+        )
         return
     }
     if (tagsOpen) {
@@ -1621,6 +1641,7 @@ internal fun SongOptionsDialog(
                 OptionRow(Icons.Filled.MusicNote, "אקורדים וקאפו") { capoOpen = true }
                 OptionRow(Icons.Filled.Insights, "למה זה הומלץ לי") { whyOpen = true }
                 OptionRow(Icons.Filled.LocalOffer, "תגיות סגנון לשיר") { tagsOpen = true }
+                OptionRow(Icons.Filled.Mood, "מצב הרוח של השיר") { moodOpen = true }
                 OptionRow(Icons.Filled.Bookmark, "סימניות") {
                     onBookmarks()
                     onDismiss()
@@ -1652,6 +1673,15 @@ internal fun SongOptionsDialog(
                     onSpoken(!markedSpoken)
                     onDismiss()
                 }
+                // Vocal-only: shown as the opposite of the current verdict,
+                // like the speech row above. The phone's row.
+                OptionRow(
+                    Icons.Filled.MusicNote,
+                    if (vocalNow) "זה לא ווקאלי" else "סמן כווקאלי (לספירה ולשלושת השבועות)"
+                ) {
+                    onVocal(!vocalNow)
+                    onDismiss()
+                }
                 // Only worth offering when there is something to clear.
                 if ((stat?.playCount ?: 0) > 0) {
                     OptionRow(Icons.Filled.RestartAlt, "אפס את מספר ההשמעות") {
@@ -1665,6 +1695,77 @@ internal fun SongOptionsDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("סגור", color = TextSecondary) }
+        }
+    )
+}
+
+/**
+ * The song's moods: what the audio reading says, and the listener's own answer
+ * for each, which always wins and is what the reading learns from. The
+ * phone's MoodDialog.
+ */
+@Composable
+private fun MoodDialog(
+    marks: Map<Mood, Boolean>,
+    reading: suspend () -> Map<Mood, Boolean>,
+    onMark: (Mood, Boolean?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val auto by produceState<Map<Mood, Boolean>?>(null) { value = reading() }
+    // Held here as well, so a chip answers the tap at once rather than when
+    // the store has written it and the stats have come back.
+    var said by remember { mutableStateOf(marks) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("מצב הרוח של השיר") },
+        text = {
+            Column(modifier = Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+                Text(
+                    "מה שתסמן גובר על הזיהוי האוטומטי, והאפליקציה לומדת ממנו " +
+                        "לזהות נכון שירים שנשמעים דומה. לחיצה שנייה מחזירה לאוטומטי.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(10.dp))
+                for (mood in Mood.entries) {
+                    val mine = said[mood]
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(mood.label, style = MaterialTheme.typography.titleSmall)
+                            val reading = auto
+                            Text(
+                                when {
+                                    mine != null -> "סימנת בעצמך"
+                                    reading == null -> "…"
+                                    reading.isEmpty() -> "השיר עוד לא נותח"
+                                    reading[mood] == true -> "זוהה אוטומטית"
+                                    else -> "לא זוהה"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextTertiary
+                            )
+                        }
+                        Chip("כן", selected = mine == true) {
+                            val next = if (mine == true) null else true
+                            said = if (next == null) said - mood else said + (mood to next)
+                            onMark(mood, next)
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        Chip("לא", selected = mine == false) {
+                            val next = if (mine == false) null else false
+                            said = if (next == null) said - mood else said + (mood to next)
+                            onMark(mood, next)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("סגור", color = Accent) }
         }
     )
 }
