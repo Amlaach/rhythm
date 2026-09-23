@@ -173,6 +173,14 @@ abstract class RhythmDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("UPDATE audio_features SET musicPrint = '', musicMoods = '' WHERE energy > 0")
                 db.execSQL("ALTER TABLE song_stats ADD COLUMN vocal INTEGER NOT NULL DEFAULT -1")
+                db.execSQL("ALTER TABLE song_stats ADD COLUMN playDays INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE song_stats ADD COLUMN lastPlayDay INTEGER NOT NULL DEFAULT -1")
+                db.execSQL("ALTER TABLE song_stats ADD COLUMN burstSkips INTEGER NOT NULL DEFAULT 0")
+                // What the kept history can still say about listening days.
+                db.execSQL(
+                    "UPDATE song_stats SET playDays = (SELECT COUNT(DISTINCT playedAt / 86400000) " +
+                        "FROM history h WHERE h.songId = song_stats.songId)"
+                )
             }
         }
 

@@ -316,8 +316,12 @@ class Recommender(
      * turned off over and over on the strength of one time they let it run.
      */
     private fun countedSkips(songId: Long): Double {
-        val skips = stats[songId]?.skipCount ?: 0
-        return if (heardSinceLastSkip(songId)) skips * SKIP_FORGIVEN else skips.toDouble()
+        val st = stats[songId] ?: return 0.0
+        // A skip in a burst - flicking through for something - says little
+        // about the song it landed on.
+        val burst = st.burstSkips.coerceIn(0, st.skipCount)
+        val skips = (st.skipCount - burst) + BURST_SKIP * burst
+        return if (heardSinceLastSkip(songId)) skips * SKIP_FORGIVEN else skips
     }
 
     private val hourBucket: Int = bucketOf(now)
@@ -894,7 +898,7 @@ class Recommender(
             // Recency of the last play, not the last touch - see [heardAt].
             val heard = heardAt(songId)
             val recency = if (heard == 0L) 0.0 else exp(-daysSince(heard) / 45.0)
-            w += ln(1.0 + st.playCount) * (0.55 + 0.45 * recency)
+            w += ln(1.0 + st.playCount) * (0.55 + 0.45 * recency) * spread(st)
         }
         w += when (st.liked) {
             1 -> 2.0
@@ -906,6 +910,28 @@ class Recommender(
         val attempts = st.playCount + skips
         if (attempts > 0.0) w -= 0.7 * (skips / attempts) * ln(1.0 + skips)
         return w
+    }
+
+    /**
+     * 0.7..1.15: whether the plays were spread over many days or packed into
+     * a few. Settled taste is coming back to a song on day after day; a burst
+     * of repeats in one evening is a mood, and should not swing the whole
+     * profile the way months of listening do. 1 where the days are unknown -
+     * plays imported from another player, or older than the counter.
+     */
+    private fun spread(st: SongStatsEntity): Double {
+        if (st.playDays <= 0 || st.playCount <= 1) return 1.0
+        val days = st.playDays.coerceAtMost(st.playCount)
+        val ratio = ln(1.0 + days) / ln(1.0 + st.playCount)
+        return 0.7 + 0.45 * ratio
+    }
+
+    /** How well known a song is, relative to the most played one, weighted by [spread]. */
+    private fun familiarity(st: SongStatsEntity?): Double {
+        if (maxPlays <= 0) return 0.0
+        val plays = st?.playCount ?: 0
+        val base = 0.55 * (ln(1.0 + plays) / ln(1.0 + maxPlays))
+        return if (st == null) base else base * spread(st)
     }
 
     private fun buildTasteVector(): Map<String, Double> {
@@ -1149,7 +1175,7 @@ class Recommender(
         }
 
         val plays = st?.playCount ?: 0
-        if (maxPlays > 0) score += 0.55 * (ln(1.0 + plays) / ln(1.0 + maxPlays))
+        if (maxPlays > 0) score += familiarity(st)
 
         skipTerm(song)?.let { score += it }
 
@@ -1238,8 +1264,8 @@ class Recommender(
             out.add(
                 ScoreTerm(
                     "היכרות",
-                    0.55 * (ln(1.0 + plays) / ln(1.0 + maxPlays)),
-                    "$plays השמעות"
+                    familiarity(st),
+                    if ((st?.playDays ?: 0) > 0) "$plays השמעות ב-${st?.playDays} ימים שונים" else "$plays השמעות"
                 )
             )
         }
@@ -2591,6 +2617,9 @@ class Recommender(
 
         /** Vocal songs needed before "only vocal" in the season replaces everything else. */
         const val MIN_VOCAL_TO_REPLACE = 15
+
+        /** What one skip in a burst of skipping counts for, against a considered one. */
+        const val BURST_SKIP = 0.3
 
         /** How much of a song's dislike or skips reaches its artist, style, mood and sound. */
         const val NEGATIVE_SPILL = 0.4

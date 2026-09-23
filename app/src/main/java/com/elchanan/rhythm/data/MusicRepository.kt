@@ -525,8 +525,12 @@ class MusicRepository(
         val now = System.currentTimeMillis()
         val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
         val bucket = Recommender.bucketOf(now)
+        val today = localDay(now)
+        val newDay = today != current.lastPlayDay
         dao.putStats(
             current.copy(
+                playDays = current.playDays + if (newDay) 1 else 0,
+                lastPlayDay = today,
                 playCount = current.playCount + 1,
                 completeCount = current.completeCount + if (completed) 1 else 0,
                 listenedMs = current.listenedMs + listenedMs,
@@ -565,6 +569,17 @@ class MusicRepository(
 
     private var playsSinceTrim = 0
 
+    /** When the last few skips happened, to tell flicking through from turning a song off. */
+    private val recentSkips = ArrayDeque<Long>()
+
+    /** The local calendar day, so a play at 23:59 and one at 00:01 are two days. */
+    private fun localDay(millis: Long): Long {
+        val c = java.util.Calendar.getInstance().apply { timeInMillis = millis }
+        return com.elchanan.rhythm.engine.JewishSeasons.epochDay(
+            c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1, c.get(java.util.Calendar.DAY_OF_MONTH)
+        )
+    }
+
     private suspend fun bump(a: Long, b: Long, w: Double, now: Long) {
         val current = dao.affinityWeight(a, b) ?: 0.0
         dao.putAffinity(AffinityEntity(a = a, b = b, weight = current + w, updatedAt = now))
@@ -572,8 +587,16 @@ class MusicRepository(
 
     suspend fun recordSkip(songId: Long, listenedMs: Long) = withContext(Dispatchers.IO) {
         val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
+        val now = System.currentTimeMillis()
+        val burst = synchronized(recentSkips) {
+            while (recentSkips.isNotEmpty() && now - recentSkips.first() > BURST_WINDOW_MS) recentSkips.removeFirst()
+            val inBurst = recentSkips.size >= BURST_BEFORE
+            recentSkips.addLast(now)
+            inBurst
+        }
         dao.putStats(
             current.copy(
+                burstSkips = current.burstSkips + if (burst) 1 else 0,
                 skipCount = current.skipCount + 1,
                 listenedMs = current.listenedMs + listenedMs,
                 lastPlayedAt = System.currentTimeMillis()
@@ -1071,6 +1094,11 @@ class MusicRepository(
          * recordPlay trims it to this size, so asking for more finds nothing.
          */
         private const val HISTORY_FOR_RECENCY = 2000
+        /** Skips within this long of each other are one act of looking for something. */
+        const val BURST_WINDOW_MS = 120_000L
+
+        /** This many earlier skips inside the window make the next one part of a burst. */
+        const val BURST_BEFORE = 3
 
         private const val TRIM_EVERY = 200
 
