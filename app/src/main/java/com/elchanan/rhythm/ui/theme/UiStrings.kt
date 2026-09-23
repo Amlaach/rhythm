@@ -26,21 +26,39 @@ object UiStrings {
         putAll(part18())
         putAll(part19())
     } }
-    private data class Template(val pattern: Regex, val target: String, val names: List<String>)
+    private data class Template(val pattern: Regex, val target: String, val names: List<String>, val literal: Int)
     private val templates: List<Template> by lazy { exact.mapNotNull { (source, target) ->
         val matches = placeholder.findAll(source).toList()
         if (matches.isEmpty()) null else {
             val regex = buildString { append("^"); var from = 0; for (match in matches) { append(Regex.escape(source.substring(from, match.range.first))); append("(.*?)"); from = match.range.last + 1 }; append(Regex.escape(source.substring(from))); append("$") }
-            Template(Regex(regex, RegexOption.DOT_MATCHES_ALL), target, matches.map { it.value })
+            Template(Regex(regex, RegexOption.DOT_MATCHES_ALL), target, matches.map { it.value }, source.length - matches.sumOf { it.value.length })
         }
-    } }
+    // The most specific first: "top ten: $a (random: $b)" before "top ten: $x",
+    // or the looser one swallows the rest of the line untranslated.
+    }.sortedByDescending { it.literal } }
     private val cache = mutableMapOf<String, String>()
     private val fragments: List<Pair<String, String>> by lazy { exact.entries.asSequence()
         .filter { it.key.length >= 16 && it.key.length < 200 && !placeholder.containsMatchIn(it.key) && (it.key.startsWith(" ") || it.key.endsWith(" ") || it.key.endsWith(".") || it.key.endsWith("…")) }
         .map { it.key to it.value }.sortedByDescending { it.first.length }.toList() }
     fun translate(value: String, language: String): String {
         if (language != "en" || !hasHebrew(value)) return value
+        // A song's own title, artist or album is never "translated": it goes
+        // through the same Text as the interface, and a name that happens to
+        // equal a word the table knows - "בית", a title "אבי" - would
+        // otherwise be shown as something it is not called.
+        if (value in metadata) return value
         return synchronized(cache) { cache.getOrPut(value) { translateUncached(value) } }
+    }
+
+    @Volatile
+    private var metadata: Set<String> = emptySet()
+
+    /**
+     * The library's own names - titles, artists, albums - which [translate]
+     * leaves exactly as they are. Set whenever the library loads.
+     */
+    fun protectNames(names: Collection<String>) {
+        metadata = names.filterTo(HashSet()) { it.isNotBlank() && hasHebrew(it) }
     }
     private fun translateUncached(value: String): String {
         exact[value]?.let { return it }
@@ -1503,11 +1521,6 @@ object UiStrings {
         "\\bremix\\b|רמיקס" to "\\bremix\\b|Remix",
         "\\bcover\\b|קאבר|ביצוע" to "\\bcover\\b|Cover|Performance",
         "[\\(\\[][^\\)\\]]*[\\)\\]]|\\b(live|remix|רמיקס|קאבר|cover|אולפן|היכל|קיסריה|מנורה|unplugged)\\b|\\b20\\d{2}\\b" to "[\\(\\[][^\\)\\]]*[\\)\\]]|\\b(live|remix|remix|cover|cover|studio|hall|Caesaria|manora|unplugged)\\b|\\b20\\d{2}\\b",
-        "ישי ריבו" to "Hashi Rivo",
-        "ישי ריבו feat. מוטי שטיינמץ" to "Yishai Rivo feat. Motti Steinmetz",
-        "ישי" to "Yishai",
-        "אבי" to "my father",
-        "אביתר" to "Avitar",
         "ווקאלי" to "Vocal",
         "ווקלי" to "Vocal",
         "אקפלה" to "Acapella",

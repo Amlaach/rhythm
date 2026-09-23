@@ -232,6 +232,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }.sortedBy { it.name.lowercase(Locale.ROOT) }
 
+            // The library's own names are shown as they are, never translated.
+            com.elchanan.rhythm.ui.theme.UiStrings.protectNames(
+                buildList {
+                    for (song in songs) { add(song.title); add(song.artistName); add(song.albumName) }
+                    for (artist in artistInfos) add(artist.displayName)
+                }
+            )
             LibraryState(
                 loaded = true,
                 songs = songs.sortedBy { it.titleLower },
@@ -757,7 +764,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun shareSongs(songs: List<SongEntity>) {
         val intent = FileActions.shareIntent(songs) ?: return
-        val chooser = Intent.createChooser(intent, "שיתוף")
+        val chooser = Intent.createChooser(intent, com.elchanan.rhythm.ui.theme.localized("שיתוף"))
         chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { getApplication<Application>().startActivity(chooser) }
             .onFailure { _message.value = "אין אפליקציה שיכולה לקבל את הקובץ" }

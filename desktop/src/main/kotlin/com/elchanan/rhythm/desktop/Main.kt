@@ -172,6 +172,7 @@ import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.RhythmTheme
 import com.elchanan.rhythm.ui.theme.UiLanguage
+import com.elchanan.rhythm.ui.theme.UiStrings
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface2
 import com.elchanan.rhythm.ui.theme.TextPrimary
@@ -394,6 +395,13 @@ private fun RhythmApp() {
                 store.bookmarks(), store.positions()
             )
         }
+        // The library's own names are shown as they are, never translated.
+        UiStrings.protectNames(
+            buildList {
+                for (song in loaded.songs) { add(song.title); add(song.artistName); add(song.albumName) }
+                for (artist in loaded.library.artists) add(artist.displayName)
+            }
+        )
         songs = loaded.songs
         stats = loaded.stats
         artists = loaded.artists
@@ -3773,8 +3781,8 @@ private fun windowSize(): Pair<Dp, Dp> {
 private fun choosePlaylistFile(): File? {
     val chooser = JFileChooser().apply {
         fileSelectionMode = JFileChooser.FILES_ONLY
-        dialogTitle = "בחר קובץ רשימת השמעה"
-        fileFilter = FileNameExtensionFilter("רשימות השמעה (m3u, m3u8, pls)", "m3u", "m3u8", "pls")
+        dialogTitle = localized("בחר קובץ רשימת השמעה").orEmpty()
+        fileFilter = FileNameExtensionFilter(localized("רשימות השמעה (m3u, m3u8, pls)").orEmpty(), "m3u", "m3u8", "pls")
     }
     return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
         chooser.selectedFile
@@ -3786,8 +3794,8 @@ private fun choosePlaylistFile(): File? {
 private fun choosePlayCountFile(): File? {
     val chooser = JFileChooser().apply {
         fileSelectionMode = JFileChooser.FILES_ONLY
-        dialogTitle = "בחר קובץ היסטוריית השמעות"
-        fileFilter = FileNameExtensionFilter("קובצי טבלה (csv, tsv, txt)", "csv", "tsv", "txt")
+        dialogTitle = localized("בחר קובץ היסטוריית השמעות").orEmpty()
+        fileFilter = FileNameExtensionFilter(localized("קובצי טבלה (csv, tsv, txt)").orEmpty(), "csv", "tsv", "txt")
     }
     return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
         chooser.selectedFile
@@ -3800,10 +3808,10 @@ private fun choosePlayCountFile(): File? {
 private fun chooseAnalysisFile(): File? {
     val chooser = JFileChooser().apply {
         fileSelectionMode = JFileChooser.FILES_ONLY
-        dialogTitle = "שמור תוצאות ניתוח עבור Android"
+        dialogTitle = localized("שמור תוצאות ניתוח עבור Android").orEmpty()
         selectedFile = File("rhythm-library.${AnalysisTransfer.EXTENSION}")
         fileFilter = FileNameExtensionFilter(
-            "תוצאות ניתוח של Rhythm (*.${AnalysisTransfer.EXTENSION})",
+            localized("תוצאות ניתוח של Rhythm (*.${AnalysisTransfer.EXTENSION})").orEmpty(),
             AnalysisTransfer.EXTENSION
         )
     }
@@ -3817,9 +3825,9 @@ private fun chooseAnalysisFile(): File? {
 private fun chooseCatalogFile(): File? {
     val chooser = JFileChooser().apply {
         fileSelectionMode = JFileChooser.FILES_ONLY
-        dialogTitle = "שמור את רשימת הספרייה"
+        dialogTitle = localized("שמור את רשימת הספרייה").orEmpty()
         selectedFile = File(LibraryCatalogExport.FILE_NAME)
-        fileFilter = FileNameExtensionFilter("קובץ טקסט (*.txt)", "txt")
+        fileFilter = FileNameExtensionFilter(localized("קובץ טקסט (*.txt)").orEmpty(), "txt")
     }
     return if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) chooser.selectedFile else null
 }
@@ -3827,7 +3835,7 @@ private fun chooseCatalogFile(): File? {
 private fun chooseFolder(): File? {
     val chooser = JFileChooser().apply {
         fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-        dialogTitle = "בחר תיקיית מוזיקה"
+        dialogTitle = localized("בחר תיקיית מוזיקה").orEmpty()
     }
     return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
         chooser.selectedFile
