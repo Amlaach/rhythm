@@ -162,6 +162,39 @@ object Analysis {
         return out to (sampleRate / factor)
     }
 
+    /** Produce samples at the model's requested rate, including 44.1 -> 16 kHz. */
+    fun resampleMono(input: FloatArray, sampleRate: Int, targetRate: Int): FloatArray {
+        require(sampleRate > 0 && targetRate > 0)
+        if (input.isEmpty() || sampleRate == targetRate) return input
+        val count = (input.size.toLong() * targetRate / sampleRate).toInt()
+        val output = FloatArray(count)
+        val step = sampleRate.toDouble() / targetRate
+        if (step < 1.0) {
+            for (i in output.indices) {
+                val at = i * step
+                val left = at.toInt().coerceAtMost(input.lastIndex)
+                val right = (left + 1).coerceAtMost(input.lastIndex)
+                output[i] = (input[left] + (input[right] - input[left]) * (at - left)).toFloat()
+            }
+        } else {
+            // Average each output interval, including its fractional edge samples.
+            for (i in output.indices) {
+                val start = i * step
+                val end = ((i + 1) * step).coerceAtMost(input.size.toDouble())
+                var at = start
+                var sum = 0.0
+                while (at < end) {
+                    val index = at.toInt().coerceAtMost(input.lastIndex)
+                    val next = min(end, index + 1.0)
+                    sum += input[index] * (next - at)
+                    at = next
+                }
+                output[i] = (sum / (end - start)).toFloat()
+            }
+        }
+        return output
+    }
+
     // -----------------------------------------------------------------------
     // feature extraction
     // -----------------------------------------------------------------------
