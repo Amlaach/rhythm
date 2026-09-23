@@ -7,6 +7,16 @@
   `python3 tools/check_imports.py`, and the engine tests - run them inside
   the tree the typecheck script builds (`$TMPDIR/rhythm-typecheck`,
   `sh gradlew :engine:test`).
+- Run engine tests on JDK 17, like CI: `apt-get install openjdk-17-jdk-headless`,
+  then `JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 sh gradlew :engine:test
+  -Dorg.gradle.java.home=/usr/lib/jvm/java-17-openjdk-amd64` in the typecheck
+  tree. On JDK 19+ the regex `\b` stops treating Hebrew letters as word
+  characters, so `Versions` groups remixes differently. JDK 17 and Android
+  (ICU) agree with each other, and EngineGoldenTest is recorded on 17.
+- EngineGoldenTest pins every recommendation. A change that is not meant to
+  alter recommendations must pass it unchanged. Only re-record the golden
+  file (`RHYTHM_GOLDEN_UPDATE=1`) when the owner asked for the algorithm
+  itself to change.
 - CI runs on pull requests and on pushes to main, not on other branches.
 - Merge only when the owner says "מזג" / "תמזג", and only with CI green.
 - The recommendations are the heart of the app and took a long time to get
@@ -43,8 +53,14 @@ at normal thread priority. TFLite uses 2 threads, and there is no
 charging-only option. Weak phones can take around 10-20 s per song for
 hours on the first run (estimate).
 
-Agreed plan (owner approved the approach; asked to wait until users report
-problems):
+Status: steps 1-2 below are done (PR #31): the golden test, and
+`Recommender.leanFeatures`. Measured result: 10k songs 100 -> 80 MB, 20k
+songs 201 -> 162 MB, about 20%, less than first estimated. The sound print
+must stay, because MoodModel reads it lazily. `largeHeap` is on. A further
+exact-preserving idea not done: drop the sound print too when no song has
+mood marks, since MoodModel only reads prints when marks exist.
+
+Plan (owner approved):
 1. Before touching anything, write a golden test. Build a large synthetic
    library with plays, likes, skips, dates and moods. Record every output:
    per-song scores, feed order, radio, continuation, calibration report,

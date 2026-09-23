@@ -599,7 +599,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val built = withContext(Dispatchers.Default) { e.buildFeed() to e.tasteReport() }
             // Written back so the next feed can defend this answer instead of
             // forming a fresh opinion about the listener every refresh.
-            e.pickedMood?.let { repo.prefs.lastMood = it }
+            // The time is only moved when the answer changes: it is when the
+            // shelf started saying this, which is what the hold counts from.
+            e.pickedMood?.let { picked ->
+                if (picked != repo.prefs.lastMood) {
+                    repo.prefs.lastMood = picked
+                    repo.prefs.lastMoodAt = System.currentTimeMillis()
+                }
+            }
             // Filtered here rather than inside the engine: the engine's job is to
             // decide what is worth showing, and this is the user overruling that
             // afterwards. Keeping them apart means a shelf switched off still

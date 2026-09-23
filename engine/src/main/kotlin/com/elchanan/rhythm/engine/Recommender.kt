@@ -98,6 +98,18 @@ data class EngineTuning(
      */
     val lastMood: String = "",
     /**
+     * When [lastMood] was chosen, or 0 when that is not known.
+     *
+     * The margin alone did not hold the shelf. With a couple of dozen songs
+     * behind the verdict, ten percent is two songs, and one evening - or a
+     * re-analysis that moved a few songs from one mood to the next - was
+     * enough to go from "you like happy" to "you like calm" within the hour.
+     * A taste does not change in an hour, so for a few days after the shelf
+     * says something it keeps saying it, as long as the mood is still there
+     * in what the listener plays.
+     */
+    val lastMoodAt: Long = 0L,
+    /**
      * Weights for the signals that predict an unheard song, learned from this
      * listener's own history by [SignalCalibration] - or null for the
      * defaults. The sliders above still multiply them.
@@ -2228,7 +2240,8 @@ class Recommender(
             // The incumbent keeps the shelf unless the challenger is clearly
             // ahead. Without this the two swap on a single play.
             val held = counts.firstOrNull { it.first == previous }
-            if (held != null && (leader.second - held.second) / total < MOOD_MARGIN) {
+            val settling = tuning.lastMoodAt > 0L && now - tuning.lastMoodAt < MOOD_HOLD_MS
+            if (held != null && (settling || (leader.second - held.second) / total < MOOD_MARGIN)) {
                 pickedMood = previous.name
                 return previous
             }
@@ -2602,6 +2615,27 @@ class Recommender(
     companion object {
 
         /**
+         * The feature rows as the engine should hold them: without what it
+         * never reads once it has been built.
+         *
+         * The music print, chroma, timbre and the quarter tone chroma are read
+         * exactly once, by [AcousticSpace] when it is made - which must be
+         * from the full rows - and never again. Held in every row they were
+         * about a quarter of the memory a library takes, for the life of every
+         * snapshot. What is still read later stays: the tags, the sound print
+         * and the model's moods for [MoodModel], the shape, and every number.
+         *
+         * Same order as [rows], because the mood model reads them in order.
+         * EngineGoldenTest builds the engine both ways and requires identical
+         * answers, so a later change that starts reading one of these fields
+         * after construction fails there rather than quietly getting blanks.
+         */
+        fun leanFeatures(rows: List<AudioFeatureEntity>): Map<Long, AudioFeatureEntity> =
+            rows.associate {
+                it.songId to it.copy(musicPrint = "", chroma = "", timbre = "", timbreVar = "", chroma24 = "")
+            }
+
+        /**
          * Where the affinity term reaches half its ceiling.
          *
          * Chosen for the normalised scale: a pair that is heard together most
@@ -2678,6 +2712,9 @@ class Recommender(
          * which a single play cannot manufacture.
          */
         private const val MOOD_MARGIN = 0.10
+
+        /** How long a newly chosen mood keeps the shelf whatever the margin; see [EngineTuning.lastMoodAt]. */
+        const val MOOD_HOLD_MS = 3L * 24 * 60 * 60 * 1000
 
         /**
          * Friday or Saturday.

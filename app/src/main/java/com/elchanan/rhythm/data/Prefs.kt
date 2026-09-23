@@ -324,6 +324,11 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_LAST_MOOD, "").orEmpty()
         set(value) = sp.edit { putString(KEY_LAST_MOOD, value) }
 
+    /** When [lastMood] was chosen, 0 when not known - an install from before this was kept. */
+    var lastMoodAt: Long
+        get() = sp.getLong(KEY_LAST_MOOD_AT, 0L)
+        set(value) = sp.edit { putLong(KEY_LAST_MOOD_AT, value) }
+
     /**
      * The signal weights learned from this listener's history, encoded by
      * SignalWeights.encode, or empty for the defaults. Only ever written when
@@ -488,6 +493,7 @@ class Prefs(context: Context) {
         const val KEY_FEED_SEED = "feed_seed"
         const val KEY_ONBOARDED = "onboarded"
         const val KEY_LAST_MOOD = "last_mood"
+        const val KEY_LAST_MOOD_AT = "last_mood_at"
         const val KEY_LEARNED_WEIGHTS = "learned_weights"
         const val KEY_ACOUSTIC_WEIGHT = "acoustic_weight"
         const val KEY_AUTO_ANALYZE = "auto_analyze"

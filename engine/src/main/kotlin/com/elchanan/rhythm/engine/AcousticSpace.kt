@@ -123,7 +123,6 @@ class AcousticSpace(
         }
     }
 
-    private val raw = HashMap<Long, DoubleArray>(features.size)
     private val means = DoubleArray(DIMS)
     private val deviations = DoubleArray(DIMS) { 1.0 }
 
@@ -135,6 +134,11 @@ class AcousticSpace(
     val size: Int get() = vectors.size
 
     init {
+        // Only the standardised vectors are kept. The raw ones were a second
+        // copy of the same numbers held for the life of the space - a few
+        // hundred bytes a song, for nothing - so they now last only as long
+        // as it takes to standardise them.
+        val raw = HashMap<Long, DoubleArray>(features.size)
         for (f in features) raw[f.songId] = rawVector(f)
 
         if (raw.isNotEmpty()) {

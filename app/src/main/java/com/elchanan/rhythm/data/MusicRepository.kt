@@ -812,7 +812,9 @@ class MusicRepository(
             artists = engineArtists,
             affinity = affinityMap(),
             transitions = transitionMap(),
-            features = featuresById,
+            // The space is made from the full rows; the engine keeps them
+            // without what only the space reads. See Recommender.leanFeatures.
+            features = Recommender.leanFeatures(featureRows),
             acoustic = if (featureRows.size >= 8) AcousticSpace(featureRows) else null,
             tuning = com.elchanan.rhythm.engine.EngineTuning(
                 discovery = prefs.discovery,
@@ -822,6 +824,7 @@ class MusicRepository(
                 acousticWeight = prefs.acousticWeight,
                 separations = prefs.styleSeparations,
                 lastMood = prefs.lastMood,
+                lastMoodAt = prefs.lastMoodAt,
                 learned = com.elchanan.rhythm.engine.SignalWeights.decode(prefs.learnedWeights),
                 onlyVocalInSeason = prefs.onlyVocalInSeason
             ),

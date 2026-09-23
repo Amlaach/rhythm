@@ -1,11 +1,12 @@
 package com.elchanan.rhythm.data
 
 import android.content.Context
+import android.os.Process
 import com.elchanan.rhythm.engine.Analysis
 import com.elchanan.rhythm.engine.AudioAnalyzer
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.concurrent.Executors
 
 /**
  * Runs [AudioAnalyzer] over the library, one file at a time, in the
@@ -48,6 +50,24 @@ class AnalysisManager(
 
     private var job: Job? = null
 
+    /**
+     * A thread of its own for the pass, at background priority.
+     *
+     * The pass is hours of decoding and two models on the first run, and it
+     * ran on the shared pool at the same priority as everything else, so on a
+     * weak phone it competed with the screen for every core and scrolling
+     * stuttered while it worked. At background priority the system gives it
+     * whatever the interface and the player leave over - the same work, done
+     * when there is room for it. TFLite's own threads are started from this
+     * one and inherit its priority. What it computes is unchanged.
+     */
+    private val worker = Executors.newSingleThreadExecutor { task ->
+        Thread({
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+            task.run()
+        }, "rhythm-analysis").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
+
     fun start() {
         if (job?.isActive == true) return
         // Marked running here rather than inside the coroutine.
@@ -59,7 +79,7 @@ class AnalysisManager(
         // it would conclude there was nothing to wait for and stop the
         // service out from under the work it had just started.
         _progress.update { it.copy(running = true, unreachable = 0) }
-        job = scope.launch(Dispatchers.Default) {
+        job = scope.launch(worker) {
             try {
                 var total = repo.songCount()
                 var done = repo.analyzedCount()

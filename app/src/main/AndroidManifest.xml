@@ -27,6 +27,13 @@
     <!-- Required to attach an audio effect to the player's own session. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!--
+        largeHeap: the recommender holds what it knows about every song, and
+        a library of twenty thousand on a card is more than the default heap
+        of a low end phone - 192 to 256 MB - leaves room for. Asking for the
+        large heap roughly doubles that ceiling and changes nothing about
+        what is computed. See "Known issue" in CLAUDE.md for the real fix.
+    -->
     <application
         android:name=".RhythmApp"
         android:allowBackup="true"
@@ -37,6 +44,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true"
+        android:largeHeap="true"
         android:theme="@style/Theme.Rhythm">
 
         <activity
