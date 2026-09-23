@@ -22,9 +22,10 @@ import java.io.File
  * the mp3, and a copy of it in the database would be the same bytes again for
  * every track on an album. It is read on demand and kept in memory.
  *
- * Keyed by album rather than by song where there is an album, because that is
- * how the art actually varies - twelve tracks of one record hold twelve
- * copies of one picture, and reading the first of them is reading all of them.
+ * Keyed by song, not by album. Keying by album read one track and showed its
+ * picture on all the others, and an "album" is not always a record: a folder
+ * of singles with one album name showed one song's cover on every song in
+ * it, and a first track with no picture left the rest blank too.
  */
 object Artwork {
 
@@ -44,8 +45,7 @@ object Artwork {
             size > MAX
     }
 
-    private fun keyOf(song: SongEntity): Long =
-        if (song.albumId != 0L) song.albumId else song.id
+    private fun keyOf(song: SongEntity): Long = song.id
 
     /** What is already decoded, so a scroll back up does not flicker. */
     fun cached(song: SongEntity): ImageBitmap? = synchronized(lock) { cache[keyOf(song)] }

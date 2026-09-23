@@ -224,6 +224,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }.sortedBy { it.displayName.lowercase(Locale.ROOT) }
 
+            com.elchanan.rhythm.playback.MediaItems.noteLibrary(songs)
             val albums = songs.groupBy { it.albumId }.map { (id, list) ->
                 AlbumInfo(
                     albumId = id,
