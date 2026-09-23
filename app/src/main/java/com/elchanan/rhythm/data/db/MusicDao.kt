@@ -383,6 +383,10 @@ interface MusicDao {
     @Query("DELETE FROM playlist_items WHERE playlistId = :playlistId AND songId = :songId")
     suspend fun removeFromPlaylist(playlistId: Long, songId: Long)
 
+    /** A file that is gone leaves every playlist it was in. */
+    @Query("DELETE FROM playlist_items WHERE songId IN (:ids)")
+    suspend fun removeFromAllPlaylists(ids: List<Long>)
+
     // ---------- keeping what was learned when the id underneath it moves ----------
 
     /**

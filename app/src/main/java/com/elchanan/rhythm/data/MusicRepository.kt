@@ -99,7 +99,16 @@ class MusicRepository(
     private val _scans = MutableStateFlow(0L)
     val scans: StateFlow<Long> = _scans.asStateFlow()
 
-    suspend fun rescan(): Int = withContext(Dispatchers.IO) {
+    /**
+     * One scan at a time. A scan asked for while another runs - after a
+     * delete, during the first analysis - waits for it rather than racing it
+     * over the same rows.
+     */
+    private val scanLock = kotlinx.coroutines.sync.Mutex()
+
+    suspend fun rescan(): Int = withContext(Dispatchers.IO) { scanLock.withLock { rescanLocked() } }
+
+    private suspend fun rescanLocked(): Int {
         val excluded = prefs.excludedFolders.map { it.lowercase() }
         // The folders the library is made of, when the listener chose some.
         val roots = prefs.musicFolders.map { it.trimEnd('/').lowercase() + "/" }
@@ -128,6 +137,23 @@ class MusicRepository(
             MediaScanner.indexNow(context, MediaScanner.unindexedFiles(context, known))
         }.getOrDefault(0)
         if (indexed > 0) onDevice = MediaScanner.scan(context)
+        // And the other way round: MediaStore keeps listing a file that was
+        // deleted or moved by something that did not tell it - a file
+        // manager, a computer over USB - and the scan believed it. The song
+        // stayed in the library and in its playlists, pointing at nothing,
+        // and no rescan could remove it. So a row whose file is not there is
+        // not taken as found, and the system is asked to look again, which
+        // drops its stale row. Not when nearly all of them are missing: that
+        // is the check being unable to see the files, not a library deleted,
+        // and forgetting a library on that evidence cannot be undone.
+        val stale = onDevice.filter { song ->
+            song.path.isNotEmpty() && !runCatching { java.io.File(song.path).exists() }.getOrDefault(true)
+        }
+        if (stale.isNotEmpty() && stale.size * 10 < onDevice.size * STALE_OF_TEN) {
+            val stalePaths = stale.mapTo(HashSet()) { it.path }
+            onDevice = onDevice.filter { it.path !in stalePaths }
+            runCatching { MediaScanner.indexNow(context, stalePaths.toList()) }
+        }
         var tooShort = 0
         var inExcluded = 0
         var recordings = 0
@@ -189,15 +215,36 @@ class MusicRepository(
                 song.path !in foundPaths && Volumes.rootOf(song.path) in mounted
             }
         }
-        val goneIds = gone.mapTo(HashSet()) { it.id }
-        val kept = existing.filter { song ->
-            song.path !in foundPaths && song.id !in goneIds
-        }
         // Where the same file came back under a different number.
-        val moved = found.mapNotNull { song ->
+        val renumbered = found.mapNotNull { song ->
             val old = byPath[song.path] ?: return@mapNotNull null
             if (old.id == song.id) null else old.id to song.id
         }
+        // And where a file went to another folder. A move is a delete and a
+        // new file as far as MediaStore is concerned, so the song lost its
+        // plays, its likes and its place in every playlist, and the old one
+        // stayed behind. The same name and the same size, on one gone song
+        // and one new one, is the same file.
+        val existingIds = existing.mapTo(HashSet()) { it.id }
+        fun fileKey(song: SongEntity) =
+            song.path.substringAfterLast('/').lowercase() + "|" + song.sizeBytes
+        val arrivedByKey = found
+            .filter { it.id !in existingIds && byPath[it.path] == null && it.sizeBytes > 0L }
+            .groupBy(::fileKey).filterValues { it.size == 1 }.mapValues { it.value[0] }
+        val relocated = gone
+            .filter { it.sizeBytes > 0L }
+            .groupBy(::fileKey).filterValues { it.size == 1 }
+            .mapNotNull { (key, list) -> arrivedByKey[key]?.let { list[0].id to it.id } }
+        val moved = renumbered + relocated
+        val relocatedIds = relocated.mapTo(HashSet()) { it.first }
+        val goneIds = gone.mapTo(HashSet()) { it.id } - relocatedIds
+        val kept = existing.filter { song ->
+            song.path !in foundPaths && song.id !in goneIds && song.id !in relocatedIds
+        }
+        // The old number's row goes once everything on it has moved: it was
+        // left behind as a second copy of the song that nothing could play.
+        val foundIds = found.mapTo(HashSet()) { it.id }
+        val leftBehind = moved.map { it.first }.filter { it !in foundIds }
 
         // In one transaction, so the observers never see the moment between
         // the old library being cleared and the new one arriving. Without it
@@ -223,10 +270,16 @@ class MusicRepository(
                 dao.moveTransitionB(from, to)
             }
             // Only what is provably gone, and never the whole table. Songs on
-            // a volume that is not attached stay exactly as they were.
-            if (gone.isNotEmpty()) {
-                gone.map { it.id }.chunked(400).forEach { dao.deleteSongsById(it) }
+            // a volume that is not attached stay exactly as they were. A song
+            // that is gone leaves its playlists too, where it could be seen
+            // and not played.
+            if (goneIds.isNotEmpty()) {
+                goneIds.toList().chunked(400).forEach {
+                    dao.deleteSongsById(it)
+                    dao.removeFromAllPlaylists(it)
+                }
             }
+            leftBehind.chunked(400).forEach { dao.deleteSongsById(it) }
             found.chunked(400).forEach { dao.insertSongs(it) }
         }
         _lastScan.value = ScanReport(
@@ -258,7 +311,7 @@ class MusicRepository(
         // The songs still filed under storage that is not attached count as
         // part of the library, because they are: they come back the moment
         // the card does, with everything that was learned about them intact.
-        found.size + kept.size
+        return found.size + kept.size
     }
 
     // -----------------------------------------------------------------------
@@ -443,7 +496,15 @@ class MusicRepository(
             dao.deleteBookmarksFor(id)
             dao.clearHistoryFor(id)
         }
-        ids.chunked(400).forEach { dao.deleteStats(it) }
+        ids.chunked(400).forEach {
+            dao.deleteStats(it)
+            // The song itself and its playlist places too, now. Those were
+            // left to the scan that followed - and a scan asked for during
+            // an analysis pass never ran, so a song deleted from inside the
+            // app stayed in the library and in every playlist it was in.
+            dao.removeFromAllPlaylists(it)
+            dao.deleteSongsById(it)
+        }
     }
 
     /** The user saying a song is, or is not, in a mood - or (null) handing it back to the audio. */
@@ -1136,6 +1197,12 @@ class MusicRepository(
          * enough never to lose anything that matters.
          */
         private const val EDGE_LIMIT = 20_000
+
+        /**
+         * Listed files missing from the disk are dropped unless more than
+         * nine in ten are, which is the check failing rather than a delete.
+         */
+        private const val STALE_OF_TEN = 9
 
         /**
          * How much history the engine reads recency from. The whole of it:

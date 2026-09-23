@@ -18,11 +18,13 @@ import com.elchanan.rhythm.R
 import com.elchanan.rhythm.RhythmApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Keeps a scan or an analysis pass alive while the screen is off.
@@ -49,6 +51,9 @@ class LibraryWorkService : Service() {
 
     private var scope: CoroutineScope? = null
     private var work: Job? = null
+
+    /** A scan asked for while [work] was already running; see onStartCommand. */
+    private var lateScan: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -64,13 +69,22 @@ class LibraryWorkService : Service() {
         createChannel()
         startForegroundCompat(notification(getString(R.string.work_preparing), 0, 0))
 
-        // Already busy: the second request is dropped rather than started
-        // alongside the first, because two passes over one library is the
-        // same answer twice at twice the cost. The pass already running
-        // covers the same library, so nothing is lost by waiting for it.
-        if (work?.isActive == true) return START_NOT_STICKY
-
         val app = applicationContext as RhythmApp
+
+        // Already busy. A second analysis is dropped: the pass running covers
+        // the same library. A scan is not. It was dropped too, and the first
+        // analysis runs for hours - so for hours a file deleted from inside
+        // the app, or moved, stayed in the library and in its playlists,
+        // because the scan that would have noticed never ran.
+        if (work?.isActive == true) {
+            if (scan && lateScan?.isActive != true) {
+                lateScan = scope?.launch {
+                    runCatching { app.repository.rescan() }
+                    app.analysis.refreshCounts()
+                }
+            }
+            return START_NOT_STICKY
+        }
         val holder = CoroutineScope(SupervisorJob())
         scope = holder
 
@@ -127,6 +141,8 @@ class LibraryWorkService : Service() {
                     }
                 }
             } finally {
+                // A scan asked for while this ran finishes before the service goes.
+                withContext(NonCancellable) { lateScan?.join() }
                 stopSelf()
             }
         }
