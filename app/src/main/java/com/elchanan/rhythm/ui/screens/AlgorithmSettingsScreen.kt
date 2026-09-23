@@ -287,7 +287,7 @@ fun AlgorithmSettingsScreen(
                     Text("מחרוזת לפי אורך", style = MaterialTheme.typography.titleSmall)
                     Text(
                         "שיר שאורכו לפחות כך נחשב מחרוזת, גם כשבשם שלו לא כתוב \"מחרוזת\". " +
-                            "מחרוזות לא נכנסות למיקסים, לרדיו ולמדפים — הן נשארות בספרייה.",
+                            "מחרוזות לא מוצעות במיקסים, ברדיו ובהמלצות — הן נשארות בספרייה ובמדף \"נוספו לאחרונה\".",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )

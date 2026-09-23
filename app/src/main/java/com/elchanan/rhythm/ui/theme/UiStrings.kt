@@ -1628,7 +1628,7 @@ object UiStrings {
     private fun part20(): Map<String, String> = mapOf(
         "מחרוזת לפי אורך" to "Medley by length",
         "שיר שאורכו לפחות כך נחשב מחרוזת, גם כשבשם שלו לא כתוב \"מחרוזת\". " to "A track at least this long counts as a medley, even when its name does not say \"medley\". ",
-        "מחרוזות לא נכנסות למיקסים, לרדיו ולמדפים — הן נשארות בספרייה." to "Medleys stay out of mixes, radio and shelves — they stay in the library.",
+        "מחרוזות לא מוצעות במיקסים, ברדיו ובהמלצות — הן נשארות בספרייה ובמדף \"נוספו לאחרונה\"." to "Medleys are not offered in mixes, radio or recommendations — they stay in the library and on the \"Recently added\" shelf.",
         "רק לפי השם" to "By name only",
         "\$minutes דקות ומעלה" to "\$minutes minutes and up",
         "דרג את כל השירים בתיקייה" to "Rate every song in the folder",

@@ -647,7 +647,9 @@ class Recommender(
 
     /**
      * A medley, by its title or - when the listener set a length - by being
-     * at least that long. Kept out of everything generated, as [isMedley] is.
+     * at least that long. Kept out of everything generated, as [isMedley] is;
+     * the shelves that only list what is there - recently added, most played
+     * - show a medley by length exactly as they show one by title.
      */
     private fun medley(song: SongEntity): Boolean =
         isMedley(song.title) ||
