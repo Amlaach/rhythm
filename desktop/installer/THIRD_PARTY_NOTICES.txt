@@ -24,3 +24,34 @@ additional restriction on modification of these LGPL components. This
 notice does not imply endorsement by the library authors.
 
 Other dependencies may carry their own notices within their JARs.
+
+Machine-learning models and runtime
+
+Discogs-EffNet and music classification heads
+Copyright: Music Technology Group, Universitat Pompeu Fabra (MTG-UPF).
+Source embedding model: https://essentia.upf.edu/models/feature-extractors/discogs-effnet/
+Source mood and danceability heads: https://essentia.upf.edu/models/classification-heads/
+Model information and license statement: https://essentia.upf.edu/models.html
+License: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+License text: https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
+Changes: the original models were converted to TensorFlow Lite for the
+Android application (tools/models/convert.py) and from those files to ONNX
+for this Windows application (tools/models/to_onnx.py), both in the Rhythm
+source repository. The converted model files, as adaptations of the upstream
+models, are shared under CC BY-NC-SA 4.0. Other application code is
+separately licensed and is not claimed as part of those model adaptations.
+This credit does not imply MTG-UPF endorses Rhythm.
+
+YAMNet
+Copyright 2019 The TensorFlow Authors.
+Source project: https://github.com/tensorflow/models/tree/master/research/audioset/yamnet
+License: Apache License, Version 2.0 (licenses/APACHE-2.0.txt)
+Rhythm uses an ONNX conversion of the TensorFlow Lite YAMNet for local
+sound-event features.
+This credit does not imply Google or The TensorFlow Authors endorse Rhythm.
+
+ONNX Runtime (com.microsoft.onnxruntime:onnxruntime:1.26.0)
+Copyright (c) Microsoft Corporation. License: MIT.
+Source: https://github.com/microsoft/onnxruntime
+The library JAR is redistributed with the native libraries for platforms
+other than Windows and Linux x86-64 removed; nothing else is changed.

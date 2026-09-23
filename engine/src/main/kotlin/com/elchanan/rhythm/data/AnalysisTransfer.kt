@@ -2,6 +2,8 @@ package com.elchanan.rhythm.data
 
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.SongEntity
+import com.elchanan.rhythm.engine.MusicPrint
+import com.elchanan.rhythm.engine.SoundPrint
 import java.security.MessageDigest
 import java.util.Locale
 import kotlin.math.abs
@@ -20,10 +22,17 @@ import kotlin.math.max
 object AnalysisTransfer {
     const val EXTENSION = "rhythm-analysis"
     const val MIME = "application/vnd.rhythm.analysis"
-    const val FORMAT_VERSION = 1
+    /**
+     * 2 carries the sound print, the music print and the mood readings as
+     * well, now that the desktop runs the models. 1 is still read: a file
+     * without them imports its measurements and leaves those to the phone.
+     */
+    const val FORMAT_VERSION = 2
     const val ANALYZER_VERSION = 1
     const val CAP_ACOUSTIC = "acoustic"
     const val CAP_SEMANTIC_TAGS = "semantic-tags"
+    const val CAP_SOUND_PRINT = "sound-print"
+    const val CAP_MUSIC_MODEL = "music-model"
 
     private const val MAGIC = "RHYTHM_ANALYSIS"
     private const val MAX_TRACKS = 250_000
@@ -98,6 +107,9 @@ object AnalysisTransfer {
                 field(f.scaleConfidence)
                 field(encodeText(f.chroma24))
                 field(encodeText(f.tags))
+                field(encodeText(f.soundPrint))
+                field(encodeText(f.musicPrint))
+                field(encodeText(f.musicMoods))
                 append('\n')
             }
         }
@@ -118,7 +130,9 @@ object AnalysisTransfer {
         require(lines.hasNext()) { "empty transfer" }
         val header = lines.next().split('\t')
         require(header.size == 5 && header[0] == MAGIC) { "not a Rhythm analysis file" }
-        require(header[1].toIntOrNull() == FORMAT_VERSION) { "unsupported format" }
+        val format = header[1].toIntOrNull()
+        require(format != null && format in 1..FORMAT_VERSION) { "unsupported format" }
+        val fields = if (format >= 2) 29 else 26
         val analyzer = header[2].toIntOrNull()?.takeIf { it > 0 }
             ?: throw IllegalArgumentException("invalid analyzer version")
         require(analyzer <= ANALYZER_VERSION) { "newer analyzer is not supported" }
@@ -131,7 +145,7 @@ object AnalysisTransfer {
         while (lines.hasNext()) {
             require(tracks.size < MAX_TRACKS) { "too many tracks" }
             val p = lines.next().split('\t')
-            require(p.size == 26 && p[0] == "T") { "invalid track row" }
+            require(p.size == fields && p[0] == "T") { "invalid track row" }
             val f = AudioFeatureEntity(
                 songId = 0L,
                 analyzedAt = long(p, 8),
@@ -151,8 +165,11 @@ object AnalysisTransfer {
                 scaleMode = int(p, 22),
                 scaleConfidence = float(p, 23),
                 chroma24 = decodeText(p[24]),
-                tags = decodeText(p[25])
-            )
+                tags = decodeText(p[25]),
+                soundPrint = if (fields > 26) printOrEmpty(decodeText(p[26]), SoundPrint::unpack) else "",
+                musicPrint = if (fields > 26) printOrEmpty(decodeText(p[27]), MusicPrint::unpack) else "",
+                musicMoods = if (fields > 26) decodeText(p[28]) else ""
+            ).let { if (it.musicPrint.isEmpty()) it.copy(musicMoods = "") else it }
             require(valid(f)) { "invalid measurements" }
             tracks += Track(
                 fileName = decodeText(p[1]),
@@ -218,11 +235,16 @@ object AnalysisTransfer {
             val song = candidates[0]
             claimed += song.id
             val old = existing[song.id]
+            // A computer without a model must never erase what the phone's
+            // model already made. The moods go with the music print they were
+            // read from, never one song's print with another's moods.
+            val keepMusic = track.feature.musicPrint.isEmpty() && old != null
             out += track.feature.copy(
                 songId = song.id,
-                // A computer without the semantic model must never erase tags
-                // already measured on the phone.
-                tags = track.feature.tags.ifBlank { old?.tags.orEmpty() }
+                tags = track.feature.tags.ifBlank { old?.tags.orEmpty() },
+                soundPrint = track.feature.soundPrint.ifEmpty { old?.soundPrint.orEmpty() },
+                musicPrint = if (keepMusic) old!!.musicPrint else track.feature.musicPrint,
+                musicMoods = if (keepMusic) old!!.musicMoods else track.feature.musicMoods
             )
         }
         return MatchResult(out, unmatched, ambiguous, invalid)
@@ -246,6 +268,17 @@ object AnalysisTransfer {
         f.analyzedAt >= 0 && f.bpm.isFinite() && f.bpmConfidence.isFinite() &&
             f.energy.isFinite() && f.brightness.isFinite() && f.flatness.isFinite() &&
             f.dynamics.isFinite() && f.onsetRate.isFinite() && f.scaleConfidence.isFinite()
+
+    /**
+     * A print as stored, if it reads back as one; [SoundPrint.TRIED] as it
+     * is; anything else dropped to empty rather than the row refused - the
+     * measurements are still good, and an empty print is simply made again.
+     */
+    private fun printOrEmpty(stored: String, unpack: (String) -> FloatArray?): String = when {
+        stored.isEmpty() || stored == SoundPrint.TRIED -> stored
+        unpack(stored) != null -> stored
+        else -> ""
+    }
 
     private fun StringBuilder.field(value: Any) { append('\t').append(value) }
     private fun encodeText(value: String): String {

@@ -2,6 +2,8 @@ package com.elchanan.rhythm.data
 
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.SongEntity
+import com.elchanan.rhythm.engine.MusicPrint
+import com.elchanan.rhythm.engine.SoundPrint
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -79,6 +81,53 @@ class AnalysisTransferTest {
         )
         val result = AnalysisTransfer.match(bundle, listOf(phone), mapOf(2L to feature(2, tags = "5:0.9")))
         assertEquals("5:0.9", result.features.single().tags)
+    }
+
+    private val soundPrint = SoundPrint.pack(FloatArray(SoundPrint.DIMS) { (it % 17) * 0.05f })
+    private val musicPrint = MusicPrint.pack(FloatArray(MusicPrint.DIMS) { (it % 13) * 0.3f })
+
+    @Test fun printsAndMoodsTravelWithTheMeasurements() {
+        val song = song(3, "C:\\a.mp3", "a", "b", 10, 200_000)
+        val feature = feature(3, tags = "1:0.5").copy(
+            soundPrint = soundPrint, musicPrint = musicPrint, musicMoods = "happy=0.812,sad=0.100"
+        )
+        val decoded = AnalysisTransfer.decode(AnalysisTransfer.encode(listOf(song), mapOf(3L to feature)))
+        assertEquals(feature.copy(songId = 0), decoded.tracks.single().feature)
+    }
+
+    @Test fun aVersionOneFileStillImports() {
+        val song = song(4, "C:\\a.mp3", "a", "b", 10, 200_000)
+        val v2 = AnalysisTransfer.encode(listOf(song), mapOf(4L to feature(4, tags = "1:0.5")))
+        // What the previous release wrote: format 1, no print columns.
+        val body = v2.substringBefore("SHA256\t").lines().filter { it.isNotEmpty() }.mapIndexed { i, line ->
+            val p = line.split('\t')
+            if (i == 0) (listOf(p[0], "1") + p.drop(2)).joinToString("\t") else p.take(26).joinToString("\t")
+        }.joinToString("\n") + "\n"
+        val sha = java.security.MessageDigest.getInstance("SHA-256").digest(body.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val decoded = AnalysisTransfer.decode(body + "SHA256\t" + sha + "\n")
+        assertEquals(feature(0, tags = "1:0.5"), decoded.tracks.single().feature)
+    }
+
+    @Test fun importingDoesNotEraseThePhonesPrints() {
+        val desktop = song(1, "C:\\song.mp3", "Song", "Artist", 1000, 200_000)
+        val phone = song(2, "/Music/song.mp3", "Song", "Artist", 1000, 200_000)
+        val bundle = AnalysisTransfer.decode(AnalysisTransfer.encode(listOf(desktop), mapOf(1L to feature(1))))
+        val had = feature(2).copy(soundPrint = soundPrint, musicPrint = musicPrint, musicMoods = "happy=0.500")
+        val got = AnalysisTransfer.match(bundle, listOf(phone), mapOf(2L to had)).features.single()
+        assertEquals(soundPrint, got.soundPrint)
+        assertEquals(musicPrint, got.musicPrint)
+        assertEquals("happy=0.500", got.musicMoods)
+    }
+
+    @Test fun aPrintThatDoesNotReadBackIsDroppedNotTheRow() {
+        val song = song(5, "C:\\a.mp3", "a", "b", 10, 200_000)
+        val broken = feature(5).copy(soundPrint = "not a print", musicPrint = "nor this", musicMoods = "happy=0.9")
+        val f = AnalysisTransfer.decode(AnalysisTransfer.encode(listOf(song), mapOf(5L to broken))).tracks.single().feature
+        assertEquals("", f.soundPrint)
+        assertEquals("", f.musicPrint)
+        assertEquals("moods without their print are not kept", "", f.musicMoods)
+        assertEquals(0.42f, f.energy)
     }
 
     private fun song(

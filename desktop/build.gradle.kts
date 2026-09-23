@@ -15,6 +15,9 @@ plugins {
     id("org.jetbrains.compose")
 }
 
+// The version tools/models/to_onnx.py checked the converted models with.
+val ONNX_RUNTIME = "1.26.0"
+
 // The theme is not copied here, it is compiled here. Color.kt, Type.kt and
 // Theme.kt are pure Compose with no Android in them at all, so the desktop
 // module builds the very same files the phone does rather than a second set
@@ -35,7 +38,24 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
     kotlinOptions { jvmTarget = "17" }
 }
 
+val onnxRuntime by configurations.creating
+
+val onnxRuntimeTrimmed = tasks.register<Jar>("onnxRuntimeTrimmed") {
+    archiveFileName.set("onnxruntime-$ONNX_RUNTIME-trimmed.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("onnxruntime"))
+    from({ onnxRuntime.map { zipTree(it) } }) {
+        // macOS (with its debug symbols, 90 MB unpacked) and ARM Linux: never
+        // shipped, never run. Windows is what the installer is for, and
+        // x86-64 Linux is what CI and the development sandbox run.
+        exclude("ai/onnxruntime/native/osx-*/**")
+        exclude("ai/onnxruntime/native/linux-aarch64/**")
+        exclude("META-INF/*.SF", "META-INF/*.RSA", "META-INF/*.DSA")
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
 dependencies {
+    onnxRuntime("com.microsoft.onnxruntime:onnxruntime:$ONNX_RUNTIME")
     implementation(project(":engine"))
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
@@ -76,10 +96,20 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.14.0")
     implementation("net.java.dev.jna:jna-platform:5.14.0")
 
+    // The phone's models - YAMNet, Discogs-EffNet and its mood heads - in ONNX
+    // form (tools/models/to_onnx.py), run here by ONNX Runtime because
+    // TensorFlow Lite has no desktop Java build. The published jar carries the
+    // native library for five platforms, 42 MB of which Windows is 15; the
+    // installer gets a copy with only Windows and Linux in it (Linux for the
+    // build machines), see onnxRuntimeTrimmed below.
+    implementation(files(onnxRuntimeTrimmed))
+
     // The library, ratings and analysis rows. Room is Android only, so the
     // desktop keeps the same data in plain SQLite through JDBC - the entity
     // classes it reads and writes are the ones in :engine, unchanged.
     implementation("org.xerial:sqlite-jdbc:3.45.3.0")
+
+    testImplementation("junit:junit:4.13.2")
 }
 
 compose.desktop {

@@ -132,6 +132,8 @@ import com.elchanan.rhythm.data.db.TagOverrideEntity
 import com.elchanan.rhythm.desktop.audio.Analyzer
 import com.elchanan.rhythm.desktop.audio.AudioPlayer
 import com.elchanan.rhythm.desktop.audio.Equalizer
+import com.elchanan.rhythm.desktop.audio.ModelCheck
+import com.elchanan.rhythm.desktop.audio.Models
 import com.elchanan.rhythm.desktop.data.Store
 import com.elchanan.rhythm.engine.Listening
 import com.elchanan.rhythm.engine.ActionPlacement
@@ -190,7 +192,16 @@ import kotlinx.coroutines.withContext
  * the phone runs - the same compiled classes out of :engine, not a copy. This
  * file decides what a shelf looks like and nothing about what goes in one.
  */
-fun main() = application {
+fun main(args: Array<String>) {
+    // CI's check of the finished Windows image: the models, loaded and run
+    // the way the installed app will load and run them. No window.
+    args.firstOrNull { it.startsWith("--check-models=") }?.let { arg ->
+        kotlin.system.exitProcess(ModelCheck.runTo(File(arg.substringAfter('='))))
+    }
+    runApp()
+}
+
+private fun runApp() = application {
     // Swing's own look, for the folder chooser. It is the one dialog this app
     // borrows rather than draws, because Windows users know their own file
     // picker and a hand-drawn one would only be worse.
@@ -265,6 +276,10 @@ private fun RhythmApp() {
     // change. Empty until enough of the library has been analysed for a
     // percentile to mean anything, which is the same as the feature being off.
     val loudnessGains = remember(features) { Loudness.gains(features.values) }
+    // Songs whose analysis is complete, prints included - the phone's count.
+    // A song measured before this build had the models is not done: the pass
+    // goes back for it, and the count has to say so rather than read 100%.
+    val complete = remember(features) { features.values.count { !Analyzer.wantsModels(it) } }
     var volume by remember { mutableStateOf(1f) }
     var query by remember { mutableStateOf("") }
     // The scored library, held so a feed and a search are two questions to one
@@ -341,9 +356,14 @@ private fun RhythmApp() {
             // names without any of them knowing a repair happened.
             val fixed = filterLibrary(applyOverrides(s, store.overrides()), st, prefs)
             val model = LibraryModel.build(fixed, ar, store.playlists(), store.playlistItems())
+            val built = eng?.buildFeed().orEmpty()
+            // Written back so the next feed can defend this answer instead of
+            // forming a fresh opinion about the listener every refresh - the
+            // mood shelf's hold, as on the phone.
+            eng?.pickedMood?.let { store.noteMood(it, System.currentTimeMillis()) }
             Loaded(
                 fixed, st, ar, model, store.folders, sd,
-                eng?.buildFeed().orEmpty(), ft, eng, tn,
+                built, ft, eng, tn,
                 store.bookmarks(), store.positions()
             )
         }
@@ -485,17 +505,30 @@ private fun RhythmApp() {
      * end, so a pass that is interrupted keeps what it had already measured.
      */
     fun analyze() {
-        val todo = songs.filter { it.id !in features }
-        if (todo.isEmpty()) return
+        if (analysing) return
+        // Songs never measured, and songs measured before this build had the
+        // models - the phone's queue, which goes back for rows without a
+        // sound print or a music print. Counted here without loading anything;
+        // the pass loads the models first and asks again.
+        if (songs.none { song -> features[song.id].let { it == null || Analyzer.wantsModels(it) } }) return
         analysing = true
-        // Said before any decoding starts. The first song used to take long
-        // enough that the counter sat at nothing for minutes, which reads as
-        // a button that did not work.
-        status = "מנתח… 0 מתוך ${todo.size}"
+        status = "מנתח…"
         analysisJob = scope.launch {
             var done = 0
             var unreadable = 0
             try {
+                val snapshot = features
+                val todo = withContext(Dispatchers.IO) {
+                    // Loaded off the interface thread: it is seventeen
+                    // megabytes of weights, and a failure to load is found out
+                    // here, before any song is queued for work it cannot do.
+                    Models.soundAvailable()
+                    songs.filter { song -> snapshot[song.id].let { it == null || Analyzer.wantsModels(it) } }
+                }
+                // Said before any decoding starts. The first song used to take
+                // long enough that the counter sat at nothing for minutes,
+                // which reads as a button that did not work.
+                status = "מנתח… 0 מתוך ${todo.size}"
                 // Several at a time. Decoding is arithmetic on one core and a
                 // desktop has several idle ones, where the phone has a
                 // hardware decoder and one job to give it. Bounded rather than
@@ -517,7 +550,16 @@ private fun RhythmApp() {
                                 // the two counters and the status line are
                                 // this coroutine's and are touched from every
                                 // lane.
-                                if (f != null) store.putFeature(f)
+                                if (f != null) {
+                                    store.putFeature(f)
+                                } else if (snapshot[song.id] != null && File(song.path).isFile) {
+                                    // Measured once and back only for its
+                                    // prints, and now it will not decode: the
+                                    // measurements stay and the prints are
+                                    // marked tried, or it would be back on
+                                    // every pass for ever. The phone's rule.
+                                    store.markPrintTried(song.id)
+                                }
                                 counter.withLock {
                                     done++
                                     if (f == null) unreadable++
@@ -1607,7 +1649,7 @@ private fun RhythmApp() {
                     onOpenPage = { stack = stack + Route.Settings(it) },
                     prefs = prefs,
                     songs = songs.size,
-                    analysed = features.size,
+                    analysed = complete,
                     ratedArtists = artists.count { it.rating > 0 },
                     taggedArtists = artists.count { it.styles.isNotBlank() },
                     liked = stats.values.count { it.liked == 1 },
@@ -1781,7 +1823,7 @@ private fun RhythmApp() {
                         moods = if (prefs.pinMoodRow) Mood.entries.toList() else emptyList(),
                         scanning = scanning,
                         analysing = analysing,
-                        unanalysed = songs.count { it.id !in features },
+                        unanalysed = songs.count { song -> features[song.id].let { it == null || Analyzer.wantsModels(it) } },
                         status = status,
                         hasFolders = folders.isNotEmpty(),
                         // The one library shape where every other nudge is

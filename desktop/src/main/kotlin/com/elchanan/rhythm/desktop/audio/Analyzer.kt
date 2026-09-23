@@ -3,6 +3,11 @@ package com.elchanan.rhythm.desktop.audio
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.engine.Analysis
+import com.elchanan.rhythm.engine.AudioTags
+import com.elchanan.rhythm.engine.MusicMel
+import com.elchanan.rhythm.engine.MusicMoods
+import com.elchanan.rhythm.engine.MusicPrint
+import com.elchanan.rhythm.engine.SoundPrint
 import java.io.File
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioInputStream
@@ -18,11 +23,10 @@ import javax.sound.sampled.AudioSystem
  * javax.sound on the other. A song analysed here and the same song analysed
  * on a phone produce the same row.
  *
- * One thing is missing rather than different: there is no tagger. YAMNet runs
- * through TensorFlow Lite, whose Android artifact does not load here, so the
- * tags field stays empty. The engine already handles that - a song with
- * measurements and no tags is a song it can still place, and the style
- * learner takes either half.
+ * The models are the phone's too: YAMNet for the tags and the sound print,
+ * Discogs-EffNet and its heads for the music print and the moods, converted to
+ * ONNX from the phone's own files and run by [Models]. They read the same
+ * probes at 16 kHz, resampled by the same [Analysis.resampleMono].
  */
 object Analyzer {
 
@@ -36,10 +40,53 @@ object Analyzer {
     fun analyze(song: SongEntity): AudioFeatureEntity? {
         val file = File(song.path)
         if (!file.isFile) return null
-        val windows = runCatching { probe(file, song.durationMs) }.getOrNull().orEmpty()
-        if (windows.isEmpty()) return null
-        return runCatching { Analysis.merge(song.id, windows) }.getOrNull()
+        val probed = runCatching { probe(file, song.durationMs) }.getOrNull() ?: return null
+        if (probed.windows.isEmpty()) return null
+        val merged = runCatching { Analysis.merge(song.id, probed.windows) }.getOrNull() ?: return null
+        return withModels(merged, probed.forModels)
     }
+
+    /**
+     * The models' half of a row, as the phone's AudioAnalyzer.analyze fills it.
+     *
+     * Best effort, like there. A machine where the models will not load still
+     * gets every measured feature; the prints are then left empty rather than
+     * marked tried, so the songs wait for a run where the models load instead
+     * of being written off by one where they did not.
+     */
+    private fun withModels(merged: AudioFeatureEntity, probes: List<FloatArray>): AudioFeatureEntity {
+        val soundReady = Models.soundAvailable()
+        val heard = if (!soundReady) null else runCatching { Models.listenSound(Analysis.concat(probes)) }.getOrNull()
+        val tags = heard?.let { runCatching { AudioTags.compress(it.scores) }.getOrNull() }.orEmpty()
+        val soundPrint = when {
+            !soundReady -> ""
+            else -> heard?.print?.let { runCatching { SoundPrint.pack(it) }.getOrNull() } ?: SoundPrint.TRIED
+        }
+        // Each probe on its own: a patch across the seam between two probes
+        // would be two moments of the song that never sounded together.
+        val musicReady = Models.musicAvailable()
+        val music = if (!musicReady) null else runCatching { Models.listenMusic(probes) }.getOrNull()
+        val musicPrint = when {
+            !musicReady -> ""
+            else -> music?.let { runCatching { MusicPrint.pack(it.print) }.getOrNull() } ?: MusicPrint.TRIED
+        }
+        val musicMoods = music?.let { MusicMoods.encode(it.moods) }.orEmpty()
+        return merged.copy(tags = tags, soundPrint = soundPrint, musicPrint = musicPrint, musicMoods = musicMoods)
+    }
+
+    /**
+     * Whether a stored row still wants something the models can now give it:
+     * a song measured before this build had them, or before the music model.
+     * Placeholders for files that would not decode have no energy and are
+     * never asked for again. The phone's queue asks the same question.
+     */
+    fun wantsModels(row: AudioFeatureEntity): Boolean =
+        row.energy > 0f && (
+            (row.soundPrint.isEmpty() && Models.soundExpected()) ||
+                (row.musicPrint.isEmpty() && Models.musicExpected())
+            )
+
+    private class Probed(val windows: List<Analysis.WindowStats>, val forModels: List<FloatArray>)
 
     /**
      * The eight probes, from one pass over the file.
@@ -60,12 +107,12 @@ object Analyzer {
      * A file of unknown length puts every probe at zero; those collapse to
      * one rather than measuring the same four seconds eight times.
      */
-    private fun probe(file: File, durationMs: Long): List<Analysis.WindowStats> {
+    private fun probe(file: File, durationMs: Long): Probed {
         val starts = Analysis.PROBE_POINTS
             .map { Analysis.probeStart(durationMs, it) / 1000L }
             .distinct()
             .sorted()
-        if (starts.isEmpty()) return emptyList()
+        if (starts.isEmpty()) return Probed(emptyList(), emptyList())
 
         val encoded = AudioSystem.getAudioInputStream(file)
         val base = encoded.format
@@ -77,10 +124,13 @@ object Analyzer {
         val pcm = runCatching { AudioSystem.getAudioInputStream(target, encoded) }.getOrNull()
         if (pcm == null) {
             runCatching { encoded.close() }
-            return emptyList()
+            return Probed(emptyList(), emptyList())
         }
 
         val out = ArrayList<Analysis.WindowStats>(starts.size)
+        // The same probes at the rate the models were trained on. Decoding
+        // once and resampling twice is far cheaper than decoding again.
+        val forModels = ArrayList<FloatArray>(starts.size)
         pcm.use { stream ->
             val frameSize = channels * 2
             val wantedFrames = (rate * Analysis.PROBE_SECONDS).toInt()
@@ -108,11 +158,12 @@ object Analyzer {
                 if (raw.size < Analysis.WINDOW * 8) continue
                 val (samples, sr) =
                     Analysis.decimate(raw, rate.toInt(), Analysis.TARGET_SAMPLE_RATE)
-                val stats = runCatching { Analysis.windowStats(samples, sr) }.getOrNull()
-                if (stats != null) out.add(stats)
+                val stats = runCatching { Analysis.windowStats(samples, sr) }.getOrNull() ?: continue
+                out.add(stats)
+                runCatching { forModels.add(Analysis.resampleMono(raw, rate.toInt(), MusicMel.SAMPLE_RATE)) }
             }
         }
-        return out
+        return Probed(out, forModels)
     }
 
     /**

@@ -28,6 +28,8 @@ internal object AnalysisExport {
             if (features.values.any { it.tags.isNotBlank() }) {
                 add(AnalysisTransfer.CAP_SEMANTIC_TAGS)
             }
+            if (features.values.any { it.soundPrint.length > 1 }) add(AnalysisTransfer.CAP_SOUND_PRINT)
+            if (features.values.any { it.musicPrint.length > 1 }) add(AnalysisTransfer.CAP_MUSIC_MODEL)
         }
         val content = AnalysisTransfer.encode(songs, features, capabilities = capabilities)
         // Parse what will be written before it can replace a user's previous

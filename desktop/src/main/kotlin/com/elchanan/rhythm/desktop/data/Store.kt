@@ -111,6 +111,7 @@ class Store private constructor(private val conn: Connection) {
                     try {
                         conn.createStatement().use {
                             it.execute("ALTER TABLE " + table + " ADD COLUMN " + addable(definition))
+                            BACKFILL[table + "." + name]?.let { sql -> it.execute(sql) }
                         }
                     } catch (e: Exception) {
                         // One column that cannot be added is not a reason to
@@ -173,6 +174,20 @@ class Store private constructor(private val conn: Connection) {
             return definition + " DEFAULT " + (if (upper.contains(" TEXT")) "''" else "0")
         }
 
+        /**
+         * What a column added to an existing database starts from, when the
+         * history already kept can say better than the default.
+         *
+         * Listening days are counted from the plays on record, as the phone's
+         * migration counts them: a library played for a year before the column
+         * existed is not a library played on no days.
+         */
+        private val BACKFILL = mapOf(
+            "song_stats.playDays" to
+                "UPDATE song_stats SET playDays = (SELECT COUNT(DISTINCT playedAt / 86400000) " +
+                "FROM history h WHERE h.songId = song_stats.songId)"
+        )
+
         private val TABLE_NAME = Regex("CREATE TABLE IF NOT EXISTS (\\w+)", RegexOption.IGNORE_CASE)
         private val WHITESPACE = Regex("\\s+")
         private val TABLE_CONSTRAINTS =
@@ -211,7 +226,10 @@ class Store private constructor(private val conn: Connection) {
                 b1 INTEGER NOT NULL DEFAULT 0, b2 INTEGER NOT NULL DEFAULT 0,
                 b3 INTEGER NOT NULL DEFAULT 0, dWeekend INTEGER NOT NULL DEFAULT 0,
                 dWeekday INTEGER NOT NULL DEFAULT 0, genre TEXT NOT NULL DEFAULT '',
-                spoken INTEGER NOT NULL DEFAULT -1
+                spoken INTEGER NOT NULL DEFAULT -1, moods TEXT NOT NULL DEFAULT '',
+                vocal INTEGER NOT NULL DEFAULT -1, playDays INTEGER NOT NULL DEFAULT 0,
+                lastPlayDay INTEGER NOT NULL DEFAULT -1, burstSkips INTEGER NOT NULL DEFAULT 0,
+                lastSkipAt INTEGER NOT NULL DEFAULT 0
             )
             """.trimIndent(),
             """
@@ -229,7 +247,9 @@ class Store private constructor(private val conn: Connection) {
                 dynamics REAL NOT NULL, onsetRate REAL NOT NULL, chroma TEXT NOT NULL,
                 timbre TEXT NOT NULL, timbreVar TEXT NOT NULL, shape TEXT NOT NULL,
                 scaleMode INTEGER NOT NULL, scaleConfidence REAL NOT NULL,
-                chroma24 TEXT NOT NULL, tags TEXT NOT NULL
+                chroma24 TEXT NOT NULL, tags TEXT NOT NULL,
+                soundPrint TEXT NOT NULL DEFAULT '', musicPrint TEXT NOT NULL DEFAULT '',
+                musicMoods TEXT NOT NULL DEFAULT ''
             )
             """.trimIndent(),
             """
@@ -342,6 +362,10 @@ class Store private constructor(private val conn: Connection) {
 
         private const val KEY_FOLDERS = "folders"
         private const val KEY_SEED = "feedSeed"
+        private const val KEY_LAST_MOOD = "tune.lastMood"
+        private const val KEY_LAST_MOOD_AT = "tune.lastMoodAt"
+        private const val KEY_LEARNED = "tune.learned"
+        private const val KEY_ONLY_VOCAL = "tune.onlyVocalInSeason"
 
         /**
          * Edges kept per table.
@@ -352,6 +376,10 @@ class Store private constructor(private val conn: Connection) {
          * ever reads and about a megabyte on disk.
          */
         private const val EDGE_LIMIT = 20_000
+
+        /** Skips within this long of each other are one act of looking for something. The phone's numbers. */
+        private const val BURST_WINDOW_MS = 120_000L
+        private const val BURST_BEFORE = 3
         private const val TRIM_EVERY = 200
     }
 
@@ -475,7 +503,13 @@ class Store private constructor(private val conn: Connection) {
                     dWeekend = rs.getInt("dWeekend"),
                     dWeekday = rs.getInt("dWeekday"),
                     genre = rs.getString("genre"),
-                    spoken = rs.getInt("spoken")
+                    spoken = rs.getInt("spoken"),
+                    moods = rs.getString("moods").orEmpty(),
+                    vocal = rs.getInt("vocal"),
+                    playDays = rs.getInt("playDays"),
+                    lastPlayDay = rs.getLong("lastPlayDay"),
+                    burstSkips = rs.getInt("burstSkips"),
+                    lastSkipAt = rs.getLong("lastSkipAt")
                 )
                 out[row.songId] = row
             }
@@ -556,6 +590,19 @@ class Store private constructor(private val conn: Connection) {
         // reads it back with - Recommender owns both, so they cannot drift.
         val bucket = Recommender.bucketOf(now)
         val weekend = Recommender.isWeekend(now)
+        // Days with a play, as the phone counts them: a song heard on forty
+        // different days is loved in a way one played forty times in a night
+        // is not, and the engine weighs the two differently.
+        val today = localDay(now)
+        conn.prepareStatement(
+            "UPDATE song_stats SET playDays = playDays + CASE WHEN lastPlayDay = ? THEN 0 ELSE 1 END, " +
+                "lastPlayDay = ? WHERE songId = ?"
+        ).use { ps ->
+            ps.setLong(1, today)
+            ps.setLong(2, today)
+            ps.setLong(3, songId)
+            ps.executeUpdate()
+        }
         conn.prepareStatement(
             "UPDATE song_stats SET playCount = playCount + 1, " +
                 "completeCount = completeCount + ?, " +
@@ -588,13 +635,61 @@ class Store private constructor(private val conn: Connection) {
     @Synchronized
     fun noteSkip(songId: Long, listenedMs: Long) {
         ensureStats(songId)
+        val now = System.currentTimeMillis()
+        // Skips close together are someone looking for a song, not turning
+        // each one down: the phone counts those apart, and so does this.
+        while (recentSkips.isNotEmpty() && now - recentSkips.first() > BURST_WINDOW_MS) recentSkips.removeFirst()
+        val burst = recentSkips.size >= BURST_BEFORE
+        recentSkips.addLast(now)
         conn.prepareStatement(
             "UPDATE song_stats SET skipCount = skipCount + 1, " +
-                "listenedMs = listenedMs + ?, lastPlayedAt = ? WHERE songId = ?"
+                "listenedMs = listenedMs + ?, lastPlayedAt = ?, lastSkipAt = ?, " +
+                "burstSkips = burstSkips + ? WHERE songId = ?"
         ).use { ps ->
             ps.setLong(1, listenedMs.coerceAtLeast(0L))
-            ps.setLong(2, System.currentTimeMillis())
-            ps.setLong(3, songId)
+            ps.setLong(2, now)
+            ps.setLong(3, now)
+            ps.setInt(4, if (burst) 1 else 0)
+            ps.setLong(5, songId)
+            ps.executeUpdate()
+        }
+    }
+
+    /** When the last few skips happened, to tell flicking through from turning a song off. */
+    private val recentSkips = ArrayDeque<Long>()
+
+    /** The local calendar day, so a play at 23:59 and one at 00:01 are two days. The phone's reckoning. */
+    private fun localDay(millis: Long): Long {
+        val c = java.util.Calendar.getInstance().apply { timeInMillis = millis }
+        return com.elchanan.rhythm.engine.JewishSeasons.epochDay(
+            c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1, c.get(java.util.Calendar.DAY_OF_MONTH)
+        )
+    }
+
+    /** The user saying a song is, or is not, in a mood - or (null) handing it back to the audio. */
+    @Synchronized
+    fun setMoodMark(songId: Long, mood: com.elchanan.rhythm.engine.Mood, value: Boolean?) {
+        ensureStats(songId)
+        // Read, change, write, under the store's lock: two marks set quickly
+        // must not both read the old string and have the second erase the first.
+        val current = conn.prepareStatement("SELECT moods FROM song_stats WHERE songId = ?").use { ps ->
+            ps.setLong(1, songId)
+            ps.executeQuery().use { rs -> if (rs.next()) rs.getString("moods").orEmpty() else "" }
+        }
+        conn.prepareStatement("UPDATE song_stats SET moods = ? WHERE songId = ?").use { ps ->
+            ps.setString(1, com.elchanan.rhythm.engine.MoodMarks.with(current, mood, value))
+            ps.setLong(2, songId)
+            ps.executeUpdate()
+        }
+    }
+
+    /** The user saying a song is vocal-only (true), is not (false), or handing it back (null). */
+    @Synchronized
+    fun setVocal(songId: Long, vocal: Boolean?) {
+        ensureStats(songId)
+        conn.prepareStatement("UPDATE song_stats SET vocal = ? WHERE songId = ?").use { ps ->
+            ps.setInt(1, when (vocal) { true -> 1; false -> 0; null -> -1 })
+            ps.setLong(2, songId)
             ps.executeUpdate()
         }
     }
@@ -774,7 +869,10 @@ class Store private constructor(private val conn: Connection) {
                     scaleMode = rs.getInt("scaleMode"),
                     scaleConfidence = rs.getFloat("scaleConfidence"),
                     chroma24 = rs.getString("chroma24"),
-                    tags = rs.getString("tags")
+                    tags = rs.getString("tags"),
+                    soundPrint = rs.getString("soundPrint").orEmpty(),
+                    musicPrint = rs.getString("musicPrint").orEmpty(),
+                    musicMoods = rs.getString("musicMoods").orEmpty()
                 )
                 out[row.songId] = row
             }
@@ -792,7 +890,14 @@ class Store private constructor(private val conn: Connection) {
     @Synchronized
     fun putFeature(f: AudioFeatureEntity) {
         conn.prepareStatement(
-            "INSERT OR REPLACE INTO audio_features VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            // Named, not positional: a column added to an older database by
+            // addMissingColumns goes at the end of the table, wherever its
+            // definition sits above, so the order is not the same everywhere.
+            "INSERT OR REPLACE INTO audio_features (songId, analyzedAt, bpm, bpmConfidence, " +
+                "musicalKey, mode, energy, brightness, flatness, dynamics, onsetRate, chroma, " +
+                "timbre, timbreVar, shape, scaleMode, scaleConfidence, chroma24, tags, " +
+                "soundPrint, musicPrint, musicMoods) " +
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
         ).use { ps ->
             ps.setLong(1, f.songId)
             ps.setLong(2, f.analyzedAt)
@@ -813,9 +918,29 @@ class Store private constructor(private val conn: Connection) {
             ps.setFloat(17, f.scaleConfidence)
             ps.setString(18, f.chroma24)
             ps.setString(19, f.tags)
+            ps.setString(20, f.soundPrint)
+            ps.setString(21, f.musicPrint)
+            ps.setString(22, f.musicMoods)
             ps.executeUpdate()
         }
     }
+
+    /**
+     * Marks a measured song as having had its prints attempted, keeping the
+     * measurements: an empty print is what queues a song, so one that failed
+     * has to say so or it is queued for ever. The phone's markPrintTried.
+     */
+    @Synchronized
+    fun markPrintTried(songId: Long): Boolean =
+        conn.prepareStatement(
+            "UPDATE audio_features SET " +
+                "soundPrint = CASE WHEN soundPrint = '' THEN '-' ELSE soundPrint END, " +
+                "musicPrint = CASE WHEN musicPrint = '' THEN '-' ELSE musicPrint END " +
+                "WHERE songId = ? AND energy > 0"
+        ).use { ps ->
+            ps.setLong(1, songId)
+            ps.executeUpdate() > 0
+        }
 
     /**
      * A rating out of five, or nothing.
@@ -1719,8 +1844,17 @@ class Store private constructor(private val conn: Connection) {
             acousticWeight = setting("tune.acoustic")?.toFloatOrNull() ?: 1.0f,
             // Part of the tuning rather than a setting beside it, because the
             // recommender reads it from here and there is no second copy.
-            separations = setting("tune.separations").orEmpty()
+            separations = setting("tune.separations").orEmpty(),
+            lastMood = setting(KEY_LAST_MOOD).orEmpty(),
+            lastMoodAt = setting(KEY_LAST_MOOD_AT)?.toLongOrNull() ?: 0L,
+            learned = com.elchanan.rhythm.engine.SignalWeights.decode(setting(KEY_LEARNED).orEmpty()),
+            // On by default, as on the phone.
+            onlyVocalInSeason = setting(KEY_ONLY_VOCAL)?.toBooleanStrictOrNull() ?: true
         )
+        // The sliders and the separations only. The mood the feed last
+        // settled on, the learned weights and the vocal rule each have a
+        // setter of their own below, so a slider moved on a copy of the
+        // tuning taken a minute ago cannot put an older value of them back.
         @Synchronized
         set(value) {
             putSetting("tune.discovery", value.discovery.toString())
@@ -1730,6 +1864,28 @@ class Store private constructor(private val conn: Connection) {
             putSetting("tune.acoustic", value.acousticWeight.toString())
             putSetting("tune.separations", value.separations)
         }
+
+    /**
+     * The mood the feed last settled on, and since when - moved only when the
+     * answer changes, because the hold counts from when the shelf started
+     * saying it. The phone's lastMood and lastMoodAt.
+     */
+    @Synchronized
+    fun noteMood(mood: String, now: Long) {
+        if (mood == setting(KEY_LAST_MOOD).orEmpty()) return
+        putSetting(KEY_LAST_MOOD, mood)
+        putSetting(KEY_LAST_MOOD_AT, now.toString())
+    }
+
+    /** The weights the report card learned, encoded; empty for the built-in ones. */
+    var learnedWeights: String
+        @Synchronized get() = setting(KEY_LEARNED).orEmpty()
+        @Synchronized set(value) = putSetting(KEY_LEARNED, value)
+
+    /** Vocal-only songs held back outside the Omer and the Three Weeks. */
+    var onlyVocalInSeason: Boolean
+        @Synchronized get() = setting(KEY_ONLY_VOCAL)?.toBooleanStrictOrNull() ?: true
+        @Synchronized set(value) = putSetting(KEY_ONLY_VOCAL, value.toString())
 
     /** Reads one stored setting. Public so [com.elchanan.rhythm.desktop.Prefs] can sit on it. */
     @Synchronized

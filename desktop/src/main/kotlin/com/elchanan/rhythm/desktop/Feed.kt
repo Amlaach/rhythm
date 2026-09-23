@@ -11,6 +11,7 @@ import com.elchanan.rhythm.engine.EngineTuning
 import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.Recommender
 import com.elchanan.rhythm.engine.TransitionEdge
+import com.elchanan.rhythm.engine.Vocal
 
 /**
  * The home screen's shelves, from the same engine the phone runs.
@@ -53,17 +54,26 @@ object Feed {
         affinity: Map<Long, Map<Long, Double>> = emptyMap(),
         transitions: Map<Long, Map<Long, TransitionEdge>> = emptyMap(),
         lastHeard: Map<Long, Long> = emptyMap()
-    ) = Recommender(
+    ): Recommender {
+        // Rows with no energy are placeholders for files that would not
+        // decode; they must not enter the statistics of the acoustic space.
+        // The phone leaves them out for the same reason.
+        val rows = features.values.filter { it.energy > 0f }
+        val measured = rows.associateBy { it.songId }
+        val engineArtists = com.elchanan.rhythm.engine.ArtistStyles.withCatalogue(
+            artists.associateBy { it.artistKey }, songs
+        )
+        return Recommender(
         songs = songs,
         stats = stats,
-        artists = com.elchanan.rhythm.engine.ArtistStyles.withCatalogue(
-            artists.associateBy { it.artistKey }, songs
-        ),
+        artists = engineArtists,
         affinity = affinity,
         transitions = transitions,
-        features = features,
-        acoustic = if (features.size >= MIN_ANALYSED_FOR_SPACE) {
-            AcousticSpace(features.values)
+        // The space is made from the full rows; the engine keeps them without
+        // what only the space reads. See Recommender.leanFeatures.
+        features = Recommender.leanFeatures(rows),
+        acoustic = if (rows.size >= MIN_ANALYSED_FOR_SPACE) {
+            AcousticSpace(rows)
         } else {
             null
         },
@@ -75,7 +85,7 @@ object Feed {
         // shiur sat correctly on its own shelf and went on turning up in the
         // feed, in mixes and in shuffles like any other track.
         spoken = songs.filterTo(HashSet()) { song ->
-            val feature = features[song.id]
+            val feature = measured[song.id]
             Spoken.isSpoken(
                 song,
                 feature,
@@ -83,7 +93,13 @@ object Feed {
                 stats[song.id]?.spoken ?: -1
             )
         }.mapTo(HashSet()) { it.id },
-        lastHeard = lastHeard
+        lastHeard = lastHeard,
+        // Vocal-only songs, held back outside the Omer and the Three Weeks,
+        // decided as the phone decides it.
+        vocal = songs.filter { song ->
+            Vocal.isVocal(song, stats[song.id], measured[song.id], engineArtists[song.artistKey]?.styles.orEmpty())
+        }.mapTo(HashSet()) { it.id }
     )
+    }
 
 }
