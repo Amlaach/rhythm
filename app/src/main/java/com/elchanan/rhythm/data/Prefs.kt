@@ -277,6 +277,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_RESUME_SPOKEN, true)
         set(value) = sp.edit { putBoolean(KEY_RESUME_SPOKEN, value) }
 
+    /** In the radio, move on where the sound ends rather than play out silence at a track's end. */
+    var trimRadioSilence: Boolean
+        get() = sp.getBoolean(KEY_TRIM_SILENCE, true)
+        set(value) = sp.edit { putBoolean(KEY_TRIM_SILENCE, value) }
+
     /** The player's own volume slider, 0..1, apart from the phone's. See playback.AppVolume. */
     var appVolume: Float
         get() = sp.getFloat(KEY_APP_VOLUME, 1f)
@@ -568,6 +573,7 @@ class Prefs(context: Context) {
         const val KEY_COMPACT = "compact_mode"
         const val KEY_ARTWORK_TAP_MODE = "artwork_tap_mode"
         const val KEY_APP_VOLUME = "app_volume"
+        const val KEY_TRIM_SILENCE = "trim_radio_silence"
     }
 }
 

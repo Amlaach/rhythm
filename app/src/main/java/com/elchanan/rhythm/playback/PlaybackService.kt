@@ -6,6 +6,8 @@ import android.database.ContentObserver
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
+import com.elchanan.rhythm.engine.AudioAnalyzer
+import com.elchanan.rhythm.engine.TrailingSilence
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -66,6 +68,9 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         const val ACTION_LIKE = "com.elchanan.rhythm.LIKE"
+
+        /** How much of a track's end is looked at for silence. */
+        private const val TAIL_MS = 25_000L
         const val ACTION_DISLIKE = "com.elchanan.rhythm.DISLIKE"
         const val ACTION_RADIO = "com.elchanan.rhythm.RADIO"
     }
@@ -351,6 +356,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         AppVolume.onChange = null
+        handler.removeCallbacks(silenceRunnable)
         runCatching { contentResolver.unregisterContentObserver(volumeWatcher) }
         finalizeCurrent(manual = false)
         persistQueue()
@@ -443,8 +449,11 @@ class PlaybackService : MediaSessionService() {
     private val listener = object : Player.Listener {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            val manual = reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK ||
+            // A move past the silence at the end of a track is a seek to the
+            // player, and the track played out all the same.
+            val manual = (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK && !movingPastSilence) ||
                 reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED
+            movingPastSilence = false
             // Remembered before the track is torn down, while the position it
             // was left at is still readable.
             rememberPosition()
@@ -453,6 +462,7 @@ class PlaybackService : MediaSessionService() {
                 player.pause()
             }
             startTracking(mediaItem)
+            findTrailingSilence(mediaItem)
             applyTrackGain()
             attachEqualizer()
             persistQueue()
@@ -465,7 +475,10 @@ class PlaybackService : MediaSessionService() {
             if (isPlaying) {
                 resumedAt = System.currentTimeMillis()
                 startFadeLoop()
+                handler.removeCallbacks(silenceRunnable)
+                handler.post(silenceRunnable)
             } else {
+                handler.removeCallbacks(silenceRunnable)
                 absorb()
                 persistQueue()
                 rememberPosition()
@@ -491,6 +504,74 @@ class PlaybackService : MediaSessionService() {
             if (playbackState == Player.STATE_ENDED) {
                 finalizeCurrent(manual = false)
             }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // silence at the end of a track, in the radio
+    // -------------------------------------------------------------------------
+
+    /** Where to move on from the track [moveOnFor], or -1 for its natural end. */
+    private var moveOnAtMs = -1L
+    private var moveOnFor = -1L
+
+    /** Set just before moving past the silence, so the move counts as the track ending. */
+    private var movingPastSilence = false
+
+    /** What each track's end was found to be, so a song heard twice is decoded once. */
+    private val silenceFound = object : LinkedHashMap<Long, Long>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Long>?) = size > 200
+    }
+
+    /**
+     * Looks for dead air at the end of a track the radio chose - a song the
+     * listener queued is theirs, silence and all - by decoding its last
+     * stretch off the main thread. See [TrailingSilence].
+     */
+    private fun findTrailingSilence(item: MediaItem?) {
+        moveOnAtMs = -1L
+        moveOnFor = -1L
+        val id = item?.mediaId?.toLongOrNull() ?: return
+        if (!repo.prefs.trimRadioSilence || !QueueMeta.isAuto(id)) return
+        silenceFound[id]?.let { at ->
+            moveOnFor = id
+            moveOnAtMs = at
+            return
+        }
+        scope.launch {
+            val at = withContext(Dispatchers.IO) {
+                runCatching {
+                    val song = repo.songById(id) ?: return@runCatching -1L
+                    val duration = song.durationMs
+                    if (duration < TAIL_MS * 2) return@runCatching -1L
+                    val startMs = duration - TAIL_MS
+                    val (samples, rate) = AudioAnalyzer.decodeMono(
+                        this@PlaybackService, MediaItems.songUri(id), startMs * 1000L, (TAIL_MS / 1000L).toInt()
+                    ) ?: return@runCatching -1L
+                    TrailingSilence.moveOnAt(samples, rate, startMs, duration) ?: -1L
+                }.getOrDefault(-1L)
+            }
+            silenceFound[id] = at
+            if (player.currentMediaItem?.mediaId?.toLongOrNull() == id) {
+                moveOnFor = id
+                moveOnAtMs = at
+            }
+        }
+    }
+
+    private val silenceRunnable = object : Runnable {
+        override fun run() {
+            val id = player.currentMediaItem?.mediaId?.toLongOrNull()
+            if (id != null && id == moveOnFor && moveOnAtMs > 0 &&
+                player.currentPosition >= moveOnAtMs && player.hasNextMediaItem()
+            ) {
+                // Heard to where the sound stopped: that is the end of it.
+                trackedDurationMs = moveOnAtMs
+                moveOnFor = -1L
+                movingPastSilence = true
+                player.seekToNextMediaItem()
+            }
+            if (player.isPlaying) handler.postDelayed(this, 400)
         }
     }
 

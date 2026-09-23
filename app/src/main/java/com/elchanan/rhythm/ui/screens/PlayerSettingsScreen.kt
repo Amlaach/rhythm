@@ -76,6 +76,7 @@ fun PlayerSettingsScreen(
     var resumePrompt by remember { mutableStateOf(vm.prefs.resumePrompt) }
     var pauseSilent by remember { mutableStateOf(vm.prefs.pauseOnSilence) }
     var autoRadio by remember { mutableStateOf(vm.prefs.autoRadio) }
+    var trimSilence by remember { mutableStateOf(vm.prefs.trimRadioSilence) }
     var normalizeVolume by remember { mutableStateOf(vm.prefs.normalizeVolume) }
 
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
@@ -250,6 +251,18 @@ fun PlayerSettingsScreen(
                             checkedTrackColor = Accent.copy(alpha = 0.4f)
                         )
                     )
+                }
+            }
+
+            item {
+                SettingSwitch(
+                    title = "דילוג על שקט בסוף שיר ברדיו",
+                    subtitle = "כשהרדיו בחר את השיר ונשאר בסופו שקט ארוך, עובר לבא מיד " +
+                        "כשהצליל נגמר. שירים שבחרת בעצמך מתנגנים עד הסוף",
+                    checked = trimSilence
+                ) {
+                    trimSilence = it
+                    vm.prefs.trimRadioSilence = it
                 }
             }
 
