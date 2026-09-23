@@ -1645,6 +1645,15 @@ class Recommender(
         return out
     }
 
+    /** The first [cap] songs of each artist, order kept. */
+    private fun capPerArtist(list: List<SongEntity>, cap: Int): List<SongEntity> {
+        val count = HashMap<String, Int>()
+        return list.filter { song ->
+            val n = count.getOrDefault(song.artistKey, 0)
+            if (n >= cap) false else { count[song.artistKey] = n + 1; true }
+        }
+    }
+
     /**
      * Orders an already chosen set so consecutive tracks flow into each other:
      * learned transitions first, then acoustic and tempo continuity.
@@ -1844,24 +1853,35 @@ class Recommender(
             // their surroundings" half was picked on its own, so it could land
             // on the opposite side of a separation from the liked half it was
             // meant to surround.
+            // A share of them, a few per singer. All of them went in, and the
+            // list was cut at fifty afterwards - so past fifty likes the
+            // surroundings the title promises were cut off entirely, and one
+            // singer's fifteen liked songs could be most of the mix.
             val kept = offered(liked.shuffled(Random(feedSeed)))
+                .let { capPerArtist(it, LIKED_PER_ARTIST) }
+                .take(LIKED_IN_MIX)
             val keptIds = kept.map { it.id }
             val keptSet = keptIds.toSet()
             val side = kept.flatMap { declaredStyles[it.id].orEmpty() }.distinct()
+            // The surroundings are what was not liked: the likes left out
+            // above would otherwise outscore everything and take their place.
+            val likedSet = liked.mapTo(HashSet()) { it.id }
             val pool = notDisliked.filter { c ->
-                c.id !in keptSet &&
+                c.id !in keptSet && c.id !in likedSet &&
                     kept.none { samePiece(it.id, c.id) } &&
                     !separations.clash(side, declaredStyles[c.id].orEmpty())
             }
-            val expanded = pick(pool, 30, salt = 41L, maxPerArtist = 3) { c ->
+            val expanded = pick(pool, LIKED_MIX_SIZE - kept.size, salt = 41L, maxPerArtist = 3) { c ->
                 1.9 * affinityTo(keptIds.take(12), c.id)
             }
+            // Woven together rather than the liked half and then the rest.
+            val together = kept + expanded
             mixes.add(
                 Mix(
                     id = "mix:liked",
                     title = "על בסיס האהובים",
                     subtitle = "מהשירים שסימנת בלייק והסביבה שלהם",
-                    songs = (kept + expanded).take(50)
+                    songs = if (together.isEmpty()) together else sequence(together.first(), together.drop(1))
                 )
             )
         }
@@ -2041,8 +2061,10 @@ class Recommender(
                     id = "mix:artist:${artist.artistKey}",
                     title = "רדיו ${artist.displayName}",
                     subtitle = "${artist.displayName} ודומים לו",
+                    // In the order a radio plays, not theirs and then the rest.
                     songs = (pick(own, 26, salt = 61L, maxPerArtist = 99, maxPerAlbum = 99) + neighbours)
                         .distinctBy { it.id }
+                        .let { if (it.isEmpty()) it else sequence(it.first(), it.drop(1)) }
                 )
             )
         }
@@ -2824,6 +2846,11 @@ class Recommender(
 
         /** How far above the listener's average a mood must sit to count fully. */
         private const val MOOD_LIFT_SCALE = 0.8
+
+        /** How long the "based on your likes" mix is, how much of it the likes are, and how many per singer. */
+        private const val LIKED_MIX_SIZE = 50
+        private const val LIKED_IN_MIX = 30
+        private const val LIKED_PER_ARTIST = 3
 
         /** The windows [recentRestlessness] tries, shortest first. */
         private val RESTLESS_WINDOWS_DAYS = longArrayOf(30L, 90L)
