@@ -915,7 +915,7 @@ class Recommender(
         val out = ArrayList<String>(8)
         out.addAll(stylesOf(song))
 
-        song.genre?.takeIf { it.isNotBlank() }?.let { out.add(it.trim()) }
+        genreOf(song)?.let { out.add(it) }
         if (song.year in 1900..2100) out.add("decade:${song.year / 10 * 10}")
         val minutes = song.durationMs / 60000
         out.add(if (minutes < 3) "len:short" else if (minutes < 6) "len:mid" else "len:long")
@@ -935,6 +935,38 @@ class Recommender(
             if (f.mode >= 0) out.add(if (f.mode == 1) "mode:major" else "mode:minor")
         }
         return out.map { it.lowercase(Locale.ROOT) }.distinct()
+    }
+
+    /**
+     * The genre a song counts under: the one the user set, else the file's -
+     * and neither when it is a placeholder.
+     *
+     * The one the user set was stored, described as replacing the file's,
+     * and never read: only the file's genre reached the recommendations. And
+     * a file's genre is whoever tagged it's opinion - "Other", "Unknown",
+     * an ID3 number, the site it came from - which went into the taste like
+     * a style the user had typed, and could name a mix: "מיקס other".
+     */
+    private fun genreOf(song: SongEntity): String? {
+        val own = stats[song.id]?.genre?.trim().orEmpty()
+        val genre = own.ifEmpty { song.genre?.trim().orEmpty() }
+        if (genre.isEmpty()) return null
+        val key = genre.lowercase(Locale.ROOT)
+        if (key in PLACEHOLDER_GENRES || NUMBERED_GENRE.matches(key)) return null
+        return genre
+    }
+
+    /**
+     * Genre words that came only from files, never from a style, and sit on
+     * more than half the library: "Jewish" on a Jewish library says nothing
+     * about a kind of music within it, and is not a name for a mix.
+     */
+    private val broadGenres: Set<String> by lazy {
+        val styleWords = songs.flatMapTo(HashSet()) { s -> stylesOf(s).map { it.lowercase(Locale.ROOT) } }
+        songs.mapNotNull { genreOf(it)?.lowercase(Locale.ROOT) }
+            .groupingBy { it }.eachCount()
+            .filter { (word, count) -> word !in styleWords && count * 2 > songs.size }
+            .keys
     }
 
     /**
@@ -2029,7 +2061,7 @@ class Recommender(
 
         val topStyles = taste.entries
             .filter { it.value > 0 && !it.key.startsWith("decade:") && !it.key.startsWith("len:") &&
-                !it.key.startsWith("tempo:") && !it.key.startsWith("mode:") }
+                !it.key.startsWith("tempo:") && !it.key.startsWith("mode:") && it.key !in broadGenres }
             .sortedByDescending { it.value }
             .take(4)
         for ((style, _) in topStyles) {
@@ -2581,7 +2613,7 @@ class Recommender(
         for (song in members) {
             for (token in tokensBySong[song.id].orEmpty()) {
                 if (token.startsWith("decade:") || token.startsWith("len:") ||
-                    token.startsWith("tempo:") || token.startsWith("mode:")
+                    token.startsWith("tempo:") || token.startsWith("mode:") || token in broadGenres
                 ) continue
                 styleCounts[token] = (styleCounts[token] ?: 0) + 1
             }
@@ -2881,6 +2913,16 @@ class Recommender(
 
         /** How far above the listener's average a mood must sit to count fully. */
         private const val MOOD_LIFT_SCALE = 0.8
+
+        /** Genres that are only a placeholder, lower case. */
+        private val PLACEHOLDER_GENRES = setOf(
+            "other", "others", "unknown", "<unknown>", "misc", "miscellaneous", "none", "genre",
+            "general", "default", "various", "various artists", "music", "audio", "mp3", "unclassifiable",
+            "אחר", "אחרים", "כללי", "שונות", "לא ידוע", "מוזיקה", "ללא", "ללא ז'אנר"
+        )
+
+        /** An ID3v1 genre number left unresolved: "12", "(12)". */
+        private val NUMBERED_GENRE = Regex("\\(?\\d{1,3}\\)?")
 
         /** How far a clear example of a mood leads its mix, against the listener's score. */
         private const val MOOD_MIX_LEAN = 0.8
