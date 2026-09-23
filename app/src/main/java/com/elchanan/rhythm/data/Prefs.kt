@@ -516,6 +516,26 @@ class Prefs(context: Context) {
      * later does not need a migration - an unknown key is simply ignored and a
      * missing one falls back to its own default.
      */
+    /** The song menu's arrangement: row key to placement, as [playerActions] stores its own. */
+    var songMenu: Map<String, String>
+        get() = sp.getString(KEY_SONG_MENU, null)
+            ?.split(',')
+            ?.mapNotNull { pair ->
+                val parts = pair.split('=')
+                if (parts.size == 2 && parts[0].isNotBlank()) parts[0].trim() to parts[1].trim()
+                else null
+            }
+            ?.toMap()
+            .orEmpty()
+        set(value) = sp.edit {
+            putString(KEY_SONG_MENU, value.entries.joinToString(",") { "${it.key}=${it.value}" })
+        }
+
+    /** A queue button beside the others at the top of the home screen. */
+    var homeQueueButton: Boolean
+        get() = sp.getBoolean(KEY_HOME_QUEUE, false)
+        set(value) = sp.edit { putBoolean(KEY_HOME_QUEUE, value) }
+
     var playerActions: Map<String, String>
         get() = sp.getString(KEY_PLAYER_ACTIONS, null)
             ?.split(',')
@@ -586,6 +606,8 @@ class Prefs(context: Context) {
         const val KEY_ONLY_VOCAL = "only_vocal_in_season"
         const val KEY_MEDLEY_MINUTES = "medley_minutes"
         const val KEY_COMPACT = "compact_mode"
+        const val KEY_SONG_MENU = "song_menu"
+        const val KEY_HOME_QUEUE = "home_queue_button"
         const val KEY_FOLDER_HOME = "folder_home"
         const val KEY_FOLDERS_TAB = "folders_tab"
         const val KEY_ARTIST_BY_ALBUM = "artist_by_album"

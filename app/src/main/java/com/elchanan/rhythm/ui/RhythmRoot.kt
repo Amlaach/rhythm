@@ -202,6 +202,12 @@ fun RhythmRoot(
         }
     }
 
+    // The home screen's queue button: the player comes up, and opens its queue itself.
+    val queueRequest by vm.queueRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(queueRequest) {
+        if (queueRequest) playerOpen = true
+    }
+
     val startedCount by vm.playbackStarted.collectAsStateWithLifecycle()
     LaunchedEffect(startedCount) {
         if (startedCount > 0 && vm.prefs.openPlayerOnPlay) playerOpen = true

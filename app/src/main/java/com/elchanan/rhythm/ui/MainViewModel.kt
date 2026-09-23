@@ -2051,6 +2051,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (path.isNotBlank()) folderRequest.value = path
     }
 
+    /** The player asked to open on its queue - the home screen's queue button. */
+    val queueRequest = MutableStateFlow(false)
+
+    fun openQueue() {
+        queueRequest.value = true
+    }
+
     fun requestHomeTop() {
         _homeTopSignal.value = _homeTopSignal.value + 1
     }

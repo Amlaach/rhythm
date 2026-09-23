@@ -62,6 +62,8 @@ import com.elchanan.rhythm.ui.theme.TextSecondary
 fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val gutter = rememberMetrics().gutter
     var shelvesOpen by remember { mutableStateOf(false) }
+    var songMenuOpen by remember { mutableStateOf(false) }
+    var queueButton by remember { mutableStateOf(vm.prefs.homeQueueButton) }
     var pinMoods by remember { mutableStateOf(vm.prefs.pinMoodRow) }
     var firstTab by remember { mutableStateOf(vm.prefs.libraryFirstTab) }
     var folderTree by remember { mutableStateOf(vm.prefs.folderTree) }
@@ -154,6 +156,35 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 onClick = { shelvesOpen = true },
                 colors = ButtonDefaults.buttonColors(containerColor = Accent)
             ) { Text("ערוך") }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth().clickable { songMenuOpen = true }
+                .padding(horizontal = gutter, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("סידור תפריט השיר", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "מה מופיע בתפריט שלוש הנקודות של השירים, ומה למעלה",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+            Button(
+                onClick = { songMenuOpen = true },
+                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+            ) { Text("ערוך") }
+        }
+
+        SettingSwitch(
+            title = "כפתור לתור במסך הבית",
+            subtitle = "ליד הרענון והסיכום למעלה: פותח את הנגן ישר על התור",
+            checked = queueButton
+        ) {
+            queueButton = it
+            vm.prefs.homeQueueButton = it
         }
 
         // The rest of what this screen decides: not what the home screen
@@ -270,6 +301,10 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 )
             )
         }
+    }
+
+    if (songMenuOpen) {
+        SongMenuSheet(vm = vm, onDismiss = { songMenuOpen = false })
     }
 
     if (shelvesOpen) {

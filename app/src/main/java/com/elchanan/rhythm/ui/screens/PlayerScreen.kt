@@ -226,6 +226,14 @@ fun PlayerScreen(
     var showQueue by remember { mutableStateOf(false) }
     var scrubbing by remember { mutableStateOf<Float?>(null) }
     var showLyrics by remember { mutableStateOf(false) }
+    val queueRequest by vm.queueRequest.collectAsStateWithLifecycle()
+    LaunchedEffect(queueRequest) {
+        if (queueRequest) {
+            showQueue = true
+            showLyrics = false
+            vm.queueRequest.value = false
+        }
+    }
     var sleepOpen by remember { mutableStateOf(false) }
     var whyOpen by remember { mutableStateOf(false) }
     var optionsOpen by remember { mutableStateOf(false) }
