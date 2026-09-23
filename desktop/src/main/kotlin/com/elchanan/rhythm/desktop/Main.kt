@@ -96,6 +96,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -347,6 +348,10 @@ private fun RhythmApp() {
     // about the music. Held here rather than stored: a sitting is over when
     // the app closes.
     var sessionTail by remember { mutableStateOf<List<Long>>(emptyList()) }
+    // Where the song of a queue put back from the last session was left, and
+    // whether that song is still waiting for its first press.
+    var resumeRestoredAt by remember { mutableStateOf(0L) }
+    var restoredIdle by remember { mutableStateOf(false) }
     var lastCounted by remember { mutableStateOf(0L) }
     var lastCountedAt by remember { mutableStateOf(0L) }
 
@@ -419,7 +424,42 @@ private fun RhythmApp() {
         volume = prefs.volume / 100f
         player.setVolume(volume)
         player.equalizer.restore(prefs.eqEnabled, prefs.eqBands, prefs.eqPreamp)
+        // The queue from the last session, back where it was and paused -
+        // the phone's restoreQueueIfNeeded. Nothing plays until asked.
+        if (queue.isEmpty()) {
+            val (restored, index, position) = withContext(Dispatchers.IO) {
+                val byId = songs.associateBy { it.id }
+                val saved = prefs.savedQueue.mapNotNull { byId[it] }
+                Triple(saved, prefs.savedQueueIndex, prefs.savedQueuePosition)
+            }
+            if (restored.isNotEmpty()) {
+                queue = restored
+                queueIndex = index.coerceIn(0, restored.size - 1)
+                resumeRestoredAt = position
+            }
+        }
     }
+
+    // What to keep of the queue for the next start: the list whenever it
+    // changes, and where in the song every few seconds while it plays.
+    LaunchedEffect(queue, queueIndex) {
+        val ids = queue.map { it.id }
+        val at = queueIndex
+        withContext(Dispatchers.IO) {
+            runCatching {
+                prefs.savedQueue = ids.take(MAX_SAVED_QUEUE)
+                prefs.savedQueueIndex = at.coerceAtLeast(0)
+            }
+        }
+    }
+    LaunchedEffect(player) {
+        while (true) {
+            kotlinx.coroutines.delay(5_000)
+            val st = player.state.value
+            if (st.playing) withContext(Dispatchers.IO) { runCatching { prefs.savedQueuePosition = st.positionMs } }
+        }
+    }
+
 
     /**
      * Records what happened to the song being left, then starts another.
@@ -429,7 +469,10 @@ private fun RhythmApp() {
      * the distinction the recommender's skip rate is built on.
      */
     fun play(list: List<SongEntity>, index: Int, previousCompleted: Boolean = false) {
-        val leaving = queue.getOrNull(queueIndex)
+        // A queue put back from the last session has a current song that
+        // never started; leaving it is not a skip.
+        val leaving = if (restoredIdle || player.state.value.file == null) null else queue.getOrNull(queueIndex)
+        restoredIdle = false
         if (leaving != null) {
             val heard = player.state.value.positionMs
             val counted = Listening.countsAsPlay(
@@ -512,6 +555,23 @@ private fun RhythmApp() {
         val resumeAt = resumePoints[song.id]
         if (prefs.resumeSpoken && resumeAt != null) player.seekTo(resumeAt)
         if (prefs.openPlayerOnPlay) showPlayer = true
+    }
+
+    /**
+     * Play and pause, and the first press after a start that put the last
+     * queue back: that one starts the song from where it was left.
+     */
+    fun playPause() {
+        if (player.state.value.file == null && queueIndex in queue.indices) {
+            val at = resumeRestoredAt
+            // Nothing is being left: the song on screen was never started.
+            restoredIdle = true
+            play(queue, queueIndex)
+            if (at > 0L) player.seekTo(at)
+            resumeRestoredAt = 0L
+        } else {
+            player.togglePause()
+        }
     }
 
     /**
@@ -1462,7 +1522,7 @@ private fun RhythmApp() {
     // pressed exactly when the window is not the thing being looked at.
     DisposableEffect(player) {
         MediaKeys.start(
-            onPlayPause = { player.togglePause() },
+            onPlayPause = { playPause() },
             onNext = { scope.launch { play(queue, queueIndex + 1) } },
             onPrevious = { scope.launch { play(queue, queueIndex - 1) } }
         )
@@ -1583,7 +1643,9 @@ private fun RhythmApp() {
                     val (plain, lrc) = saved
                     Words(plain = plain, lrc = lrc)
                 } else {
-                    SongLyrics.find(song, prefs.lyricsFolder)
+                    SongLyrics.find(song, prefs.lyricsFolder).also { seen ->
+                        runCatching { store.noteLyricsSeen(song.id, seen?.plain.orEmpty(), seen?.lrc.orEmpty()) }
+                    }
                 }
             }
         }
@@ -1742,7 +1804,7 @@ private fun RhythmApp() {
                 }
             },
             onClose = { showPlayer = false },
-            onToggle = { player.togglePause() },
+            onToggle = { playPause() },
             onPrevious = { play(queue, queueIndex - 1) },
             onNext = { play(queue, queueIndex + 1) },
             onSeek = { player.seekTo(it) },
@@ -2045,7 +2107,9 @@ private fun RhythmApp() {
                         var words by remember(song.id) { mutableStateOf<Words?>(null) }
                         LaunchedEffect(song.id) {
                             words = withContext(Dispatchers.IO) {
-                                SongLyrics.find(song, prefs.lyricsFolder)
+                                SongLyrics.find(song, prefs.lyricsFolder).also { seen ->
+                                    runCatching { store.noteLyricsSeen(song.id, seen?.plain.orEmpty(), seen?.lrc.orEmpty()) }
+                                }
                             }
                         }
                         LyricsScreen(
@@ -2107,16 +2171,28 @@ private fun RhythmApp() {
                     1 -> SearchPane(
                         query = query,
                         onQuery = { query = it },
-                        results = remember(query, engine) {
+                        results = produceState(emptyList<SongEntity>(), query, engine) {
                             if (query.isBlank()) {
-                                emptyList()
-                            } else {
-                                // Zero means text relevance alone; the
-                                // default leans on what this listener plays.
-                                val personal = if (prefs.searchPersonalized) 0.25 else 0.0
-                                engine?.search(query, personal = personal).orEmpty()
+                                value = emptyList()
+                                return@produceState
                             }
-                        },
+                            // Zero means text relevance alone; the
+                            // default leans on what this listener plays.
+                            val personal = if (prefs.searchPersonalized) 0.25 else 0.0
+                            val byText = engine?.search(query, personal = personal).orEmpty()
+                            value = byText
+                            // Words second, and below: the database is slower
+                            // than matching names in memory, and someone
+                            // typing a title wants the title. The phone's order.
+                            if (!prefs.searchLyrics) return@produceState
+                            val ids = withContext(Dispatchers.IO) {
+                                runCatching { store.songIdsWithLyrics(query) }.getOrDefault(emptyList())
+                            }.toSet()
+                            if (ids.isEmpty()) return@produceState
+                            val already = byText.mapTo(HashSet()) { it.id }
+                            val extra = songs.filter { it.id in ids && it.id !in already }
+                            if (extra.isNotEmpty()) value = byText + extra
+                        }.value,
                         library = library,
                         stats = stats,
                         current = current?.id,
@@ -2268,7 +2344,7 @@ private fun RhythmApp() {
             },
             onLike = { current?.let { like(it) } },
             onOpen = { if (current != null) showPlayer = true },
-            onToggle = { player.togglePause() },
+            onToggle = { playPause() },
             onNext = { play(queue, queueIndex + 1) },
             onSeek = { player.seekTo(it) }
         )
@@ -2447,6 +2523,9 @@ private fun filterLibrary(
  * exist at all - an artist key derived from the wrong name groups the library
  * by the wrong name.
  */
+/** Songs of the queue kept for the next start. Past this it is a radio that ran all night. */
+private const val MAX_SAVED_QUEUE = 500
+
 private fun applyOverrides(
     songs: List<SongEntity>,
     overrides: Map<Long, TagOverrideEntity>

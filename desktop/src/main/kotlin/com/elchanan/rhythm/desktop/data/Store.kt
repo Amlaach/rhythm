@@ -308,6 +308,17 @@ class Store private constructor(private val conn: Connection) {
                 updatedAt INTEGER NOT NULL
             )
             """.trimIndent(),
+            // Words found in a file's tags or beside it, kept only so a search
+            // can find a song by a line of it - the phone searches the lyrics
+            // it has looked up the same way. Separate from the table above on
+            // purpose: that one is what the listener typed and overrides the
+            // file; this one is a copy of the file and never shown.
+            """
+            CREATE TABLE IF NOT EXISTS lyrics_seen (
+                songId INTEGER PRIMARY KEY, text TEXT NOT NULL,
+                synced TEXT NOT NULL, updatedAt INTEGER NOT NULL
+            )
+            """.trimIndent(),
             // Where a long recording was left. Separate from the bookmarks
             // because there is exactly one of these per file and it is
             // overwritten constantly, where a bookmark is made on purpose and
@@ -1120,6 +1131,51 @@ class Store private constructor(private val conn: Connection) {
             val synced = rs.getString("synced").orEmpty()
             return if (text.isBlank() && synced.isBlank()) null else text to synced
         }
+    }
+
+    /** Remembers the words a file had when they were last looked up, for search. */
+    @Synchronized
+    fun noteLyricsSeen(songId: Long, text: String, synced: String) {
+        if (text.isBlank() && synced.isBlank()) {
+            conn.prepareStatement("DELETE FROM lyrics_seen WHERE songId = ?").use { ps ->
+                ps.setLong(1, songId)
+                ps.executeUpdate()
+            }
+            return
+        }
+        conn.prepareStatement(
+            "INSERT INTO lyrics_seen (songId, text, synced, updatedAt) VALUES (?,?,?,?) " +
+                "ON CONFLICT(songId) DO UPDATE SET text = excluded.text, synced = excluded.synced, " +
+                "updatedAt = excluded.updatedAt"
+        ).use { ps ->
+            ps.setLong(1, songId)
+            ps.setString(2, text)
+            ps.setString(3, synced)
+            ps.setLong(4, System.currentTimeMillis())
+            ps.executeUpdate()
+        }
+    }
+
+    /**
+     * Song ids whose words contain [query], as a plain substring - typed
+     * words and words seen in files alike. The phone's songIdsWithLyrics.
+     */
+    @Synchronized
+    fun songIdsWithLyrics(query: String): List<Long> {
+        // Underscore and percent are wildcards in LIKE, so a query containing
+        // either would quietly match far more than it asked for.
+        val safe = query.trim().replace("%", "").replace("_", "")
+        if (safe.length < 2) return emptyList()
+        val pattern = "%$safe%"
+        val out = LinkedHashSet<Long>()
+        for (table in listOf("lyrics", "lyrics_seen")) {
+            conn.prepareStatement("SELECT songId FROM $table WHERE text LIKE ? OR synced LIKE ? LIMIT 80").use { ps ->
+                ps.setString(1, pattern)
+                ps.setString(2, pattern)
+                ps.executeQuery().use { rs -> while (rs.next()) out += rs.getLong("songId") }
+            }
+        }
+        return out.toList()
     }
 
     /**

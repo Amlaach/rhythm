@@ -120,6 +120,11 @@ class Prefs(private val store: Store) {
         get() = flag("searchPersonalized", true)
         set(value) = set("searchPersonalized", value)
 
+    /** Search finds songs by a line of their words too. On by default, as on the phone. */
+    var searchLyrics: Boolean
+        get() = flag("searchLyrics", true)
+        set(value) = set("searchLyrics", value)
+
     /** Keep playing past the end of the queue, on what the engine suggests next. */
     var autoRadio: Boolean
         get() = flag("autoRadio", true)
@@ -266,6 +271,23 @@ class Prefs(private val store: Store) {
         set(value) = store.put("eqPreamp", value.toString())
 
     /** How loud, kept between launches so a quiet setting is not a surprise. */
+    /**
+     * The queue as it was left, and where in it: put back on the next start,
+     * paused, as the phone puts its queue back. Ids rather than paths, so a
+     * song that moved is still found and one that is gone is simply dropped.
+     */
+    var savedQueue: List<Long>
+        get() = store.get("savedQueue").orEmpty().split(',').mapNotNull { it.trim().toLongOrNull() }
+        set(value) = store.put("savedQueue", value.joinToString(","))
+
+    var savedQueueIndex: Int
+        get() = number("savedQueueIndex", 0)
+        set(value) = store.put("savedQueueIndex", value.toString())
+
+    var savedQueuePosition: Long
+        get() = store.get("savedQueuePosition")?.toLongOrNull() ?: 0L
+        set(value) = store.put("savedQueuePosition", value.toString())
+
     var volume: Int
         get() = number("volume", 100)
         set(value) = store.put("volume", value.toString())

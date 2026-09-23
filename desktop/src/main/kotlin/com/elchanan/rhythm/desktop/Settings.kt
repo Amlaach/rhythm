@@ -132,6 +132,7 @@ internal fun SettingsScreen(
     var autoAnalyze by remember { mutableStateOf(prefs.autoAnalyze) }
     var hideDuplicates by remember { mutableStateOf(prefs.hideDuplicates) }
     var searchPersonalized by remember { mutableStateOf(prefs.searchPersonalized) }
+    var searchLyrics by remember { mutableStateOf(prefs.searchLyrics) }
     var shelvesOpen by remember { mutableStateOf(false) }
     var foldersOpen by remember { mutableStateOf(false) }
     var separationsOpen by remember { mutableStateOf(false) }
@@ -278,6 +279,15 @@ internal fun SettingsScreen(
                 ) {
                     searchPersonalized = it
                     prefs.searchPersonalized = it
+                }
+                SwitchRow(
+                    title = "חיפוש גם במילות השיר",
+                    subtitle = "מוצא שיר לפי שורה שזכור לך ממנו, גם כשאת השם שכחת. " +
+                        "עובד על שירים שיש להם מילים — מקובץ LRC, מתגיות הקובץ, או שהקלדת",
+                    checked = searchLyrics
+                ) {
+                    searchLyrics = it
+                    prefs.searchLyrics = it
                 }
             }
 
