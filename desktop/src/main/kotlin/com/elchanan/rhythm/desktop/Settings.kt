@@ -1377,13 +1377,15 @@ private fun Knob(
  * it into, so the same thing here means a time stretch written by hand -
  * real work, and not work this screen should pretend is already done.
  *
+ * The player's own volume is the slider the desktop player always shows.
+ *
  * Share is Android's own idea. Windows has no equivalent to hand a file to
  * whichever application the user picks from a sheet, and a button that opens
  * a file manager instead is a different feature wearing the same name.
  */
 internal val DESKTOP_PLAYER_ACTIONS: List<PlayerAction> =
     PlayerAction.entries.filterNot {
-        it == PlayerAction.SPEED || it == PlayerAction.SHARE
+        it == PlayerAction.SPEED || it == PlayerAction.SHARE || it == PlayerAction.VOLUME
     }
 
 /**

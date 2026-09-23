@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.FormatQuote
@@ -95,6 +96,8 @@ fun SongOptionsSheet(
     onRemoveFromPlaylist: (() -> Unit)? = null,
     /** True when opened from the player, about the song already playing. */
     forCurrentSong: Boolean = false,
+    /** The player's own volume, when the listener put it in this menu rather than on the player. */
+    onVolume: (() -> Unit)? = null,
     /** Set by the player so lyrics open its synced panel, not the editor. */
     onShowLyrics: (() -> Unit)? = null
 ) {
@@ -210,6 +213,9 @@ fun SongOptionsSheet(
                 }
             }
             OptionRow(Icons.Filled.Radio, "התחל רדיו מהשיר") { vm.startRadio(song); onDismiss() }
+            if (onVolume != null) {
+                OptionRow(Icons.AutoMirrored.Filled.VolumeUp, "עוצמת הנגן") { onVolume(); onDismiss() }
+            }
 
             // Always offered, even with no playlists yet: having to leave for the
             // library tab to make the first one is the step that stops playlists

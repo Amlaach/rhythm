@@ -3,6 +3,9 @@ package com.elchanan.rhythm.ui.screens
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.material.icons.automirrored.filled.VolumeDown
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import com.elchanan.rhythm.playback.AppVolume
 import com.elchanan.rhythm.data.ArtworkTap
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Dialog
@@ -229,6 +232,7 @@ fun PlayerScreen(
     var detailsOpen by remember { mutableStateOf(false) }
     var speedOpen by remember { mutableStateOf(false) }
     var bookmarksOpen by remember { mutableStateOf(false) }
+    var volumeOpen by remember { mutableStateOf(false) }
     // What a tap on the cover does: pause and carry on, open it full size, or
     // nothing. One choice rather than two switches, so they cannot collide.
     val artworkTap = vm.prefs.artworkTap
@@ -598,6 +602,15 @@ fun PlayerScreen(
                             )
                         }
                     }
+                    if (placement(PlayerAction.VOLUME) == ActionPlacement.BUTTON) {
+                        IconButton(onClick = { volumeOpen = true }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = localized("עוצמת הנגן"),
+                                tint = if (AppVolume.position < 1f) Accent else TextSecondary
+                            )
+                        }
+                    }
                     if (placement(PlayerAction.BOOKMARK) == ActionPlacement.BUTTON) {
                         IconButton(onClick = { bookmarksOpen = true }) {
                             Icon(
@@ -828,6 +841,9 @@ fun PlayerScreen(
     if (speedOpen) {
         SpeedDialog(vm = vm, onDismiss = { speedOpen = false })
     }
+    if (volumeOpen) {
+        VolumeDialog(vm = vm, onDismiss = { volumeOpen = false })
+    }
     if (bookmarksOpen) {
         BookmarksSheet(
             vm = vm,
@@ -843,6 +859,11 @@ fun PlayerScreen(
             song = song,
             onDismiss = { optionsOpen = false },
             forCurrentSong = true,
+            onVolume = if (placement(PlayerAction.VOLUME) == ActionPlacement.MENU) {
+                { volumeOpen = true }
+            } else {
+                null
+            },
             // Keeps the synced, scrolling lyrics panel reachable. The menu's own
             // lyrics row opens the editor, which is a different thing from
             // watching the words go by while the song plays.
@@ -951,6 +972,65 @@ private fun SpeedDialog(vm: MainViewModel, onDismiss: () -> Unit) {
                         )
                     }
                 }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }
+    )
+}
+
+/**
+ * The player's own volume. Apart from the phone's, so turning the music down
+ * here leaves a call, a video or a navigation voice where they were.
+ */
+@Composable
+private fun VolumeDialog(vm: MainViewModel, onDismiss: () -> Unit) {
+    var level by remember { mutableFloatStateOf(AppVolume.position) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("עוצמת הנגן") },
+        text = {
+            Column {
+                Text(
+                    "עוצמה משלו לנגן, בלי לשנות את עוצמת הטלפון — שיחה, סרטון או ניווט נשארים כמו שהיו.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+                Spacer(Modifier.height(14.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.VolumeDown,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Slider(
+                        value = level,
+                        onValueChange = {
+                            level = it
+                            AppVolume.set(it)
+                        },
+                        onValueChangeFinished = { vm.prefs.appVolume = level },
+                        colors = SliderDefaults.colors(
+                            thumbColor = Accent,
+                            activeTrackColor = Accent,
+                            inactiveTrackColor = Accent.copy(alpha = 0.2f)
+                        ),
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                    )
+                    Icon(
+                        Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = null,
+                        tint = TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Text(
+                    "${(level * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = TextSecondary,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }

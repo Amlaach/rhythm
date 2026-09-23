@@ -117,6 +117,13 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         repo = (application as RhythmApp).repository
+        // The player's own volume: taken from the settings, and applied the
+        // moment the slider moves. While a fade runs, its next step picks the
+        // new level up by itself.
+        AppVolume.set(repo.prefs.appVolume)
+        AppVolume.onChange = {
+            handler.post { if (!fadeRunning) runCatching { player.volume = trackGain() } }
+        }
 
         // The equaliser has to be built before the player, because it goes
         // inside the audio sink rather than being attached to it afterwards.
@@ -343,6 +350,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        AppVolume.onChange = null
         runCatching { contentResolver.unregisterContentObserver(volumeWatcher) }
         finalizeCurrent(manual = false)
         persistQueue()
@@ -525,11 +533,16 @@ class PlaybackService : MediaSessionService() {
         if (position in 0..fade) {
             volume = minOf(volume, position.toFloat() / fade)
         }
-        player.volume = (volume * trackGain()).coerceIn(0.02f, 1f)
+        // The floor keeps a fade from reaching true silence; the listener's own
+        // volume at zero is meant to.
+        player.volume = (volume * trackGain()).coerceIn(if (AppVolume.gain > 0f) 0.02f else 0f, 1f)
     }
 
-    /** The loudness correction for whatever is playing, or 1 when off or unknown. */
-    private fun trackGain(): Float {
+    /** The level for whatever is playing: the loudness correction, at the listener's own volume. */
+    private fun trackGain(): Float = levelling() * AppVolume.gain
+
+    /** The loudness correction alone, or 1 when off or unknown. */
+    private fun levelling(): Float {
         if (!repo.prefs.normalizeVolume) return 1f
         val id = player.currentMediaItem?.mediaId?.toLongOrNull() ?: return 1f
         return gains[id] ?: 1f

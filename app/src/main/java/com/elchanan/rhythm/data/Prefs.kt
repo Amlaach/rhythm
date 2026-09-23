@@ -277,6 +277,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_RESUME_SPOKEN, true)
         set(value) = sp.edit { putBoolean(KEY_RESUME_SPOKEN, value) }
 
+    /** The player's own volume slider, 0..1, apart from the phone's. See playback.AppVolume. */
+    var appVolume: Float
+        get() = sp.getFloat(KEY_APP_VOLUME, 1f)
+        set(value) = sp.edit { putFloat(KEY_APP_VOLUME, value) }
+
     /** Small-screen mode: the whole app drawn a size smaller. Off by default. See ui.Display. */
     var compactMode: Boolean
         get() = sp.getBoolean(KEY_COMPACT, false)
@@ -562,6 +567,7 @@ class Prefs(context: Context) {
         const val KEY_MEDLEY_MINUTES = "medley_minutes"
         const val KEY_COMPACT = "compact_mode"
         const val KEY_ARTWORK_TAP_MODE = "artwork_tap_mode"
+        const val KEY_APP_VOLUME = "app_volume"
     }
 }
 
