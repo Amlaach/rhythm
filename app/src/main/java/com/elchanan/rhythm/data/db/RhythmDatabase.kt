@@ -172,6 +172,7 @@ abstract class RhythmDatabase : RoomDatabase() {
         private val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("UPDATE audio_features SET musicPrint = '', musicMoods = '' WHERE energy > 0")
+                db.execSQL("ALTER TABLE song_stats ADD COLUMN vocal INTEGER NOT NULL DEFAULT -1")
             }
         }
 

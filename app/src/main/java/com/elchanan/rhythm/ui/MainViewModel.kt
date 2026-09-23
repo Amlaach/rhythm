@@ -40,6 +40,8 @@ import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.engine.Mix
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.MoodModel
+import com.elchanan.rhythm.engine.JewishSeasons
+import com.elchanan.rhythm.engine.Vocal
 import com.elchanan.rhythm.engine.MoodMarks
 import com.elchanan.rhythm.engine.Names
 import com.elchanan.rhythm.engine.RecapData
@@ -820,6 +822,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteBookmark(id: Long) {
         viewModelScope.launch { repo.deleteBookmark(id) }
+    }
+
+    /** Whether a song counts as vocal-only now: the user's word, else its name and sound. */
+    fun isVocal(song: SongEntity, feature: AudioFeatureEntity?): Boolean {
+        val lib = library.value
+        val artistStyles = lib.artists.firstOrNull { it.key == song.artistKey }?.styles.orEmpty()
+        return Vocal.isVocal(song, lib.stats[song.id], feature, artistStyles)
+    }
+
+    /** The Omer or the Three Weeks, if today is in one. */
+    val season: JewishSeasons.Season? get() = JewishSeasons.at(System.currentTimeMillis())
+
+    fun setVocal(song: SongEntity, vocal: Boolean?) {
+        viewModelScope.launch {
+            repo.setVocal(song.id, vocal)
+            _message.value = when (vocal) {
+                true -> "סומן כווקאלי — יוצג רק בספירה ובשלושת השבועות"
+                false -> "סומן כלא ווקאלי"
+                null -> "חזר לזיהוי האוטומטי"
+            }
+            refreshFeed()
+        }
+    }
+
+    fun setOnlyVocalInSeason(value: Boolean) {
+        prefs.onlyVocalInSeason = value
+        refreshFeed()
     }
 
     /** What the user said about songs' moods, from the live stats. */
@@ -1897,9 +1926,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // Strongest first. Disliked songs are dropped before the sort
                 // rather than after, so a thumbed down track cannot take one
                 // of the places the list is later trimmed to.
+                // Vocal-only songs follow the same season as the feed.
+                val inSeason = season != null
                 Mood.strongest(
                     library.value.songs
-                        .filter { (library.value.stats[it.id]?.liked ?: 0) != -1 },
+                        .filter { (library.value.stats[it.id]?.liked ?: 0) != -1 }
+                        .filter { inSeason || !isVocal(it, features[it.id]) },
                     features,
                     mood,
                     moodMarks()

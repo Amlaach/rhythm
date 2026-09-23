@@ -456,6 +456,12 @@ class MusicRepository(
 
     private val moodMarkLock = kotlinx.coroutines.sync.Mutex()
 
+    /** The user saying a song is vocal-only (true), is not (false), or handing it back (null). */
+    suspend fun setVocal(songId: Long, vocal: Boolean?) = withContext(Dispatchers.IO) {
+        dao.ensureStats(songId)
+        dao.setVocal(songId, when (vocal) { true -> 1; false -> 0; null -> -1 })
+    }
+
     /** The user overruling the speech detector, either way. */
     suspend fun setSpoken(songId: Long, spoken: Boolean) = withContext(Dispatchers.IO) {
         dao.ensureStats(songId)
@@ -761,6 +767,14 @@ class MusicRepository(
                 statsById[song.id]?.spoken ?: -1
             )
         }.mapTo(HashSet()) { it.id }
+        // Vocal-only songs, held back outside the Omer and the Three Weeks.
+        val engineArtists = ArtistStyles.withCatalogue(dao.allArtists().associateBy { it.artistKey }, allSongs)
+        val vocalIds = allSongs.filter { song ->
+            com.elchanan.rhythm.engine.Vocal.isVocal(
+                song, statsById[song.id], featuresById[song.id],
+                engineArtists[song.artistKey]?.styles.orEmpty()
+            )
+        }.mapTo(HashSet()) { it.id }
         // When each song was last actually heard. The history records plays
         // and never skips, where lastPlayedAt in the stats is also moved by a
         // skip. Newest first, so the first row seen per song is its latest.
@@ -771,9 +785,7 @@ class MusicRepository(
         Recommender(
             songs = allSongs,
             stats = statsById,
-            artists = ArtistStyles.withCatalogue(
-                dao.allArtists().associateBy { it.artistKey }, allSongs
-            ),
+            artists = engineArtists,
             affinity = affinityMap(),
             transitions = transitionMap(),
             features = featuresById,
@@ -786,12 +798,14 @@ class MusicRepository(
                 acousticWeight = prefs.acousticWeight,
                 separations = prefs.styleSeparations,
                 lastMood = prefs.lastMood,
-                learned = com.elchanan.rhythm.engine.SignalWeights.decode(prefs.learnedWeights)
+                learned = com.elchanan.rhythm.engine.SignalWeights.decode(prefs.learnedWeights),
+                onlyVocalInSeason = prefs.onlyVocalInSeason
             ),
             now = System.currentTimeMillis(),
             feedSeed = prefs.feedSeed.toLong(),
             spoken = spokenIds,
-            lastHeard = lastHeard
+            lastHeard = lastHeard,
+            vocal = vocalIds
         )
     }
 

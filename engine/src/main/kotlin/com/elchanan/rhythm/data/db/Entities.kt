@@ -103,7 +103,12 @@ data class SongStatsEntity(
      * MoodMarks. What the user said always wins over what the audio suggests,
      * and the marks are what the mood reading learns this listener's ear from.
      */
-    val moods: String = ""
+    val moods: String = "",
+    /**
+     * Whether this is vocal-only music, by the user's word: 1 yes, 0 no, -1
+     * left to the name and the sound. See Vocal.
+     */
+    val vocal: Int = -1
 )
 
 /** User supplied artist profile: rating 1..5 and free style tags. */

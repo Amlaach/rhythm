@@ -277,6 +277,17 @@ fun SongOptionsSheet(
                 onDismiss()
             }
 
+            // Vocal-only: shown as the opposite of the current verdict, like
+            // the speech row above.
+            val vocalNow = vm.isVocal(song, features[song.id])
+            OptionRow(
+                Icons.Filled.MusicNote,
+                if (vocalNow) "זה לא ווקאלי" else "סמן כווקאלי (לספירה ולשלושת השבועות)"
+            ) {
+                vm.setVocal(song, !vocalNow)
+                onDismiss()
+            }
+
             // Only worth offering when there is something to clear.
             if ((stats?.playCount ?: 0) > 0) {
                 OptionRow(Icons.Filled.RestartAlt, "אפס את מספר ההשמעות") {

@@ -76,6 +76,7 @@ fun AlgorithmSettingsScreen(
     val calibrating by vm.calibrating.collectAsStateWithLifecycle()
     val moodReport by vm.moodReport.collectAsStateWithLifecycle()
     var usingLearned by remember { mutableStateOf(vm.usingLearnedWeights) }
+    var onlyVocal by remember { mutableStateOf(vm.prefs.onlyVocalInSeason) }
 
     var discovery by remember { mutableFloatStateOf(vm.prefs.discovery) }
     var artistWeight by remember { mutableFloatStateOf(vm.prefs.artistWeight) }
@@ -189,6 +190,39 @@ fun AlgorithmSettingsScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 12.dp),
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextPrimary
+                    )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .clickable { onlyVocal = !onlyVocal; vm.setOnlyVocalInSeason(onlyVocal) }
+                        .padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("רק ווקאלי בספירה ובשלושת השבועות", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "שירים ווקאליים לא מוצעים בשאר השנה. כשהאפשרות מופעלת, בימי ספירת " +
+                                "העומר (חוץ מל\"ג בעומר) ובשלושת השבועות מוצעים רק שירים ווקאליים. " +
+                                "שיר נחשב ווקאלי לפי השם שלו (ווקאלי, אקפלה), לפי תגית, לפי הצליל, " +
+                                "או לפי מה שסימנת בתפריט השיר. " +
+                                (vm.season?.let { "כרגע: ${it.label}." } ?: "כרגע לא בתקופות האלה."),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Switch(
+                        checked = onlyVocal,
+                        onCheckedChange = {
+                            onlyVocal = it
+                            vm.setOnlyVocalInSeason(it)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Accent,
+                            checkedTrackColor = Accent.copy(alpha = 0.4f)
+                        )
                     )
                 }
             }

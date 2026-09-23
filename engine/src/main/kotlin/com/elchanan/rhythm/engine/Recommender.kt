@@ -102,7 +102,9 @@ data class EngineTuning(
      * listener's own history by [SignalCalibration] - or null for the
      * defaults. The sliders above still multiply them.
      */
-    val learned: SignalWeights? = null
+    val learned: SignalWeights? = null,
+    /** During the Omer and the Three Weeks, generate from vocal songs only. */
+    val onlyVocalInSeason: Boolean = false
 )
 
 /**
@@ -222,8 +224,17 @@ class Recommender(
      * skips, so it is the honest source. See [heardAt] for what happens to a
      * song older than the history reaches.
      */
-    private val lastHeard: Map<Long, Long> = emptyMap()
+    private val lastHeard: Map<Long, Long> = emptyMap(),
+    /**
+     * Vocal-only songs, see [Vocal]. Held back from everything generated
+     * outside the Omer and the Three Weeks; during them, with
+     * [EngineTuning.onlyVocalInSeason], the only thing generated.
+     */
+    private val vocal: Set<Long> = emptySet()
 ) {
+
+    /** Whether today is in the Omer or the Three Weeks. */
+    val season: JewishSeasons.Season? = JewishSeasons.at(now)
 
     /**
      * The songs anything generated may draw on.
@@ -232,8 +243,18 @@ class Recommender(
      * speech by forgetting to filter - which is exactly how this went wrong
      * the first time.
      */
-    private val playable: List<SongEntity> =
-        if (spoken.isEmpty()) songs else songs.filterNot { it.id in spoken }
+    private val playable: List<SongEntity> = run {
+        val music = if (spoken.isEmpty()) songs else songs.filterNot { it.id in spoken }
+        when {
+            vocal.isEmpty() -> music
+            season == null -> music.filterNot { it.id in vocal }
+            // Only when there is enough of it to make a feed from; otherwise
+            // a library with three vocal tracks would play those three on repeat.
+            tuning.onlyVocalInSeason && music.count { it.id in vocal } >= MIN_VOCAL_TO_REPLACE ->
+                music.filter { it.id in vocal }
+            else -> music
+        }
+    }
 
     /**
      * When a song was last heard - played, not skipped - or 0 when unknown.
@@ -2567,6 +2588,9 @@ class Recommender(
          * almost nothing more.
          */
         private const val ARTIST_LISTEN_SCALE = 6.0
+
+        /** Vocal songs needed before "only vocal" in the season replaces everything else. */
+        const val MIN_VOCAL_TO_REPLACE = 15
 
         /** How much of a song's dislike or skips reaches its artist, style, mood and sound. */
         const val NEGATIVE_SPILL = 0.4
