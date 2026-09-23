@@ -107,7 +107,7 @@ compose.desktop {
             // some tens of megabytes in a download people do once. It can be
             // trimmed later, against a build that is known to run.
             includeAllModules = true
-            packageVersion = project.findProperty("rhythmVersion")?.toString() ?: "1.0.0"
+            packageVersion = project.findProperty("rhythmVersion")?.toString() ?: "1.1.0"
             vendor = "Rhythm"
             // Latin on purpose, and it has to stay that way. Compose writes
             // jpackage's arguments to a file as UTF-8; jpackage on JDK 17

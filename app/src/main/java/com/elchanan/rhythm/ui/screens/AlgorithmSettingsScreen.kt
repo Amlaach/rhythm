@@ -204,7 +204,7 @@ fun AlgorithmSettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("רק ווקאלי בספירה ובשלושת השבועות", style = MaterialTheme.typography.titleSmall)
+                        Text("ווקאלי רק בספירה ובשלושת השבועות", style = MaterialTheme.typography.titleSmall)
                         Text(
                             "שירים ווקאליים לא מוצעים בשאר השנה. כשהאפשרות מופעלת, בימי ספירת " +
                                 "העומר (חוץ מל\"ג בעומר) ובשלושת השבועות מוצעים רק שירים ווקאליים. " +

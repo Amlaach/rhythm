@@ -39,7 +39,7 @@ android {
         minSdk = 21
         targetSdk = 34
         versionCode = ciBuildNumber ?: 1
-        versionName = if (ciBuildNumber != null) "1.0.$ciBuildNumber" else "1.0.0-dev"
+        versionName = if (ciBuildNumber != null) "1.1.$ciBuildNumber" else "1.1.0-dev"
         // Carried into the app so the about screen can name the exact commit
         // rather than a version number that only says which day it was.
         buildConfigField("String", "GIT_SHA", "\"$ciCommit\"")

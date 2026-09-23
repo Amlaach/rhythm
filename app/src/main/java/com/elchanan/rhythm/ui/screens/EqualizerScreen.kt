@@ -3,9 +3,13 @@ package com.elchanan.rhythm.ui.screens
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.verticalDrag
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,7 +24,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
@@ -46,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -166,179 +170,149 @@ private fun GraphicEqualizer(gutter: Dp) {
     // volatile field, so the two are written together on every change.
     var settings by remember { mutableStateOf(controller.settings) }
 
-    // Not a list.
-    //
-    // The curve and the faders are both drag targets, and a drag target
-    // inside a vertically scrolling list is a fight the list always loses:
-    // the child sees the gesture first and consumes it, so touching either
-    // of them moved a band instead of scrolling the page - and since
-    // between them they cover most of the screen, the page could barely be
-    // scrolled at all.
-    //
-    // So the two controls sit in a fixed region that never scrolls, and only
-    // the settings underneath them - presets, preamp, reset, none of which
-    // wants a vertical drag - are in a list.
-    //
-    // Exactly one child of this column is weighted, and it has to stay that
-    // way. The curve used to be weighted as well, capped at a maximum: a
-    // weighted child that declines part of its share does not hand it to the
-    // other one, so on an ordinary phone the curve took its 170dp, the list
-    // was measured for a share it never received, and a hundred and eighty
-    // points of nothing sat at the bottom of the screen - underneath a list
-    // squeezed by the same amount, with its own 150dp of padding below that.
-    //
-    // The curve is given an explicit height instead, worked out from the
-    // window, so it still shrinks where there is no room and the list gets
-    // every point that is left.
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-    val curveHeight = (maxHeight * CURVE_SHARE_OF_WINDOW)
-        .coerceIn(CURVE_MIN_HEIGHT, CURVE_MAX_HEIGHT)
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("אקולייזר 31 תדרים", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "מחושב בתוך הנגן, אותה תוצאה בכל מכשיר",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
+    // One list, everything in it, the curve at its full height: the layout
+    // this screen was designed with. It was once split into a fixed top and
+    // a scrolling bottom to stop the curve and the faders eating the scroll,
+    // and that squeezed the curve and the settings on every phone. The fix
+    // belongs in the gestures instead - see [ResponseCurve] and [Fader] -
+    // so the layout is back as it was.
+    LazyColumn(
+        // Deep enough to scroll the last slider clear of the mini player and
+        // the navigation bar, both of which float over this screen.
+        contentPadding = PaddingValues(bottom = 150.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("אקולייזר 31 תדרים", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "מחושב בתוך הנגן, אותה תוצאה בכל מכשיר",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+                Switch(
+                    checked = settings.enabled,
+                    onCheckedChange = {
+                        settings = settings.copy(enabled = it)
+                        controller.setEnabled(it)
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Accent,
+                        checkedTrackColor = Accent.copy(alpha = 0.4f)
+                    )
                 )
             }
-            Switch(
-                checked = settings.enabled,
-                onCheckedChange = {
-                    settings = settings.copy(enabled = it)
-                    controller.setEnabled(it)
+        }
+
+        item {
+            ResponseCurve(
+                settings = settings,
+                gutter = gutter,
+                onDraw = { band, millibels ->
+                    settings = settings.withBand(band, millibels)
+                    controller.setBand(band, millibels)
                 },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Accent,
-                    checkedTrackColor = Accent.copy(alpha = 0.4f)
-                )
+                onDrawEnd = { controller.commit() }
             )
         }
 
-        ResponseCurve(
-            settings = settings,
-            gutter = gutter,
-            // A share of the window, floored so it stays readable and capped
-            // so it never grows past what a curve is worth. Explicit rather
-            // than weighted, so nothing is left over for a gap.
-            modifier = Modifier.height(curveHeight),
-            onDraw = { band, millibels ->
-                settings = settings.withBand(band, millibels)
-                controller.setBand(band, millibels)
-            },
-            onDrawEnd = { controller.commit() }
-        )
+        item {
+            FaderStrip(
+                settings = settings,
+                gutter = gutter,
+                onBand = { band, millibels ->
+                    settings = settings.withBand(band, millibels)
+                    controller.setBand(band, millibels)
+                },
+                onBandEnd = { controller.commit() }
+            )
+        }
 
-        FaderStrip(
-            settings = settings,
-            gutter = gutter,
-            onBand = { band, millibels ->
-                settings = settings.withBand(band, millibels)
-                controller.setBand(band, millibels)
-            },
-            onBandEnd = { controller.commit() }
-        )
-
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            // Deep enough to clear the mini player and the navigation bar,
-            // both of which float over this screen.
-            contentPadding = PaddingValues(bottom = 150.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            item {
-                SectionLabel("מוכנים מראש", gutter)
-                val current = remember(settings.bands) { EqPresets.matching(settings.bands) }
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = gutter),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(EqPresets.ALL.size) { index ->
-                        val preset = EqPresets.ALL[index]
-                        Chip(
-                            label = preset.name,
-                            selected = current == preset.name,
-                            onClick = {
-                                val bands = EqPresets.bands(preset)
-                                settings = EqSettings.of(true, bands, settings.preampMb)
-                                controller.setEnabled(true)
-                                controller.setBands(bands)
-                            }
-                        )
-                    }
-                }
-            }
-
-            item {
-                SectionLabel("עוצמה כללית", gutter)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = gutter)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Surface1)
-                        .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = formatDb(settings.preampMb),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (settings.preampMb == 0) TextSecondary else Accent,
-                        modifier = Modifier.width(52.dp)
-                    )
-                    Slider(
-                        value = settings.preampMb.toFloat(),
-                        onValueChange = {
-                            val mb = it.roundToInt()
-                            settings = settings.copy(preampMb = mb)
-                            controller.setPreamp(mb)
-                        },
-                        onValueChangeFinished = { controller.commit() },
-                        valueRange = EqBands.PREAMP_MIN_MB.toFloat()..EqBands.PREAMP_MAX_MB.toFloat(),
-                        enabled = settings.enabled,
-                        colors = SliderDefaults.colors(
-                            thumbColor = Accent,
-                            activeTrackColor = Accent,
-                            inactiveTrackColor = Surface2
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Text(
-                    "מורידים כאן כשהגברה חזקה גורמת לעיוות",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextTertiary,
-                    modifier = Modifier.padding(start = gutter, end = gutter, top = 6.dp)
-                )
-            }
-
-            item {
-                Row(modifier = Modifier.padding(horizontal = gutter, vertical = 14.dp)) {
+        item {
+            SectionLabel("מוכנים מראש", gutter)
+            val current = remember(settings.bands) { EqPresets.matching(settings.bands) }
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = gutter),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(EqPresets.ALL.size) { index ->
+                    val preset = EqPresets.ALL[index]
                     Chip(
-                        label = "אפס הכל",
-                        selected = false,
+                        label = preset.name,
+                        selected = current == preset.name,
                         onClick = {
-                            settings = settings.copy(bands = List(EqBands.COUNT) { 0 }, preampMb = 0)
-                            controller.reset()
+                            val bands = EqPresets.bands(preset)
+                            settings = EqSettings.of(true, bands, settings.preampMb)
+                            controller.setEnabled(true)
+                            controller.setBands(bands)
                         }
                     )
                 }
             }
         }
-    }
+
+        item {
+            SectionLabel("עוצמה כללית", gutter)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = gutter)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Surface1)
+                    .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = formatDb(settings.preampMb),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (settings.preampMb == 0) TextSecondary else Accent,
+                    modifier = Modifier.width(52.dp)
+                )
+                Slider(
+                    value = settings.preampMb.toFloat(),
+                    onValueChange = {
+                        val mb = it.roundToInt()
+                        settings = settings.copy(preampMb = mb)
+                        controller.setPreamp(mb)
+                    },
+                    onValueChangeFinished = { controller.commit() },
+                    valueRange = EqBands.PREAMP_MIN_MB.toFloat()..EqBands.PREAMP_MAX_MB.toFloat(),
+                    enabled = settings.enabled,
+                    colors = SliderDefaults.colors(
+                        thumbColor = Accent,
+                        activeTrackColor = Accent,
+                        inactiveTrackColor = Surface2
+                    ),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Text(
+                "מורידים כאן כשהגברה חזקה גורמת לעיוות",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextTertiary,
+                modifier = Modifier.padding(start = gutter, end = gutter, top = 6.dp)
+            )
+        }
+
+        item {
+            Row(modifier = Modifier.padding(horizontal = gutter, vertical = 14.dp)) {
+                Chip(
+                    label = "אפס הכל",
+                    selected = false,
+                    onClick = {
+                        settings = settings.copy(bands = List(EqBands.COUNT) { 0 }, preampMb = 0)
+                        controller.reset()
+                    }
+                )
+            }
+        }
     }
 }
-
-/** How much of the window the response curve may take, before the limits. */
-private const val CURVE_SHARE_OF_WINDOW = 0.22f
-
-/** Below this it stops being readable; above it, it stops being worth more. */
-private val CURVE_MIN_HEIGHT = 96.dp
-private val CURVE_MAX_HEIGHT = 170.dp
 
 // --- the curve ---------------------------------------------------------------
 
@@ -354,7 +328,6 @@ private val CURVE_MAX_HEIGHT = 170.dp
 private fun ResponseCurve(
     settings: EqSettings,
     gutter: Dp,
-    modifier: Modifier = Modifier,
     onDraw: (Int, Int) -> Unit,
     onDrawEnd: () -> Unit
 ) {
@@ -375,11 +348,11 @@ private fun ResponseCurve(
     // by the layout while the canvas stayed put, so the axis would disagree
     // with the curve drawn against it.
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-    Column(modifier = modifier.fillMaxWidth().padding(horizontal = gutter)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = gutter)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
+                .height(170.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(Surface1)
         ) {
@@ -403,12 +376,25 @@ private fun ResponseCurve(
                             val db = RANGE_DB - 2f * RANGE_DB * y
                             onDraw(nearest, (db * 100f).roundToInt())
                         }
-                        detectDragGestures(
-                            onDragStart = { paint(it) },
-                            onDrag = { change, _ -> change.consume(); paint(change.position) },
-                            onDragEnd = { onDrawEnd() },
-                            onDragCancel = { onDrawEnd() }
-                        )
+                        // Drawing starts only when the finger sets off
+                        // sideways, which is how a shape is swept across the
+                        // curve. A finger that sets off up or down is
+                        // scrolling the page, and is left alone to do it:
+                        // before, the curve took every drag, and since it sits
+                        // in a scrolling list a short screen could hardly be
+                        // scrolled at all.
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val start = awaitTouchSlopOrCancellation(down.id) { change, over ->
+                                if (abs(over.x) > abs(over.y)) change.consume()
+                            } ?: return@awaitEachGesture
+                            paint(start.position)
+                            drag(start.id) { change ->
+                                change.consume()
+                                paint(change.position)
+                            }
+                            onDrawEnd()
+                        }
                     }
             ) {
                 val w = size.width
@@ -623,6 +609,13 @@ private fun ScrollHint(scroll: ScrollState, viewport: Int, gutter: Dp) {
  * The gesture is vertical only. These sit in a strip that scrolls sideways,
  * and claiming every direction would mean the strip could not be scrolled by
  * dragging across the sliders - which is most of its surface.
+ *
+ * And it starts only on the knob. The strip is also inside a page that
+ * scrolls up and down, and thirty one tracks 172dp tall are most of a short
+ * screen: when any touch on a track moved it, a finger trying to scroll the
+ * page moved a band instead, wherever it landed. A drag that starts away from
+ * the knob now scrolls the page, and a plain touch - the one that stops a
+ * fling - changes nothing. Double tap still puts a band back to flat.
  */
 @Composable
 private fun Fader(
@@ -633,6 +626,9 @@ private fun Fader(
     onChangeEnd: () -> Unit
 ) {
     val span = (EqBands.MAX_MB - EqBands.MIN_MB).toFloat()
+    // Read by the gesture while it runs. Keying the gesture on the value
+    // instead would restart it - and drop the drag - on every step.
+    val current by rememberUpdatedState(millibels)
     val tint = when {
         !enabled -> TextTertiary
         millibels == 0 -> TextSecondary
@@ -660,35 +656,40 @@ private fun Fader(
                 .height(172.dp)
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
-                    detectVerticalDragGestures(
-                        onDragStart = { onChange(valueAt(it.y, size.height, span)) },
-                        onVerticalDrag = { change, _ ->
+                    val reach = KNOB_REACH.toPx()
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val knob = knobY(current, size.height, span)
+                        if (abs(down.position.y - knob) > reach) return@awaitEachGesture
+                        val start = awaitVerticalTouchSlopOrCancellation(down.id) { change, _ ->
                             change.consume()
-                            onChange(valueAt(change.position.y, size.height, span))
-                        },
-                        onDragEnd = { onChangeEnd() },
-                        onDragCancel = { onChangeEnd() }
-                    )
+                        } ?: return@awaitEachGesture
+                        // Held where it was taken, so taking it a little off
+                        // centre does not make it jump to the finger.
+                        val grip = down.position.y - knob
+                        onChange(valueAtKnob(start.position.y - grip, size.height, span))
+                        verticalDrag(start.id) { change ->
+                            change.consume()
+                            onChange(valueAtKnob(change.position.y - grip, size.height, span))
+                        }
+                        onChangeEnd()
+                    }
                 }
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
                     detectTapGestures(
                         // Back to flat in one gesture. It is the thing people
                         // try first on a slider they have pushed too far.
-                        onDoubleTap = { onChange(0); onChangeEnd() },
-                        onTap = {
-                            onChange(valueAt(it.y, size.height, span))
-                            onChangeEnd()
-                        }
+                        onDoubleTap = { onChange(0); onChangeEnd() }
                     )
                 }
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val cx = size.width / 2f
-                val top = 11f
-                val bottom = size.height - 11f
+                val top = KNOB_INSET
+                val bottom = size.height - KNOB_INSET
                 val mid = (top + bottom) / 2f
-                val thumbY = top + (bottom - top) * ((EqBands.MAX_MB - millibels) / span)
+                val thumbY = knobY(millibels, size.height.roundToInt(), span)
 
                 drawLine(
                     color = TextTertiary.copy(alpha = 0.26f),
@@ -735,9 +736,19 @@ private fun Fader(
     }
 }
 
-/** Where a touch that far down the track lands, in millibels. */
-private fun valueAt(y: Float, height: Int, span: Float): Int {
-    val t = (y / height.toFloat()).coerceIn(0f, 1f)
+/** How far from the knob's centre a finger still takes hold of it. */
+private val KNOB_REACH = 22.dp
+
+/** The knob's travel stops this many pixels short of each end of the track. */
+private const val KNOB_INSET = 11f
+
+/** Where the knob of a band set to [millibels] is drawn, down the track. */
+private fun knobY(millibels: Int, height: Int, span: Float): Float =
+    KNOB_INSET + (height - 2f * KNOB_INSET) * ((EqBands.MAX_MB - millibels) / span)
+
+/** The setting that puts the knob that far down the track, in millibels. */
+private fun valueAtKnob(y: Float, height: Int, span: Float): Int {
+    val t = ((y - KNOB_INSET) / (height - 2f * KNOB_INSET)).coerceIn(0f, 1f)
     return (EqBands.MAX_MB - span * t).roundToInt()
 }
 

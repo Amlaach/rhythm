@@ -113,7 +113,7 @@ jobs:
             [ -n "$APKSIGNER" ] && "$APKSIGNER" verify --print-certs "$apk" | grep -i "SHA-256" || true
           done
           echo "### APK" >> "$GITHUB_STEP_SUMMARY"
-          echo "version 1.0.${{ github.run_number }} (build ${{ github.run_number }}), commit ${GITHUB_SHA:0:7}" >> "$GITHUB_STEP_SUMMARY"
+          echo "version 1.1.${{ github.run_number }} (build ${{ github.run_number }}), commit ${GITHUB_SHA:0:7}" >> "$GITHUB_STEP_SUMMARY"
           ls -lh out >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: Upload APKs
@@ -163,7 +163,7 @@ jobs:
       - name: Build the application image
         shell: pwsh
         run: |
-          .\gradlew.bat --no-daemon :desktop:createDistributable "-PrhythmVersion=1.0.${{ github.run_number }}"
+          .\gradlew.bat --no-daemon :desktop:createDistributable "-PrhythmVersion=1.1.${{ github.run_number }}"
 
       - name: Show what jpackage said
         if: failure()
@@ -190,7 +190,7 @@ jobs:
           if (-not (Test-Path $image)) { throw "no application image at $image" }
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
-            "/DAppVersion=1.0.${{ github.run_number }}" `
+            "/DAppVersion=1.1.${{ github.run_number }}" `
             "/DSourceDir=$image" `
             "/DOutDir=$out" `
             "desktop\installer\rhythm.iss"
@@ -202,7 +202,7 @@ jobs:
           $setup = Get-ChildItem -Path desktop/build/installer -Filter *.exe -ErrorAction SilentlyContinue
           if ($setup) {
             "### Windows installer" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
-            "version 1.0.${{ github.run_number }}, commit $($env:GITHUB_SHA.Substring(0,7))" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            "version 1.1.${{ github.run_number }}, commit $($env:GITHUB_SHA.Substring(0,7))" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
             $setup | ForEach-Object { "$($_.Name) - $([math]::Round($_.Length / 1MB, 1)) MB" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append }
           } else {
             "### Windows installer was not produced" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
