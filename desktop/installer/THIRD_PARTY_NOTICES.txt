@@ -1,0 +1,26 @@
+Rhythm for Windows - third-party audio components
+
+The installer contains separate library JARs, including components under
+GNU Lesser General Public License version 2.1 (LGPL-2.1). The license text
+is installed at licenses/LGPL-2.1.txt. These libraries are distributed
+unmodified by the Rhythm project and are separate from Rhythm's own code.
+
+Libraries identified in the build:
+- FFSampledSP (com.tagtraum:ffsampledsp-complete:0.9.56), including its
+  bundled FFmpeg decoding components. Project and source information:
+  https://www.tagtraum.com/ffsampledsp/
+- Jaudiotagger (net.jthink:jaudiotagger:3.0.1). Source:
+  https://github.com/mioopp/jaudiotagger
+- MP3SPI (com.googlecode.soundlibs:mp3spi:1.9.5.4), VorbisSPI
+  (com.googlecode.soundlibs:vorbisspi:1.0.3.3), and Tritonus Share
+  (com.googlecode.soundlibs:tritonus-share:0.3.7.4).
+  Library binaries and version-specific source artifacts are available
+  from their Maven Central artifact pages:
+  https://search.maven.org/
+
+The libraries are installed as separate JARs in Rhythm's app directory.
+Recipients may inspect and replace these library files. Rhythm imposes no
+additional restriction on modification of these LGPL components. This
+notice does not imply endorsement by the library authors.
+
+Other dependencies may carry their own notices within their JARs.

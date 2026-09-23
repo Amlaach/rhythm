@@ -1,0 +1,19 @@
+Third-party model notices for the Android application
+
+Discogs-EffNet and music classification heads
+Copyright: Music Technology Group, Universitat Pompeu Fabra (MTG-UPF).
+Source embedding model: https://essentia.upf.edu/models/feature-extractors/discogs-effnet/
+Source mood and danceability heads: https://essentia.upf.edu/models/classification-heads/
+Model information and license statement: https://essentia.upf.edu/models.html
+License: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+License text: https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
+Changes: the original models were converted from the upstream TensorFlow/ONNX formats to TensorFlow Lite for on-device inference. The conversion process is documented in tools/models/convert.py in the Rhythm source repository. The converted model assets, as adaptations of the upstream models, are shared under CC BY-NC-SA 4.0. Other application code is separately licensed and is not claimed as part of those model adaptations.
+This credit does not imply MTG-UPF endorses Rhythm.
+
+YAMNet
+Copyright 2019 The TensorFlow Authors.
+Source project: https://github.com/tensorflow/models/tree/master/research/audioset/yamnet
+License: Apache License, Version 2.0
+Full license text: licenses/APACHE-2.0.txt
+Rhythm uses a TensorFlow Lite version of YAMNet for local sound-event features.
+This credit does not imply Google or The TensorFlow Authors endorse Rhythm.

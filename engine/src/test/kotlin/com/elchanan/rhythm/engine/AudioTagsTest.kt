@@ -3,6 +3,7 @@ package com.elchanan.rhythm.engine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Locale
 
 /**
  * The read-back side of the tagging model: what a stored row says a track is
@@ -12,6 +13,20 @@ import org.junit.Test
  * accordion, 211 pop, 271 to 274 the four mood classes.
  */
 class AudioTagsTest {
+
+    @Test fun storedScoresUseDotsRegardlessOfDeviceLocale() {
+        val previous = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.FRANCE)
+            val scores = FloatArray(521)
+            scores[211] = 0.25f
+            val stored = AudioTags.compress(scores)
+            assertEquals("211:0.2500", stored)
+            assertTrue(AudioTags.hints(stored).isNotEmpty())
+        } finally {
+            Locale.setDefault(previous)
+        }
+    }
 
     @Test fun aSongTheModelNeverSawHasNoHints() {
         assertTrue(AudioTags.hints("").isEmpty())

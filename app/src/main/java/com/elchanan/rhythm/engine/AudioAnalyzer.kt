@@ -48,7 +48,7 @@ object AudioAnalyzer {
             val stats = runCatching { Analysis.windowStats(samples, sr) }.getOrNull() ?: continue
             windows.add(stats)
             runCatching {
-                forTagging.add(Analysis.decimate(raw, sampleRate, AudioTagger.SAMPLE_RATE).first)
+                forTagging.add(Analysis.resampleMono(raw, sampleRate, AudioTagger.SAMPLE_RATE))
             }
         }
 
@@ -128,7 +128,7 @@ object AudioAnalyzer {
             }.getOrNull() ?: continue
             val (raw, sampleRate) = decoded
             if (raw.size < Analysis.WINDOW * 8) continue
-            runCatching { probes.add(Analysis.decimate(raw, sampleRate, MusicMel.SAMPLE_RATE).first) }
+            runCatching { probes.add(Analysis.resampleMono(raw, sampleRate, MusicMel.SAMPLE_RATE)) }
         }
         if (probes.isEmpty()) return null
         val music = runCatching { musicTagger(context)?.listen(probes) }.getOrNull()

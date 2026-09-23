@@ -175,7 +175,10 @@ fun AboutScreen(vm: MainViewModel, onBack: () -> Unit) {
                 "זיהוי צלילים: YAMNet של Google, ברישיון Apache 2.0.\n" +
                     "זיהוי סגנון ומצב רוח: Discogs-EffNet ומסווגי מצב הרוח של Essentia, " +
                     "מאת MTG, אוניברסיטת פומפאו פברה בברצלונה, ברישיון " +
-                    "CC BY-NC-SA 4.0 — לשימוש לא מסחרי בלבד. האפליקציה מופצת בחינם.",
+                    "CC BY-NC-SA 4.0 — לשימוש לא מסחרי בלבד. המודלים הומרו ל-TFLite. " +
+                    "מקור: essentia.upf.edu/models.html; רישיון: " +
+                    "creativecommons.org/licenses/by-nc-sa/4.0/. " +
+                    "פרטי הקרדיט והרישיונות מצורפים לחבילת האפליקציה.",
                 modifier = Modifier.padding(horizontal = gutter, vertical = 6.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary
