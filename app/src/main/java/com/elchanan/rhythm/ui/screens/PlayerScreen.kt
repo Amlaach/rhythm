@@ -21,6 +21,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -33,7 +34,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -287,7 +287,11 @@ fun PlayerScreen(
     }
 
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val bottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    // Nothing at the bottom. The player opens above the tab bar, and the tab
+    // bar already stands clear of the system's navigation buttons; clearing
+    // them a second time here left a strip of dead space under the controls,
+    // as tall as those buttons.
+    val bottomPad = 0.dp
 
     // Swipe the sheet down to put the player away, the way YouTube Music does.
     // The offset follows the finger while dragging and either carries on past the
@@ -741,20 +745,31 @@ fun PlayerScreen(
 
                 Spacer(Modifier.height(10.dp))
 
+                // Sized to the width it has. With the ten-second buttons on, the
+                // row is seven buttons wide, more than a small phone has, and a
+                // row does not wrap: the last button - repeat - was pushed off
+                // the edge and simply missing. Every button now shares what
+                // there is, down to a size a thumb still hits.
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val seekShown = placement(PlayerAction.SEEK) == ActionPlacement.BUTTON
+                val playSize = if (maxWidth < 340.dp) 56.dp else 66.dp
+                val smallButtons = if (seekShown) 6 else 4
+                val button = ((maxWidth - playSize) / smallButtons).coerceIn(36.dp, 48.dp)
+                val skipIcon = minOf(40.dp, button - 4.dp)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { vm.player.toggleShuffle() }) {
+                    IconButton(onClick = { vm.player.toggleShuffle() }, modifier = Modifier.size(button)) {
                         Icon(
                             Icons.Filled.Shuffle,
                             contentDescription = localized("ערבוב"),
                             tint = if (state.shuffle) Accent else TextSecondary
                         )
                     }
-                    if (placement(PlayerAction.SEEK) == ActionPlacement.BUTTON) {
-                        IconButton(onClick = { vm.player.nudge(-10_000L) }) {
+                    if (seekShown) {
+                        IconButton(onClick = { vm.player.nudge(-10_000L) }, modifier = Modifier.size(button)) {
                             Icon(
                                 Icons.Filled.Replay10,
                                 contentDescription = localized("אחורה 10 שניות"),
@@ -762,19 +777,19 @@ fun PlayerScreen(
                             )
                         }
                     }
-                    IconButton(onClick = { vm.player.previous() }) {
+                    IconButton(onClick = { vm.player.previous() }, modifier = Modifier.size(button)) {
                         Icon(
                             Icons.Filled.SkipPrevious,
                             contentDescription = localized("הקודם"),
                             // Without an explicit tint these two inherit a colour that
                             // is nearly the background, so they read as missing.
                             tint = TextPrimary,
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(skipIcon)
                         )
                     }
                     Box(
                         modifier = Modifier
-                            .size(66.dp)
+                            .size(playSize)
                             .clip(CircleShape)
                             .background(Accent)
                             .clickable { vm.player.togglePlayPause() },
@@ -787,16 +802,16 @@ fun PlayerScreen(
                             modifier = Modifier.size(34.dp)
                         )
                     }
-                    IconButton(onClick = { vm.player.next() }) {
+                    IconButton(onClick = { vm.player.next() }, modifier = Modifier.size(button)) {
                         Icon(
                             Icons.Filled.SkipNext,
                             contentDescription = localized("הבא"),
                             tint = TextPrimary,
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(skipIcon)
                         )
                     }
-                    if (placement(PlayerAction.SEEK) == ActionPlacement.BUTTON) {
-                        IconButton(onClick = { vm.player.nudge(10_000L) }) {
+                    if (seekShown) {
+                        IconButton(onClick = { vm.player.nudge(10_000L) }, modifier = Modifier.size(button)) {
                             Icon(
                                 Icons.Filled.Forward10,
                                 contentDescription = localized("קדימה 10 שניות"),
@@ -804,7 +819,7 @@ fun PlayerScreen(
                             )
                         }
                     }
-                    IconButton(onClick = { vm.player.cycleRepeat() }) {
+                    IconButton(onClick = { vm.player.cycleRepeat() }, modifier = Modifier.size(button)) {
                         Icon(
                             if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Filled.RepeatOne
                             else Icons.Filled.Repeat,
@@ -812,6 +827,7 @@ fun PlayerScreen(
                             tint = if (state.repeatMode == Player.REPEAT_MODE_OFF) TextSecondary else Accent
                         )
                     }
+                }
                 }
                 }
                 Spacer(Modifier.height(16.dp))

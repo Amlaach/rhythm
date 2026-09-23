@@ -947,8 +947,17 @@ private fun RhythmApp() {
      * about what sounds like what.
      */
     fun startRadio(song: SongEntity) {
-        val station = engine?.radio(song).orEmpty()
-        play(if (station.isEmpty()) listOf(song) else station, 0)
+        val station = engine?.radio(song).orEmpty().ifEmpty { listOf(song) }
+        // From the song already playing, it carries on where it is and the
+        // station follows it; starting it again was the reported jump back.
+        val current = queue.getOrNull(queueIndex)
+        if (current?.id == song.id && player.state.value.file != null && station.first().id == song.id) {
+            queue = station
+            queueIndex = 0
+            if (!player.state.value.playing) player.resume()
+            return
+        }
+        play(station, 0)
     }
 
     fun createPlaylist(name: String) {

@@ -1714,6 +1714,9 @@ object UiStrings {
         "כל המכשיר" to "The whole device",
         "הסר" to "Remove",
         "הוסף תיקייה" to "Add folder",
-        "אפשר לבחור רק תיקייה מהאחסון של הטלפון או מכרטיס הזיכרון." to "Only a folder on the phone's storage or the memory card can be chosen."
+        "אפשר לבחור רק תיקייה מהאחסון של הטלפון או מכרטיס הזיכרון." to "Only a folder on the phone's storage or the memory card can be chosen.",
+        "סורק עכשיו…" to "Scanning now…",
+        "עכשיו" to "Now",
+        "לפני העדכון האחרון" to "Before the last update"
     )
 }

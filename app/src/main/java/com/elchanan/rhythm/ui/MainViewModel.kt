@@ -730,8 +730,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val list = withContext(Dispatchers.Default) { e.radio(song, 40) }
             QueueMeta.reset()
             QueueMeta.markAuto(list.drop(1).map { it.id })
-            player.play(list, 0)
-            markStarted()
+            // From the song that is playing, it simply carries on.
+            if (!player.continueFromCurrent(list)) {
+                player.play(list, 0)
+                markStarted()
+            }
             _message.value = "רדיו: ${song.title}"
         }
     }
@@ -1061,7 +1064,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 songs = list,
                 key = "mix:seed:${song.id}"
             )
-            if (andPlay) {
+            if (andPlay && !player.continueFromCurrent(list)) {
                 player.play(list, 0)
                 markStarted()
             }
