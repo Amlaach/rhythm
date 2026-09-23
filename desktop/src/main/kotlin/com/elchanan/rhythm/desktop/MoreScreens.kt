@@ -42,6 +42,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -347,7 +349,7 @@ internal fun TagFixScreen(
     writeToFiles: Boolean,
     onStripForeign: (Boolean) -> Unit,
     onWriteToFiles: (Boolean) -> Unit,
-    onApply: (List<TagFixer.Proposal>) -> Unit,
+    onApply: (List<TagFixer.Proposal>, Boolean) -> Unit,
     onEdit: (Long, String, String) -> Unit,
     onBack: () -> Unit
 ) {
@@ -355,6 +357,11 @@ internal fun TagFixScreen(
     var editing by remember { mutableStateOf<TagFixer.Proposal?>(null) }
 
     val changed = proposals.filter { it.changed }
+    // The uncertain ones are shown and marked, and applied only when asked.
+    // The phone's rule.
+    val uncertain = changed.count { !it.certain }
+    var includeUncertain by remember { mutableStateOf(false) }
+    val applying = changed.count { it.certain || includeUncertain }
     val shown = if (filter.isBlank()) {
         changed
     } else {
@@ -371,7 +378,7 @@ internal fun TagFixScreen(
                 text = if (changed.isEmpty()) {
                     "אין מה לתקן — התגיות נראות בסדר"
                 } else {
-                    "${changed.size} שירים ישתנו"
+                    "$applying שירים ישתנו"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
@@ -389,6 +396,27 @@ internal fun TagFixScreen(
                     onClick = { onWriteToFiles(!writeToFiles) }
                 )
             }
+            if (uncertain > 0) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { includeUncertain = !includeUncertain },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("כולל הצעות לא בטוחות ($uncertain)", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "כדאי לעבור עליהן ברשימה - הן מסומנות \"לא בטוח\"",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Switch(
+                        checked = includeUncertain,
+                        onCheckedChange = { includeUncertain = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = Accent, checkedTrackColor = Accent.copy(alpha = 0.4f))
+                    )
+                }
+            }
             Spacer(Modifier.height(8.dp))
             OutlinedTextField(
                 value = filter,
@@ -399,10 +427,10 @@ internal fun TagFixScreen(
             )
             Spacer(Modifier.height(8.dp))
             Button(
-                onClick = { onApply(proposals) },
-                enabled = changed.isNotEmpty(),
+                onClick = { onApply(proposals, includeUncertain) },
+                enabled = applying > 0,
                 colors = ButtonDefaults.buttonColors(containerColor = Accent)
-            ) { Text("החל על ${changed.size} שירים") }
+            ) { Text("החל על $applying שירים") }
         }
 
         LazyColumn(contentPadding = PaddingValues(top = 10.dp, bottom = 32.dp)) {
@@ -424,9 +452,9 @@ internal fun TagFixScreen(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        "${proposal.newArtist} — ${proposal.newTitle}",
+                        (if (proposal.certain) "" else "לא בטוח · ") + "${proposal.newArtist} — ${proposal.newTitle}",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = Accent,
+                        color = if (proposal.certain) Accent else TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

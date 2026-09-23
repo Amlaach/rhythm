@@ -100,6 +100,9 @@ import com.elchanan.rhythm.data.db.SongStatsEntity
 import com.elchanan.rhythm.engine.AlphabetIndexing
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.Capo
+import com.elchanan.rhythm.data.ArtistMerge
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.elchanan.rhythm.engine.Folders
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.MoodMarks
@@ -946,6 +949,83 @@ private fun BarAction(icon: ImageVector, label: String, onClick: () -> Unit) {
     }
 }
 
+/**
+ * Artists whose names are one letter apart - a typo, or two spellings of one
+ * name - offered for merging, never merged on their own: the listener picks
+ * which spelling stays. The phone's ArtistMergeSuggestions, with the same
+ * rule from :engine.
+ */
+@Composable
+private fun ArtistMergeSuggestions(
+    artists: List<ArtistInfo>,
+    busy: Boolean,
+    onMerge: (source: ArtistInfo, target: ArtistInfo) -> Unit
+) {
+    val pairs by produceState<List<Pair<ArtistInfo, ArtistInfo>>>(emptyList(), artists) {
+        value = withContext(Dispatchers.Default) {
+            buildList {
+                for (i in artists.indices) for (j in i + 1 until artists.size) {
+                    if (ArtistMerge.oneLetterApart(artists[i].key, artists[j].key)) add(artists[i] to artists[j])
+                }
+            }
+        }
+    }
+    var show by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Pair<ArtistInfo, ArtistInfo>?>(null) }
+    var keepFirst by remember { mutableStateOf(true) }
+    if (pairs.isNotEmpty()) {
+        TextButton(onClick = { show = true }, enabled = !busy, modifier = Modifier.padding(horizontal = GUTTER)) {
+            Text("נמצאו ${pairs.size} זוגות אמנים עם שמות דומים — בדוק איחוד", color = Accent)
+        }
+    }
+    if (show && selected == null) {
+        AlertDialog(
+            onDismissRequest = { show = false },
+            containerColor = Surface1,
+            title = { Text("ייתכן שזה אותו אמן") },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 400.dp)) {
+                    items(pairs) { pair ->
+                        TextButton(onClick = { selected = pair; keepFirst = true }, enabled = !busy) {
+                            Text("${pair.first.displayName} / ${pair.second.displayName}")
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { show = false }) { Text("סגור", color = TextSecondary) } }
+        )
+    }
+    selected?.let { pair ->
+        val target = if (keepFirst) pair.first else pair.second
+        val source = if (keepFirst) pair.second else pair.first
+        AlertDialog(
+            onDismissRequest = { selected = null },
+            containerColor = Surface1,
+            title = { Text("לאחד את האמנים?") },
+            text = {
+                Column(Modifier.fillMaxWidth()) {
+                    Text("בחר את השם שיישאר. שירי שני האמנים יוצגו יחד באפליקציה. קובצי המוזיקה לא ישתנו.")
+                    TextButton(onClick = { keepFirst = true }) {
+                        Text("${if (keepFirst) "✓ " else ""}${pair.first.displayName} (${pair.first.songs.size} שירים)")
+                    }
+                    TextButton(onClick = { keepFirst = false }) {
+                        Text("${if (!keepFirst) "✓ " else ""}${pair.second.displayName} (${pair.second.songs.size} שירים)")
+                    }
+                    Text("הדירוג והסגנונות של ${target.displayName} יישארו כפי שהם.", color = TextSecondary)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !busy, onClick = {
+                    onMerge(source, target)
+                    selected = null
+                    show = false
+                }) { Text("אחד", color = Accent) }
+            },
+            dismissButton = { TextButton(onClick = { selected = null }) { Text("ביטול", color = TextSecondary) } }
+        )
+    }
+}
+
 @Composable
 private fun ArtistRow(
     artist: ArtistInfo,
@@ -1034,7 +1114,9 @@ internal fun ArtistsPane(
     artists: List<ArtistInfo>,
     onOpen: (ArtistInfo) -> Unit,
     onBulkUpdate: (List<String>, Int?, List<String>?, Boolean) -> Unit,
-    onBulkImport: (String) -> Unit
+    onBulkImport: (String) -> Unit,
+    merging: Boolean = false,
+    onMerge: (source: ArtistInfo, target: ArtistInfo) -> Unit = { _, _ -> }
 ) {
     if (artists.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1087,6 +1169,7 @@ internal fun ArtistsPane(
             placeholder = { Text("סינון לפי שם", color = TextSecondary) },
             singleLine = true
         )
+        ArtistMergeSuggestions(artists, merging, onMerge)
         Spacer(Modifier.height(6.dp))
 
         if (selection.isNotEmpty()) {

@@ -144,6 +144,7 @@ import com.elchanan.rhythm.engine.FeedSection
 import com.elchanan.rhythm.engine.Loudness
 import com.elchanan.rhythm.engine.LyricLine
 import com.elchanan.rhythm.engine.Lyrics
+import com.elchanan.rhythm.data.ArtistMerge
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.MoodMarks
 import com.elchanan.rhythm.engine.JewishSeasons
@@ -333,6 +334,7 @@ private fun RhythmApp() {
     var calibrationWeights by remember { mutableStateOf<SignalWeights?>(null) }
     var soundCheckText by remember { mutableStateOf<String?>(null) }
     var modelChecking by remember { mutableStateOf(false) }
+    var merging by remember { mutableStateOf(false) }
     var modelReportText by remember { mutableStateOf<String?>(null) }
     var repeat by remember { mutableStateOf(RepeatMode.OFF) }
     // The queue as it was before it was shuffled, so turning shuffle off puts
@@ -782,6 +784,34 @@ private fun RhythmApp() {
         }
     }
 
+    /**
+     * One artist's songs credited to the other's spelling, as tag
+     * corrections: the files are not touched, a guest credit beside the name
+     * stays where it is, and a title or album correction already made stays
+     * too. The phone's mergeArtist.
+     */
+    fun mergeArtists(source: ArtistInfo, target: ArtistInfo) {
+        if (merging || source.key == target.key) return
+        merging = true
+        scope.launch {
+            val count = runCatching {
+                withContext(Dispatchers.IO) {
+                    val existing = store.overrides()
+                    val rows = applyOverrides(store.songs(), existing).mapNotNull { song ->
+                        val renamed = ArtistMerge.renameCredit(song.artistName, source.key, target.displayName)
+                        if (renamed == song.artistName) null
+                        else (existing[song.id] ?: TagOverrideEntity(songId = song.id)).copy(artistName = renamed)
+                    }
+                    store.saveOverrides(rows)
+                    rows.size
+                }
+            }.getOrNull()
+            merging = false
+            reload()
+            status = if (count == null) "האיחוד נכשל. אפשר לנסות שוב." else "אוחדו $count שירים תחת ${target.displayName}"
+        }
+    }
+
     fun rateArtist(artist: ArtistInfo, rating: Int) {
         scope.launch {
             withContext(Dispatchers.IO) {
@@ -958,9 +988,9 @@ private fun RhythmApp() {
     fun buildProposals() {
         scope.launch {
             proposals = withContext(Dispatchers.Default) {
-                // Only the sure ones here: this screen has no way yet to show
-                // a proposal as uncertain, and those are never applied unasked.
-                TagFixer.propose(songs, dropForeign = prefs.tagStripForeign).filter { it.certain }
+                // Uncertain ones included, marked on screen and applied only
+                // when the listener asks for them, as on the phone.
+                TagFixer.propose(songs, dropForeign = prefs.tagStripForeign)
             }
         }
     }
@@ -973,8 +1003,8 @@ private fun RhythmApp() {
      * only half applied because a share was offline would otherwise leave the
      * library in a state nobody can reason about.
      */
-    fun applyTagFix(list: List<TagFixer.Proposal>) {
-        val overrides = TagFixer.toOverrides(list)
+    fun applyTagFix(list: List<TagFixer.Proposal>, includeUncertain: Boolean) {
+        val overrides = TagFixer.toOverrides(list, includeUncertain)
         if (overrides.isEmpty()) {
             status = "אין מה לתקן"
             return
@@ -1961,7 +1991,7 @@ private fun RhythmApp() {
                         buildProposals()
                     },
                     onWriteToFiles = { prefs.writeTagsToFiles = it },
-                    onApply = { applyTagFix(it) },
+                    onApply = { list, uncertain -> applyTagFix(list, uncertain) },
                     onEdit = { id, title, artist -> editTags(id, title, artist) },
                     onBack = { stack = stack.dropLast(1) }
                 )
@@ -2189,6 +2219,8 @@ private fun RhythmApp() {
                     )
                     else -> ArtistsPane(
                         artists = library.artists,
+                        merging = merging,
+                        onMerge = { source, target -> mergeArtists(source, target) },
                         onOpen = { stack = stack + Route.Artist(it.key) },
                         onBulkUpdate = { keys, rating, styles, replace ->
                             scope.launch {
