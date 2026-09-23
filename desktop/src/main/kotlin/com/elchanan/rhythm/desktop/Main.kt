@@ -146,6 +146,7 @@ import com.elchanan.rhythm.engine.Loudness
 import com.elchanan.rhythm.engine.LyricLine
 import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.data.ArtistMerge
+import com.elchanan.rhythm.data.LibraryCatalogExport
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.MoodMarks
 import com.elchanan.rhythm.engine.JewishSeasons
@@ -352,6 +353,7 @@ private fun RhythmApp() {
     // whether that song is still waiting for its first press.
     var resumeRestoredAt by remember { mutableStateOf(0L) }
     var restoredIdle by remember { mutableStateOf(false) }
+    var pausedByVolume by remember { mutableStateOf(false) }
     var lastCounted by remember { mutableStateOf(0L) }
     var lastCountedAt by remember { mutableStateOf(0L) }
 
@@ -1022,9 +1024,37 @@ private fun RhythmApp() {
             engineReport = if (report == null) {
                 "אין עדיין מספיק היסטוריה כדי לבדוק. צריך רצף השמעות בספרייה של 20 שירים ומעלה."
             } else {
-                "נבדקו ${report.pairs} מעברים · " +
-                    "בעשירייה הראשונה: ${(report.recallAt10 * 100).toInt()}%"
+                // The phone's four numbers, and its caveat.
+                "מעברים שנבדקו: ${report.pairs}\n" +
+                    "בעשירייה הראשונה: ${(report.recallAt10 * 100).toInt()}% " +
+                    "(אקראי: ${(report.randomRecallAt10 * 100).toInt()}%)\n" +
+                    "בחמישים הראשונים: ${(report.recallAt50 * 100).toInt()}% " +
+                    "(אקראי: ${(report.randomRecallAt50 * 100).toInt()}%)\n" +
+                    "דירוג חציוני: ${report.medianRank} מתוך ${report.librarySize}\n\n" +
+                    "המספרים אופטימיים: הסטטיסטיקה שהמנוע מדרג לפיה כוללת כבר " +
+                    "את ההשמעות שהוא מנסה לנחש. הם מוטים באותו אופן בכל " +
+                    "ריצה, ולכן ההשוואה בין שתי ריצות תקפה גם אם אף אחת " +
+                    "מהן אינה הערכה נקייה."
             }
+        }
+    }
+
+    /**
+     * The library as a list of lines - title, artist, album - for asking a
+     * chat model to tag artists or sort lists. The phone's export, from the
+     * same :engine code, so the two files read the same.
+     */
+    fun exportCatalog(file: File) {
+        val target = if (file.extension.isEmpty()) File(file.parentFile, file.name + ".txt") else file
+        scope.launch {
+            val written = withContext(Dispatchers.IO) {
+                runCatching {
+                    val result = LibraryCatalogExport.create(store.songs())
+                    target.writeText(result.text, Charsets.UTF_8)
+                    result
+                }.getOrNull()
+            }
+            status = if (written == null) "הייצוא נכשל — בדוק הרשאה ומקום פנוי" else "נשמרה רשימה של ${written.songs} שירים"
         }
     }
 
@@ -1961,13 +1991,6 @@ private fun RhythmApp() {
                             reload()
                         }
                     },
-                    onResetStats = {
-                        scope.launch {
-                            withContext(Dispatchers.IO) { store.clearStats() }
-                            recap = null
-                            reload()
-                        }
-                    },
                     onPickLyricsFolder = {
                         chooseFolder()?.let { prefs.lyricsFolder = it.absolutePath }
                     },
@@ -1975,12 +1998,12 @@ private fun RhythmApp() {
                     onImportPlayCounts = { choosePlayCountFile()?.let { importPlayCounts(it) } },
                     onExportPlaylists = { chooseFolder()?.let { exportPlaylists(it) } },
                     onExportAnalysis = { chooseAnalysisFile()?.let { exportAnalysis(it) } },
+                    onExportCatalog = { chooseCatalogFile()?.let { exportCatalog(it) } },
+                    modelStatus = modelStatus(),
                     busy = busy,
-                    engineReport = engineReport,
                     // Cheap enough to derive on the spot: it is a few sums
                     // over maps the recommender is already holding.
                     taste = remember(engine) { engine?.tasteReport() },
-                    onEvaluate = { evaluateEngine() },
                     onExcludedChanged = { scan(folders) },
                     onShelvesChanged = { scope.launch { reload() } }
                 )
@@ -2014,7 +2037,18 @@ private fun RhythmApp() {
                         onSoundCheck = { runSoundCheck() },
                         modelChecking = modelChecking,
                         modelReport = modelReportText,
-                        onModelCheck = { runModelEvaluation() }
+                        onModelCheck = { runModelEvaluation() },
+                        engineReport = engineReport.ifBlank { null },
+                        onEvaluate = { evaluateEngine() },
+                        onResetLearning = {
+                            scope.launch {
+                                withContext(Dispatchers.IO) { store.clearStats() }
+                                recap = null
+                                reload()
+                                status = "היסטוריית הלמידה אופסה"
+                            }
+                        },
+                        onSeparationsChanged = { retune(tuning.copy(separations = prefs.styleSeparations)) }
                     ),
                     tuning = tuning,
                     learning = learning,
@@ -2128,7 +2162,8 @@ private fun RhythmApp() {
                         ratedArtists = artists.count { it.rating > 0 },
                         albums = library.albums,
                         stats = stats,
-                        moods = if (prefs.pinMoodRow) Mood.entries.toList() else emptyList(),
+                        moods = Mood.entries.toList(),
+                        moodsPinned = prefs.pinMoodRow,
                         scanning = scanning,
                         analysing = analysing,
                         unanalysed = songs.count { song -> features[song.id].let { it == null || Analyzer.wantsModels(it) } },
@@ -2341,6 +2376,18 @@ private fun RhythmApp() {
                 volume = it
                 player.setVolume(it)
                 prefs.volume = (it * 100).toInt()
+                // The phone's "pause when the volume is at zero", on the
+                // app's own slider: down to nothing pauses, back up resumes -
+                // but only what this paused, never a song paused by hand.
+                if (prefs.pauseOnSilence) {
+                    if (it <= 0f && player.state.value.playing) {
+                        pausedByVolume = true
+                        player.pause()
+                    } else if (it > 0f && pausedByVolume) {
+                        pausedByVolume = false
+                        player.resume()
+                    }
+                }
             },
             onLike = { current?.let { like(it) } },
             onOpen = { if (current != null) showPlayer = true },
@@ -2525,6 +2572,13 @@ private fun filterLibrary(
  */
 /** Songs of the queue kept for the next start. Past this it is a radio that ran all night. */
 private const val MAX_SAVED_QUEUE = 500
+
+/** Whether the AI models are in this build and loaded, in one sentence for the settings. */
+private fun modelStatus(): String = when {
+    Models.failure.isNotEmpty() -> "מודלי ה-AI לא נטענו במחשב הזה (${Models.failure}); הניתוח ממשיך בלעדיהם."
+    Models.soundExpected() && Models.musicExpected() -> "מודלי ה-AI (YAMNet ו-Discogs-EffNet) כלולים בגירסה הזו."
+    else -> "הגירסה הזו לא כוללת את מודלי ה-AI."
+}
 
 private fun applyOverrides(
     songs: List<SongEntity>,
@@ -3758,6 +3812,16 @@ private fun chooseAnalysisFile(): File? {
     } else {
         null
     }
+}
+
+private fun chooseCatalogFile(): File? {
+    val chooser = JFileChooser().apply {
+        fileSelectionMode = JFileChooser.FILES_ONLY
+        dialogTitle = "שמור את רשימת הספרייה"
+        selectedFile = File(LibraryCatalogExport.FILE_NAME)
+        fileFilter = FileNameExtensionFilter("קובץ טקסט (*.txt)", "txt")
+    }
+    return if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) chooser.selectedFile else null
 }
 
 private fun chooseFolder(): File? {

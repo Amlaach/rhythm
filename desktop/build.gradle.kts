@@ -38,6 +38,26 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
     kotlinOptions { jvmTarget = "17" }
 }
 
+// Which build this is, for the about page (BuildInfo.kt): the version CI
+// passes in, the run number that is its last part, and the commit.
+val buildInfo = tasks.register("buildInfo") {
+    val version = project.findProperty("rhythmVersion")?.toString().orEmpty()
+    val commit = System.getenv("GITHUB_SHA").orEmpty()
+    val out = layout.buildDirectory.dir("generated/buildinfo")
+    inputs.property("version", version)
+    inputs.property("commit", commit)
+    outputs.dir(out)
+    doLast {
+        val dir = out.get().asFile
+        dir.mkdirs()
+        val build = if (version.isBlank()) "" else version.substringAfterLast('.')
+        dir.resolve("build-info.properties").writeText(
+            "version=${version.ifBlank { "1.1-dev" }}\nbuild=$build\ncommit=$commit\n"
+        )
+    }
+}
+sourceSets["main"].resources.srcDir(buildInfo)
+
 val onnxRuntime by configurations.creating
 
 val onnxRuntimeTrimmed = tasks.register<Jar>("onnxRuntimeTrimmed") {

@@ -1900,7 +1900,10 @@ class Store private constructor(private val conn: Connection) {
             acousticWeight = setting("tune.acoustic")?.toFloatOrNull() ?: 1.0f,
             // Part of the tuning rather than a setting beside it, because the
             // recommender reads it from here and there is no second copy.
-            separations = setting("tune.separations").orEmpty(),
+            // The settings screen used to save these under a key of their own
+            // that the engine never read; what was typed there is taken up
+            // until the tuning carries a list of its own.
+            separations = setting("tune.separations").orEmpty().ifEmpty { setting("styleSeparations").orEmpty() },
             lastMood = setting(KEY_LAST_MOOD).orEmpty(),
             lastMoodAt = setting(KEY_LAST_MOOD_AT)?.toLongOrNull() ?: 0L,
             learned = com.elchanan.rhythm.engine.SignalWeights.decode(setting(KEY_LEARNED).orEmpty()),

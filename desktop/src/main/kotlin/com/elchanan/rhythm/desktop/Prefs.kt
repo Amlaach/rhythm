@@ -120,6 +120,11 @@ class Prefs(private val store: Store) {
         get() = flag("searchPersonalized", true)
         set(value) = set("searchPersonalized", value)
 
+    /** Dragging the app's volume to zero pauses, and raising it resumes. The phone's pauseOnSilence. */
+    var pauseOnSilence: Boolean
+        get() = flag("pauseOnSilence", false)
+        set(value) = set("pauseOnSilence", value)
+
     /** Search finds songs by a line of their words too. On by default, as on the phone. */
     var searchLyrics: Boolean
         get() = flag("searchLyrics", true)
