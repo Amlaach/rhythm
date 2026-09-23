@@ -10,13 +10,13 @@ import java.util.Locale
  * is פופ ישראלי is an editor's job, not a listener's. Someone opening the app
  * for the first time has a library, no tags, and no way to start.
  *
- * So a small catalogue ships with the app. An artist in it and in the library
+ * So a curated catalogue ships with the app. An artist in it and in the library
  * gets a style without anyone typing one; an artist in it and not in the
  * library costs nothing and waits. Nothing here is written to the database -
  * it is consulted when the library is read, so a correction always wins and a
  * later version's catalogue arrives without a migration.
  *
- * Deliberately small. Every entry is an artist whose style is not in doubt;
+ * Deliberately conservative. Every entry is an artist whose style is not in doubt;
  * anything uncertain was left out rather than guessed at, because a wrong
  * seed is not a missing tag - it is a false training example, and everything
  * learned from it is wrong in the same direction.
@@ -96,6 +96,33 @@ object ArtistStyles {
         Seed("מקהלת ידידים", HASIDIC, listOf("Yedidim Choir", "ידידים", "מקהלת ידידים הראשית")),
         Seed("מקהלת שירה", HASIDIC, listOf("Shira Choir", "שירה כוייר")),
         Seed("מקהלת מלכות", HASIDIC, listOf("Malchus Choir", "מלכות")),
+        // Further catalogue names and common credits checked against the artist
+        // index at https://mostlymusic.com/pages/artists . The style is an
+        // editorial seed, not a claim that every recording has one sound.
+        Seed("יצחק הוניג", HASIDIC, listOf("Isaac Honig", "Yitzchok Honig")),
+        Seed("שאולי ולדנר", HASIDIC, listOf("Shauly Waldner")),
+        Seed("שלומי כהן", HASIDIC, listOf("Shloime Cohen")),
+        Seed("שלומי דאקס", HASIDIC, listOf("Shloime Dachs")),
+        Seed("שלומי דסקל", HASIDIC, listOf("Shloime Daskal")),
+        Seed("אברימי רוט", HASIDIC, listOf("Avremi Roth", "Avromi Roth")),
+        Seed("מיכאל שניצלר", HASIDIC, listOf("Michoel Schnitzler")),
+        Seed("ישראל ורדיגר", HASIDIC, listOf("Yisroel Werdyger")),
+        Seed("דוד גבאי", HASIDIC, listOf("Dovid Gabay")),
+        Seed("דודי קאליש", HASIDIC, listOf("Dudi Kalish")),
+        Seed("יואלי גרינפלד", HASIDIC, listOf("Yoely Greenfeld")),
+        Seed("שלמה טאוסיג", HASIDIC, listOf("Shloime Taussig")),
+        Seed("מנדי וולד", HASIDIC, listOf("Mendy Wald")),
+        Seed("אלי גרסטנר", HASIDIC, listOf("Eli Gerstner")),
+        Seed("אלי שוובל", HASIDIC, listOf("Eli Schwebel")),
+        Seed("בן ציון שנקר", HASIDIC, listOf("Ben Zion Shenker", "Benzion Shenker")),
+        Seed("איתן כץ", HASIDIC, listOf("Eitan Katz")),
+        Seed("מקהלת פרחי מיאמי", HASIDIC, listOf("Miami Boys Choir", "פרחי מיאמי")),
+        Seed("מקהלת פרחי ישיבה", HASIDIC, listOf("Yeshiva Boys Choir", "פרחי ישיבה")),
+        Seed("קינדרלעך", HASIDIC, listOf("Kinderlach")),
+        Seed("מקהלת שירה חדשה", HASIDIC, listOf("Shira Chadasha Boys Choir")),
+        Seed("מקהלת מזמרים", HASIDIC, listOf("Mezamrim")),
+        Seed("שלשלת", HASIDIC, listOf("Shalsheles")),
+        Seed("דביקות", HASIDIC, listOf("Dveykus")),
 
         // --- פופ ישראלי ---------------------------------------------------
         // Hebrew, a solo voice, guitar and studio production. Religious and
@@ -156,6 +183,16 @@ object ArtistStyles {
         Seed("משינה", ISRAELI_POP, listOf("Mashina")),
         Seed("אתניקס", ISRAELI_POP, listOf("Ethnix")),
         Seed("טיפקס", ISRAELI_POP, listOf("Teapacks", "טיפקס")),
+        // Hebrew popular-music performers. Credits and spellings checked in
+        // music catalogues; "ישראלי" is a broad editorial bucket.
+        Seed("יהודית רביץ", ISRAELI_POP, listOf("Yehudit Ravitz")),
+        Seed("נורית גלרון", ISRAELI_POP, listOf("Nurit Galron")),
+        Seed("שם טוב לוי", ISRAELI_POP, listOf("Shem Tov Levi", "Shem-Tov Levi")),
+        Seed("יעל לוי", ISRAELI_POP, listOf("Yael Levi")),
+        Seed("דנה ברגר", ISRAELI_POP, listOf("Dana Berger")),
+        Seed("מירי מסיקה", ISRAELI_POP, listOf("Miri Mesika")),
+        Seed("קרן פלס", ISRAELI_POP, listOf("Keren Peles")),
+        Seed("איה כורם", ISRAELI_POP, listOf("Aya Korem")),
 
         // --- מזרחי ---------------------------------------------------------
         // The ornamented vocal line and its instrumentation, which is what
@@ -189,6 +226,12 @@ object ArtistStyles {
         Seed("אושר כהן", MIZRAHI, listOf("Osher Cohen")),
         Seed("מאיה בוסקילה", MIZRAHI, listOf("Maya Buskila")),
         Seed("דיקלה", MIZRAHI, listOf("Dikla")),
+        // Additional Mizrahi performers checked in MusicBrainz and music
+        // catalogues, e.g. https://musicbrainz.org/artist/1b3ac43c-81de-4573-bc85-21b96b1a229a .
+        Seed("אבי ביטר", MIZRAHI, listOf("Avi Bitter")),
+        Seed("ישי לוי", MIZRAHI, listOf("Yishay Levi", "Ishay Levi")),
+        Seed("איציק קלה", MIZRAHI, listOf("Itzik Kala")),
+        Seed("זהבה בן", MIZRAHI, listOf("Zehava Ben")),
 
         // --- היפ הופ -------------------------------------------------------
         // Rapped rather than sung, over programmed drums. The one bucket here
@@ -202,6 +245,11 @@ object ArtistStyles {
         Seed("ג'ימבו ג'יי", HIP_HOP, listOf("Jimbo J", "גימבו גיי")),
         Seed("לוקץ'", HIP_HOP, listOf("Lukach", "לוקץ")),
         Seed("פלד", HIP_HOP, listOf("Peled")),
+        // Israeli rap acts; artist credits checked in MusicBrainz.
+        Seed("דודו פארוק", HIP_HOP, listOf("Dudu Faruk")),
+        Seed("כהן@מושון", HIP_HOP, listOf("Cohen@Mushon", "כהן ומושון")),
+        Seed("סגול 59", HIP_HOP, listOf("Sagol 59")),
+        Seed("הצל", HIP_HOP, listOf("The Shadow", "הצל (יואב אליאסי)")),
 
         // --- חזנות ---------------------------------------------------------
         // Acoustically the most distinct of the four, and the one where old
@@ -217,7 +265,17 @@ object ArtistStyles {
         Seed("מוישה אוישר", CANTORIAL, listOf("Moishe Oysher", "משה אוישר")),
         Seed("זבולון קוורטין", CANTORIAL, listOf("Zavel Kwartin", "זבולון קווארטין")),
         Seed("ליב גלאנץ", CANTORIAL, listOf("Leib Glantz", "לייב גלאנץ")),
-        Seed("משה שטרן", CANTORIAL, listOf("Moshe Stern", "משה שטערן"))
+        Seed("משה שטרן", CANTORIAL, listOf("Moshe Stern", "משה שטערן")),
+        // Recorded cantors named in the National Library's cantorial
+        // collections: https://www.nli.org.il/he/items/NNL_MUSIC_AL990028804750205171/NLI .
+        Seed("גרשון סירוטה", CANTORIAL, listOf("Gershon Sirota")),
+        Seed("שמואל ויגודה", CANTORIAL, listOf("Samuel Vigoda", "Shmuel Vigoda")),
+        Seed("פייר פינצ'יק", CANTORIAL, listOf("Pierre Pinchik", "פנחס פינצ'יק")),
+        Seed("מרדכי הרשמן", CANTORIAL, listOf("Mordechai Hershman")),
+        Seed("בן ציון קפוב-כגן", CANTORIAL, listOf("Benzion Kapov-Kagan", "קפוב קגן")),
+        Seed("שלום כץ", CANTORIAL, listOf("Sholom Katz")),
+        Seed("דוד רויטמן", CANTORIAL, listOf("David Roitman")),
+        Seed("משה מירסקי", CANTORIAL, listOf("Moshe Mirsky")),
     )
 
     /**
@@ -276,6 +334,15 @@ object ArtistStyles {
         }
         return out
     }
+
+    /** The one effective artist label source for learning and diagnostics.
+     * A user's artist styles always take precedence over catalogue seeds.
+     */
+    fun labelsFor(
+        song: com.elchanan.rhythm.data.db.SongEntity,
+        stylesByArtist: Map<String, String>
+    ): List<String> = Styles.parse(stylesByArtist[song.artistKey].orEmpty())
+        .ifEmpty { styleFor(song.artistName)?.let { listOf(it) }.orEmpty() }
 
     fun styleFor(artistName: String): String? {
         if (artistName.isBlank()) return null

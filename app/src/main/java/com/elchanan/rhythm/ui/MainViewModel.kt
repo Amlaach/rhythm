@@ -39,6 +39,7 @@ import com.elchanan.rhythm.engine.LyricLine
 import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.engine.Mix
 import com.elchanan.rhythm.engine.Mood
+import com.elchanan.rhythm.engine.MusicModelEvaluation
 import com.elchanan.rhythm.engine.MoodModel
 import com.elchanan.rhythm.engine.JewishSeasons
 import com.elchanan.rhythm.engine.Vocal
@@ -1725,6 +1726,38 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }.getOrNull()
             }
             _soundCheck.value = SoundCheck.describe(result)
+        }
+    }
+
+    private val _musicModelReport = MutableStateFlow<String?>(null)
+    val musicModelReport: StateFlow<String?> = _musicModelReport.asStateFlow()
+    private val _musicModelChecking = MutableStateFlow(false)
+    val musicModelChecking: StateFlow<Boolean> = _musicModelChecking.asStateFlow()
+
+    /** Compare the music model against the same labelled songs without writing tags. */
+    fun runMusicModelEvaluation() {
+        if (_musicModelChecking.value) return
+        _musicModelChecking.value = true
+        _musicModelReport.value = "בודק את תרומת המודל המוזיקלי…"
+        viewModelScope.launch {
+            try {
+                val lib = library.value
+                val features = repo.featureMap()
+                val report = withContext(Dispatchers.Default) {
+                    MusicModelEvaluation.measure(
+                        lib.songs, lib.stats,
+                        lib.artists.associate { it.key to it.styles },
+                        features
+                    )
+                }
+                _musicModelReport.value = MusicModelEvaluation.describe(report)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _musicModelReport.value = "בדיקת המודל לא הושלמה. נסה שוב."
+            } finally {
+                _musicModelChecking.value = false
+            }
         }
     }
 

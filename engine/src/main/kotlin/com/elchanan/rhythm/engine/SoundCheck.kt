@@ -126,9 +126,8 @@ object SoundCheck {
 
     /** A kind of music for this song's artist, or null. */
     private fun styleOf(song: SongEntity, stylesByArtist: Map<String, String>): String? {
-        val typed = Styles.parse(stylesByArtist[song.artistKey].orEmpty())
+        return ArtistStyles.labelsFor(song, stylesByArtist)
             .firstOrNull { Styles.familyOf(it) == GENRE }
-        return typed ?: ArtistStyles.styleFor(song.artistName)
     }
 
     private val GENRE: String = Styles.FAMILIES.keys.first()

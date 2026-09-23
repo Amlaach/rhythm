@@ -422,7 +422,7 @@ object StyleTraining {
     ): List<StyleExample> = songs.mapNotNull { song ->
         val own = stats[song.id]
         val manual = if (own?.stylesAuto == 0) Styles.parse(own.styles) else emptyList()
-        val labels = manual.ifEmpty { Styles.parse(stylesByArtistKey[song.artistKey].orEmpty()) }
+        val labels = manual.ifEmpty { ArtistStyles.labelsFor(song, stylesByArtistKey) }
         if (labels.isEmpty() || song.artistKey.isBlank()) return@mapNotNull null
         val x = featuresFor(features[song.id], music, song) ?: return@mapNotNull null
         StyleExample(song.id, song.artistKey, x, labels.distinct())
