@@ -59,7 +59,8 @@ object MusicModelEvaluation {
             val baseline = withoutMusic[result.mood] ?: return@mapNotNull null
             MoodComparison(
                 result.mood, result.yes, result.no,
-                result.ruleAccuracy, baseline.ruleAccuracy
+                (if (result.usingLearned) result.learnedAccuracy else null) ?: result.ruleAccuracy,
+                (if (baseline.usingLearned) baseline.learnedAccuracy else null) ?: baseline.ruleAccuracy
             )
         }
         return Report(labelled, printedLabelled, style, sound, marked.size, moods)
@@ -95,7 +96,7 @@ object MusicModelEvaluation {
                 if (m.yes < MIN_EACH_MOOD || m.no < MIN_EACH_MOOD) {
                     append(" — צריך לפחות $MIN_EACH_MOOD מכל צד לפני הצגת אחוז.")
                 } else {
-                    append(" — דיוק מאוזן עם המודל ${pct(m.withMusic)}, בלעדיו ${pct(m.withoutMusic)}.")
+                    append(" — דיוק מאוזן של האפליקציה עם המודל ${pct(m.withMusic)}, בלעדיו ${pct(m.withoutMusic)}.")
                 }
             }
         }

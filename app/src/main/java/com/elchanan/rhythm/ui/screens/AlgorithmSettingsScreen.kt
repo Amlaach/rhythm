@@ -72,6 +72,8 @@ fun AlgorithmSettingsScreen(
     val learning by vm.learning.collectAsStateWithLifecycle()
     val learningReport by vm.learningReport.collectAsStateWithLifecycle()
     val soundCheck by vm.soundCheck.collectAsStateWithLifecycle()
+    val musicModelReport by vm.musicModelReport.collectAsStateWithLifecycle()
+    val musicModelChecking by vm.musicModelChecking.collectAsStateWithLifecycle()
     val calibration by vm.calibration.collectAsStateWithLifecycle()
     val calibrating by vm.calibrating.collectAsStateWithLifecycle()
     val moodReport by vm.moodReport.collectAsStateWithLifecycle()
@@ -166,8 +168,8 @@ fun AlgorithmSettingsScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("למידת סגנונות מהספרייה", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "לומד איך הסגנונות שהגדרת נשמעים — מהשירים של האמנים " +
-                                "שתייגת — ומשלים תגיות לשירים שלא תויגו. האפליקציה " +
+                            "לומד איך הסגנונות שהגדרת נשמעים — גם מתגיות האמנים " +
+                                "המובנות בספרייה — ומשלים תגיות לשירים שלא תויגו. האפליקציה " +
                                 "בודקת על אמנים שלא השתתפו באימון, וסופרת גם תגיות שגויות וחסרות. אם הבדיקה אינה מספקת היא " +
                                 "לא משנה כלום " + StyleLearning.requirement(),
                             style = MaterialTheme.typography.bodySmall,
@@ -288,6 +290,41 @@ fun AlgorithmSettingsScreen(
             }
 
             soundCheck?.let { report ->
+                item {
+                    Text(
+                        report,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextPrimary
+                    )
+                }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .clickable(enabled = !musicModelChecking) { vm.runMusicModelEvaluation() }
+                        .padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("בדיקת דיוק המודל המוזיקלי", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "משווה את למידת הסגנונות והזיהוי של מצבי רוח עם ובלי המודל, " +
+                                "על שירים מתויגים ותיקונים ידניים בספרייה שלך. הבדיקה לא משנה תגיות.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Button(
+                        onClick = { vm.runMusicModelEvaluation() },
+                        enabled = !musicModelChecking,
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                    ) { Text(if (musicModelChecking) "בודק…" else "בדוק") }
+                }
+            }
+
+            musicModelReport?.let { report ->
                 item {
                     Text(
                         report,
