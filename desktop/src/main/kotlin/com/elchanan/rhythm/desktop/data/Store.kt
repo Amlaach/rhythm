@@ -982,6 +982,31 @@ class Store private constructor(private val conn: Connection) {
     }
 
     /**
+     * Gives [toKey] whatever [fromKey] was told that it has not been told
+     * itself - the rating, the styles, the note. For songs that moved from
+     * one spelling of an artist to another; see ArtistMerge.profileMoves.
+     */
+    @Synchronized
+    fun carryArtistProfile(fromKey: String, toKey: String, toName: String) {
+        conn.prepareStatement(
+            "INSERT INTO artists (artistKey, displayName, rating, styles, note, updatedAt) " +
+                "SELECT ?, ?, rating, styles, note, ? FROM artists WHERE artistKey = ? " +
+                "AND (rating != 0 OR styles != '' OR note != '') " +
+                "ON CONFLICT(artistKey) DO UPDATE SET " +
+                "rating = CASE WHEN artists.rating = 0 THEN excluded.rating ELSE artists.rating END, " +
+                "styles = CASE WHEN artists.styles = '' THEN excluded.styles ELSE artists.styles END, " +
+                "note = CASE WHEN artists.note = '' THEN excluded.note ELSE artists.note END, " +
+                "updatedAt = excluded.updatedAt"
+        ).use { ps ->
+            ps.setString(1, toKey)
+            ps.setString(2, toName)
+            ps.setLong(3, System.currentTimeMillis())
+            ps.setString(4, fromKey)
+            ps.executeUpdate()
+        }
+    }
+
+    /**
      * The style words for an artist, which is where the learner's labels come
      * from - every song by a tagged artist becomes a labelled example.
      */

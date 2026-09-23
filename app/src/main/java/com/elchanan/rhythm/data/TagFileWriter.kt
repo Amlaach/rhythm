@@ -6,12 +6,17 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.IntentSender
 import android.content.pm.PackageManager
+import android.media.MediaScannerConnection
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * Carries a tag correction all the way into the file, including the part Android
@@ -24,13 +29,8 @@ import kotlinx.coroutines.withContext
  */
 class TagFileWriter(private val context: Context) {
 
-    /** What to write; null leaves that part of the tag as the file has it. */
-    data class Item(
-        val songId: Long,
-        val title: String?,
-        val artist: String?,
-        val album: String? = null
-    )
+    /** What to write into one song's file; see [TagEdit]. */
+    data class Item(val songId: Long, val path: String, val edit: TagEdit)
 
     /**
      * @param recovery on Android 10, the dialog that would grant access to the
@@ -92,6 +92,7 @@ class TagFileWriter(private val context: Context) {
         var failed = 0
         var recovery: IntentSender? = null
         var notMp3 = 0
+        val rewritten = ArrayList<String>()
         for (item in items) {
             val uri = uriFor(item.songId)
             // An ID3 tag belongs at the front of an MP3 only. Put in front of
@@ -102,15 +103,23 @@ class TagFileWriter(private val context: Context) {
                 continue
             }
             val done = try {
-                Id3Writer.write(context, uri, item.title, item.artist, item.album)
+                Id3Writer.write(context, uri, item.edit)
             } catch (e: SecurityException) {
                 // Keep the first offer of a way out; the rest of the files will
                 // almost always be refused for the same reason.
                 if (recovery == null) recovery = recoveryFrom(e)
                 false
             }
-            if (done) written++ else failed++
+            if (done) {
+                written++
+                rewritten.add(item.path)
+            } else {
+                failed++
+            }
         }
+        // Android re-reads a file's tags only when it scans it. Until then
+        // the year, track and genre the library shows are the old ones.
+        if (rewritten.isNotEmpty()) rescanFiles(rewritten)
         // MediaStore still holds the old title until it re-reads the file.
         if (written > 0) runCatching {
             MediaStore.Audio.Media.EXTERNAL_CONTENT_URI.let {
@@ -118,6 +127,48 @@ class TagFileWriter(private val context: Context) {
             }
         }
         Outcome(written, failed, recovery, notMp3)
+    }
+
+    /** Waits, a few seconds at most, for Android to read the new tags back. */
+    private suspend fun rescanFiles(paths: List<String>) {
+        withTimeoutOrNull(8_000L) {
+            suspendCancellableCoroutine { done ->
+                var left = paths.size
+                MediaScannerConnection.scanFile(context, paths.toTypedArray(), null) { _, _ ->
+                    synchronized(this@TagFileWriter) {
+                        left--
+                        if (left == 0 && done.isActive) done.resume(Unit)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * What the file itself says, for the editor to start from - read from the
+     * file rather than from the library, because the library fills an empty
+     * album with the folder's name, and the file is what is being edited.
+     */
+    suspend fun read(songId: Long): TagEdit? = withContext(Dispatchers.IO) {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(context, uriFor(songId))
+            fun key(k: Int) = retriever.extractMetadata(k)?.trim().orEmpty()
+            TagEdit(
+                title = key(MediaMetadataRetriever.METADATA_KEY_TITLE),
+                artist = key(MediaMetadataRetriever.METADATA_KEY_ARTIST),
+                album = key(MediaMetadataRetriever.METADATA_KEY_ALBUM),
+                albumArtist = key(MediaMetadataRetriever.METADATA_KEY_ALBUMARTIST),
+                year = key(MediaMetadataRetriever.METADATA_KEY_YEAR).takeIf { it != "0" }.orEmpty(),
+                // "3/12" in the file; the number is what anyone edits.
+                track = key(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER).substringBefore('/'),
+                genre = key(MediaMetadataRetriever.METADATA_KEY_GENRE)
+            )
+        } catch (e: Exception) {
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
     }
 
     private fun isMp3(uri: Uri): Boolean {

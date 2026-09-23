@@ -189,6 +189,7 @@ import javax.swing.UIManager
 import javax.swing.filechooser.FileNameExtensionFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -626,39 +627,53 @@ private fun RhythmApp() {
                 // unbounded: past the core count the passes only take turns,
                 // and every one of them is holding a decode buffer.
                 //
-                // One less than the cores, floor of two, so the machine is
-                // still usable while a library is being measured.
-                val lanes = (Runtime.getRuntime().availableProcessors() - 1)
-                    .coerceIn(2, 8)
+                // Half the cores, at the lowest priority, on threads of their
+                // own. It was every core but one, at the same rank as the
+                // player: since the models came in, each lane is heavy, and a
+                // library being measured while music played starved the
+                // player's thread until the sound stuttered. Measuring can
+                // wait a moment; the song in the speakers cannot.
+                val lanes = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4)
+                val analysisThreads = java.util.concurrent.Executors.newFixedThreadPool(lanes) { task ->
+                    Thread(task, "rhythm-analysis").apply {
+                        isDaemon = true
+                        priority = Thread.MIN_PRIORITY
+                    }
+                }
+                val analysisDispatcher = analysisThreads.asCoroutineDispatcher()
                 val counter = Mutex()
-                for (batch in todo.chunked(lanes)) {
-                    if (!isActive) break
-                    coroutineScope {
-                        for (song in batch) {
-                            launch(Dispatchers.IO) {
-                                val f = runCatching { Analyzer.analyze(song) }.getOrNull()
-                                // The store serialises its own writes, but
-                                // the two counters and the status line are
-                                // this coroutine's and are touched from every
-                                // lane.
-                                if (f != null) {
-                                    store.putFeature(f)
-                                } else if (snapshot[song.id] != null && File(song.path).isFile) {
-                                    // Measured once and back only for its
-                                    // prints, and now it will not decode: the
-                                    // measurements stay and the prints are
-                                    // marked tried, or it would be back on
-                                    // every pass for ever. The phone's rule.
-                                    store.markPrintTried(song.id)
-                                }
-                                counter.withLock {
-                                    done++
-                                    if (f == null) unreadable++
-                                    status = "מנתח… $done מתוך ${todo.size}"
+                try {
+                    for (batch in todo.chunked(lanes)) {
+                        if (!isActive) break
+                        coroutineScope {
+                            for (song in batch) {
+                                launch(analysisDispatcher) {
+                                    val f = runCatching { Analyzer.analyze(song) }.getOrNull()
+                                    // The store serialises its own writes, but
+                                    // the two counters and the status line are
+                                    // this coroutine's and are touched from every
+                                    // lane.
+                                    if (f != null) {
+                                        store.putFeature(f)
+                                    } else if (snapshot[song.id] != null && File(song.path).isFile) {
+                                        // Measured once and back only for its
+                                        // prints, and now it will not decode: the
+                                        // measurements stay and the prints are
+                                        // marked tried, or it would be back on
+                                        // every pass for ever. The phone's rule.
+                                        store.markPrintTried(song.id)
+                                    }
+                                    counter.withLock {
+                                        done++
+                                        if (f == null) unreadable++
+                                        status = "מנתח… $done מתוך ${todo.size}"
+                                    }
                                 }
                             }
                         }
                     }
+                } finally {
+                    analysisThreads.shutdown()
                 }
             } finally {
                 analysing = false
@@ -873,7 +888,7 @@ private fun RhythmApp() {
                         if (renamed == song.artistName) null
                         else (existing[song.id] ?: TagOverrideEntity(songId = song.id)).copy(artistName = renamed)
                     }
-                    store.saveOverrides(rows)
+                    saveOverridesCarryingArtists(store, rows)
                     rows.size
                 }
             }.getOrNull()
@@ -932,8 +947,17 @@ private fun RhythmApp() {
      * about what sounds like what.
      */
     fun startRadio(song: SongEntity) {
-        val station = engine?.radio(song).orEmpty()
-        play(if (station.isEmpty()) listOf(song) else station, 0)
+        val station = engine?.radio(song).orEmpty().ifEmpty { listOf(song) }
+        // From the song already playing, it carries on where it is and the
+        // station follows it; starting it again was the reported jump back.
+        val current = queue.getOrNull(queueIndex)
+        if (current?.id == song.id && player.state.value.file != null && station.first().id == song.id) {
+            queue = station
+            queueIndex = 0
+            if (!player.state.value.playing) player.resume()
+            return
+        }
+        play(station, 0)
     }
 
     fun createPlaylist(name: String) {
@@ -1110,7 +1134,7 @@ private fun RhythmApp() {
         }
         scope.launch {
             val note = withContext(Dispatchers.IO) {
-                store.saveOverrides(overrides)
+                saveOverridesCarryingArtists(store, overrides)
                 if (!prefs.writeTagsToFiles) {
                     null
                 } else {
@@ -1128,7 +1152,8 @@ private fun RhythmApp() {
     fun editTags(songId: Long, title: String, artist: String) {
         scope.launch {
             withContext(Dispatchers.IO) {
-                store.saveOverrides(
+                saveOverridesCarryingArtists(
+                    store,
                     listOf(
                         TagOverrideEntity(
                             songId = songId,
@@ -2653,6 +2678,22 @@ private fun modelStatus(): String = when {
     Models.failure.isNotEmpty() -> "מודלי ה-AI לא נטענו במחשב הזה (${Models.failure}); הניתוח ממשיך בלעדיהם."
     Models.soundExpected() && Models.musicExpected() -> "מודלי ה-AI (YAMNet ו-Discogs-EffNet) כלולים בגירסה הזו."
     else -> "הגירסה הזו לא כוללת את מודלי ה-AI."
+}
+
+/**
+ * Saves tag corrections, and lets an artist's rating and styles follow their
+ * songs when a correction moves all of them to another name. Without that the
+ * old name kept them with no songs left, and dropped out of the artist list.
+ */
+private fun saveOverridesCarryingArtists(store: Store, rows: List<TagOverrideEntity>) {
+    val before = applyOverrides(store.songs(), store.overrides()).associate { it.id to it.artistKey }
+    store.saveOverrides(rows)
+    val after = applyOverrides(store.songs(), store.overrides())
+    val moves = ArtistMerge.profileMoves(before, after.associate { it.id to it.artistKey })
+    for ((old, key) in moves) {
+        val name = after.firstOrNull { it.artistKey == key }?.let { Names.primaryArtist(it.artistName) } ?: key
+        store.carryArtistProfile(old, key, name)
+    }
 }
 
 private fun applyOverrides(

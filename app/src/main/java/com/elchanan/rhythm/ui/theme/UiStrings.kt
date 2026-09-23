@@ -28,6 +28,7 @@ object UiStrings {
         putAll(part20())
         putAll(part21())
         putAll(part22())
+        putAll(part23())
     } }
     private data class Template(val pattern: Regex, val target: String, val names: List<String>, val literal: Int)
     private val templates: List<Template> by lazy { exact.mapNotNull { (source, target) ->
@@ -701,6 +702,9 @@ object UiStrings {
         "הכלל חל על התגיות שאתה נתת — לשיר עצמו או לאמן שלו." to "The rule applies to the tags you gave - to the song itself or to its artist.",
         "חלק משם הנתיב, שורה לכל תיקייה. כל קובץ שהנתיב שלו מכיל את הטקסט הזה לא ייכנס לספרייה.\n\nלמשל:\nWhatsApp\nRecordings\nRingtones" to "Part of the path name, one line per folder. Any file whose path contains this text will not be included in the library.\n\nFor example:\nWhatsApp\nRecordings\nRingtones",
         "שמור וסרוק" to "Save and scan",
+        "הקבצים לא שונו, ולכן השינוי לא נשמר" to "The files were not changed, so the change was not saved",
+        "הקובץ אינו MP3, ולכן השינוי לא נשמר" to "The file is not an MP3, so the change was not saved",
+        "לא הצלחתי לכתוב לקבצים, ולכן השינוי לא נשמר" to "I couldn't write to the files, so the change was not saved",
         "רמזים מהצליל: \${heard.joinToString(" to "Clues from the sound: \${heard.joinToString(",
         "\$plays השמעות" to "\$plays playbacks",
         "דורס את דירוג האמן כשמגדירים אותו" to "Overrides the artist rating when you set it",
@@ -1660,9 +1664,6 @@ object UiStrings {
         "ליד הרענון והסיכום למעלה: פותח את הנגן ישר על התור" to "Beside refresh and the recap at the top: opens the player straight on the queue",
         "תיקיות בסרגל התחתון" to "Folders on the bottom bar",
         "לשונית משלהן ליד הספרייה, כדי להגיע לתיקיות בנגיעה אחת" to "A tab of their own beside the library, to reach the folders in one tap",
-        "תיקייה ראשית" to "Main folder",
-        "התיקיות נפתחות מההתחלה. לקביעת תיקייה ראשית: \"תיקייה ראשית\" בתוך התיקייה" to "Folders open at the top. To set a main folder: \"Main folder\" inside that folder",
-        "התיקייה הראשית" to "The main folder",
         "עוצמת הנגן" to "Player volume",
         "עוצמה משלו לנגן, בלי לשנות את עוצמת הטלפון — שיחה, סרטון או ניווט נשארים כמו שהיו." to "The player's own volume, without changing the phone's — calls, videos and navigation stay as they were.",
         "עוצמה משלו, בלי לגעת בעוצמת הטלפון" to "Its own volume, without touching the phone's",
@@ -1696,5 +1697,26 @@ object UiStrings {
         "עריכת \${songs.size} שירים" to "Edit \${songs.size} songs",
         "ללא שינוי" to "Unchanged",
         "נשמר באפליקציה ונכתב גם לתוך הקובץ עצמו (MP3), כך שכל נגן יראה אותו. העטיפה ושאר פרטי הקובץ נשמרים כמו שהם." to "Saved in the app and written into the file itself (MP3), so every player sees it. The cover and the rest of the file stay as they are."
+    )
+
+    private fun part23(): Map<String, String> = mapOf(
+        "הפרטים עודכנו" to "Details updated",
+        "תיקיות המוזיקה" to "Music folders",
+        "מאיפה האפליקציה מביאה את המוזיקה. כרגע: כל המכשיר" to "Where the app takes its music from. Now: the whole device",
+        "עריכת תגיות ל־\${songs.size} שירים" to "Edit tags of \${songs.size} songs",
+        "אמן האלבום" to "Album artist",
+        "שנה" to "Year",
+        "מספר רצועה" to "Track number",
+        "נכתב לתוך הקובץ עצמו (MP3), כך שכל נגן יראה אותו. רק מה ששינית משתנה — העטיפה ושאר התגיות נשארים כמו שהם." to "Written into the file itself (MP3), so every player sees it. Only what you changed changes — the cover and the other tags stay as they are.",
+        "אחסון פנימי" to "Internal storage",
+        "כרטיס זיכרון" to "Memory card",
+        "מאילו תיקיות האפליקציה מביאה את המוזיקה, כולל כל התיקיות שבתוכן. בלי תיקייה נבחרת נסרק כל המכשיר. שיר שנשאר בחוץ רק מוסתר — ההשמעות, הדירוגים והניתוח שלו חוזרים איתו." to "Which folders the app takes its music from, including every folder inside them. With none chosen, the whole device is scanned. A song left outside is only hidden — its plays, ratings and analysis come back with it.",
+        "כל המכשיר" to "The whole device",
+        "הסר" to "Remove",
+        "הוסף תיקייה" to "Add folder",
+        "אפשר לבחור רק תיקייה מהאחסון של הטלפון או מכרטיס הזיכרון." to "Only a folder on the phone's storage or the memory card can be chosen.",
+        "סורק עכשיו…" to "Scanning now…",
+        "עכשיו" to "Now",
+        "לפני העדכון האחרון" to "Before the last update"
     )
 }

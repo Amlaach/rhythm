@@ -19,6 +19,7 @@ import com.elchanan.rhythm.data.PlaylistExport
 import com.elchanan.rhythm.data.PlayCountImport
 import com.elchanan.rhythm.data.PlaylistImport
 import com.elchanan.rhythm.data.YouTubeMusicImport
+import com.elchanan.rhythm.data.TagEdit
 import com.elchanan.rhythm.data.TagFileWriter
 import com.elchanan.rhythm.data.TagFixer
 import com.elchanan.rhythm.data.db.ArtistEntity
@@ -729,8 +730,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val list = withContext(Dispatchers.Default) { e.radio(song, 40) }
             QueueMeta.reset()
             QueueMeta.markAuto(list.drop(1).map { it.id })
-            player.play(list, 0)
-            markStarted()
+            // From the song that is playing, it simply carries on.
+            if (!player.continueFromCurrent(list)) {
+                player.play(list, 0)
+                markStarted()
+            }
             _message.value = "רדיו: ${song.title}"
         }
     }
@@ -1060,7 +1064,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 songs = list,
                 key = "mix:seed:${song.id}"
             )
-            if (andPlay) {
+            if (andPlay && !player.continueFromCurrent(list)) {
                 player.play(list, 0)
                 markStarted()
             }
@@ -1637,6 +1641,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     private var pendingWrites: List<TagFileWriter.Item> = emptyList()
 
+    /**
+     * Whether the pending edit lives in the file alone - an album artist, a
+     * year, a track number - so a file that cannot be written loses it, and
+     * saying "kept in the app" would be untrue.
+     */
+    private var pendingFileOnly = false
+
     private val _writePermissionRequest = MutableStateFlow<IntentSender?>(null)
     val writePermissionRequest: StateFlow<IntentSender?> = _writePermissionRequest.asStateFlow()
 
@@ -1660,38 +1671,59 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * A song's details as the listener typed them - one song, or a selection.
+     * A song's tags as the listener typed them - one song, or a selection.
      *
-     * Null leaves that detail as it is. Kept in the app like any correction,
-     * and written into the file itself whatever the tag-fixing setting says:
-     * editing the file is what this was asked for.
+     * Written into the file itself whatever the tag-fixing setting says:
+     * editing the file is what this is for. The name, the artist and the
+     * album are also kept in the app, so they show at once and survive a
+     * file that cannot be written; the genre goes to the app's own genre as
+     * well, which is what the engine reads. Year, track number and album
+     * artist live in the file only, and the library picks them up once
+     * Android has read the file again.
      */
-    fun editSongDetails(songIds: List<Long>, title: String?, artist: String?, album: String?) {
-        if (songIds.isEmpty() || (title == null && artist == null && album == null)) return
+    fun editSongTags(songIds: List<Long>, edit: TagEdit) {
+        if (songIds.isEmpty() || edit.isEmpty) return
         viewModelScope.launch {
-            val existing = repo.overrides().associateBy { it.songId }
-            repo.saveOverrides(
-                songIds.map { id ->
-                    val row = existing[id] ?: TagOverrideEntity(songId = id)
-                    row.copy(
-                        title = title ?: row.title,
-                        artistName = artist ?: row.artistName,
-                        albumName = album ?: row.albumName
-                    )
-                }
-            )
+            if (edit.title != null || edit.artist != null || edit.album != null) {
+                val existing = repo.overrides().associateBy { it.songId }
+                repo.saveOverrides(
+                    songIds.map { id ->
+                        val row = existing[id] ?: TagOverrideEntity(songId = id)
+                        row.copy(
+                            title = edit.title?.trim() ?: row.title,
+                            artistName = edit.artist?.trim() ?: row.artistName,
+                            albumName = edit.album?.trim() ?: row.albumName
+                        )
+                    }
+                )
+            }
+            edit.genre?.let { repo.setGenre(songIds, it.trim()) }
             refreshFeed()
-            _message.value = if (songIds.size == 1) "פרטי השיר עודכנו" else "עודכנו ${songIds.size} שירים"
-            startFileWriteItems(songIds.map { TagFileWriter.Item(it, title, artist, album) })
+            val fileOnly = edit.title == null && edit.artist == null && edit.album == null && edit.genre == null
+            if (!fileOnly) {
+                _message.value = if (songIds.size == 1) "הפרטים עודכנו" else "עודכנו ${songIds.size} שירים"
+            }
+            val songs = library.value.songsById
+            startFileWriteItems(
+                songIds.mapNotNull { id -> songs[id]?.let { TagFileWriter.Item(id, it.path, edit) } },
+                fileOnly = fileOnly
+            )
         }
     }
 
+    /** What a song's own file says, for the tag editor to start from. */
+    suspend fun readFileTags(songId: Long): TagEdit? = tagFiles.read(songId)
+
     private fun startFileWrite(changed: List<TagFixer.Proposal>) {
-        startFileWriteItems(changed.map { TagFileWriter.Item(it.songId, it.newTitle, it.newArtist) })
+        val songs = library.value.songsById
+        startFileWriteItems(changed.mapNotNull { p ->
+            songs[p.songId]?.let { TagFileWriter.Item(p.songId, it.path, TagEdit(title = p.newTitle, artist = p.newArtist)) }
+        })
     }
 
-    private fun startFileWriteItems(items: List<TagFileWriter.Item>) {
+    private fun startFileWriteItems(items: List<TagFileWriter.Item>, fileOnly: Boolean = false) {
         pendingWrites = items
+        pendingFileOnly = fileOnly
         val request = tagFiles.permissionRequest(pendingWrites)
         when {
             // Android 11 and up: the system asks about these exact files.
@@ -1712,7 +1744,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             pendingWrites = emptyList()
             writeRetried = false
-            _message.value = "התיקון נשמר באפליקציה. הקבצים לא שונו."
+            _message.value = if (pendingFileOnly) {
+                "הקבצים לא שונו, ולכן השינוי לא נשמר"
+            } else {
+                "התיקון נשמר באפליקציה. הקבצים לא שונו."
+            }
         }
     }
 
@@ -1740,10 +1776,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             writeRetried = false
+            // Year, track and genre come from Android's own index, which has
+            // now read the new tags; the library reads them from there.
+            if (outcome.written > 0) {
+                repo.rescan()
+                refreshFeed()
+            }
             _message.value = when {
                 outcome.written == 0 && outcome.failed == 0 && outcome.notMp3 > 0 ->
-                    "נשמר באפליקציה. הקובץ אינו MP3, ולכן הוא עצמו לא שונה."
-                outcome.written == 0 -> "לא הצלחתי לכתוב לקבצים. התיקון נשמר באפליקציה."
+                    if (pendingFileOnly) "הקובץ אינו MP3, ולכן השינוי לא נשמר"
+                    else "נשמר באפליקציה. הקובץ אינו MP3, ולכן הוא עצמו לא שונה."
+                outcome.written == 0 ->
+                    if (pendingFileOnly) "לא הצלחתי לכתוב לקבצים, ולכן השינוי לא נשמר"
+                    else "לא הצלחתי לכתוב לקבצים. התיקון נשמר באפליקציה."
                 outcome.notMp3 > 0 -> "נכתבו ${outcome.written} קבצים · ${outcome.notMp3} אינם MP3 ונשמרו רק באפליקציה"
                 outcome.ok -> "נכתבו ${outcome.written} קבצים"
                 else -> "נכתבו ${outcome.written}, נכשלו ${outcome.failed}"

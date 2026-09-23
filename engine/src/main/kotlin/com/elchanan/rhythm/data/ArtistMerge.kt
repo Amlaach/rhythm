@@ -48,4 +48,23 @@ object ArtistMerge {
             append(rename(raw.substring(start)))
         }
     }
+
+    /**
+     * Which artists' ratings and styles should follow their songs to a new
+     * name, from each song's artist key before a change and after it.
+     *
+     * An old key is moved only when it has no songs left and every one of its
+     * songs went to the same new key. A split - some songs to one singer, some
+     * to another - moves nothing, because either answer would be a guess.
+     */
+    fun profileMoves(before: Map<Long, String>, after: Map<Long, String>): Map<String, String> {
+        val stillThere = after.values.toHashSet()
+        val movedTo = HashMap<String, MutableSet<String>>()
+        for ((id, old) in before) {
+            val now = after[id] ?: continue
+            if (now != old) movedTo.getOrPut(old) { HashSet() }.add(now)
+        }
+        return movedTo.filter { (old, targets) -> old !in stillThere && targets.size == 1 }
+            .mapValues { it.value.first() }
+    }
 }

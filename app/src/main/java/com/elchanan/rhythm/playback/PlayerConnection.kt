@@ -118,6 +118,28 @@ class PlayerConnection(
         c.play()
     }
 
+    /**
+     * A new queue that begins with the song already playing: that song goes
+     * on from where it is, and the rest of the queue is replaced behind it.
+     *
+     * Radio and mix from the player start from the song on screen, and
+     * handing the whole list to [play] started that song again from the
+     * beginning - the reported "it jumps back". Returns false when the list
+     * does not begin with the current song, for the caller to play it anew.
+     */
+    fun continueFromCurrent(songs: List<SongEntity>): Boolean {
+        val c = controller ?: return false
+        val current = c.currentMediaItem ?: return false
+        if (songs.isEmpty() || current.mediaId != songs.first().id.toString()) return false
+        val index = c.currentMediaItemIndex
+        if (index + 1 < c.mediaItemCount) c.removeMediaItems(index + 1, c.mediaItemCount)
+        if (index > 0) c.removeMediaItems(0, index)
+        c.addMediaItems(items(songs.drop(1)))
+        if (c.playbackState == Player.STATE_IDLE) c.prepare()
+        c.play()
+        return true
+    }
+
     /** Puts a saved queue back without starting playback. */
     fun restore(songs: List<SongEntity>, index: Int, positionMs: Long) {
         val c = controller ?: return

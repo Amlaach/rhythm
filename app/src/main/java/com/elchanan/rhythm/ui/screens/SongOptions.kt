@@ -275,7 +275,7 @@ fun SongOptionsSheet(
                     OptionRow(Icons.Filled.Album, "עבור לאלבום") { onOpenAlbum(); onDismiss() }
                 }
                 SongMenuItem.GENRE -> OptionRow(Icons.Filled.LocalOffer, "שנה ז'אנר") { genreOpen = true }
-                SongMenuItem.EDIT -> OptionRow(Icons.Filled.Edit, "עריכת פרטי השיר") { editOpen = true }
+                SongMenuItem.EDIT -> OptionRow(Icons.Filled.Edit, "עריכת תגיות") { editOpen = true }
                 SongMenuItem.SHARE -> OptionRow(Icons.Filled.Share, "שתף") {
                     vm.shareSongs(listOf(song))
                     onDismiss()

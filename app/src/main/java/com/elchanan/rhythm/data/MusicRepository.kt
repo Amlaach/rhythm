@@ -101,6 +101,8 @@ class MusicRepository(
 
     suspend fun rescan(): Int = withContext(Dispatchers.IO) {
         val excluded = prefs.excludedFolders.map { it.lowercase() }
+        // The folders the library is made of, when the listener chose some.
+        val roots = prefs.musicFolders.map { it.trimEnd('/').lowercase() + "/" }
         val overrides = dao.allOverrides().associateBy { it.songId }
         val skipRecordings = prefs.skipRecordings
         val minMs = prefs.minDurationSec * 1000L
@@ -141,7 +143,9 @@ class MusicRepository(
                 keep
             }
             .filter { song ->
-                val keep = excluded.none { pattern -> song.folder.lowercase().contains(pattern) }
+                val path = song.path.lowercase()
+                val keep = (roots.isEmpty() || roots.any { path.startsWith(it) }) &&
+                    excluded.none { pattern -> song.folder.lowercase().contains(pattern) }
                 if (!keep) inExcluded++
                 keep
             }
@@ -665,14 +669,47 @@ class MusicRepository(
      * and every derived screen pick them up in one pass.
      */
     suspend fun saveOverrides(rows: List<TagOverrideEntity>) = withContext(Dispatchers.IO) {
+        val before = dao.allSongs().associate { it.id to it.artistKey }
         dao.putOverrides(rows)
         rescan()
+        carryArtistProfiles(before)
+    }
+
+    /**
+     * What was said about an artist follows their songs to their new name.
+     *
+     * A tag fix or a merge moves songs from one spelling of an artist to
+     * another. The songs moved and the rating, the styles and the note did
+     * not: they stayed on a name with no songs left, which drops out of the
+     * artist list - so the artist looked gone, and the new name started from
+     * nothing. Now, when every song of an artist has gone to one other name,
+     * whatever the new name has not been told yet is taken from the old one;
+     * what it has been told stays.
+     */
+    private suspend fun carryArtistProfiles(before: Map<Long, String>) {
+        val songs = dao.allSongs()
+        val moves = ArtistMerge.profileMoves(before, songs.associate { it.id to it.artistKey })
+        for ((old, key) in moves) {
+            val from = dao.artist(old) ?: continue
+            if (from.rating == 0 && from.styles.isBlank() && from.note.isBlank()) continue
+            val name = songs.firstOrNull { it.artistKey == key }?.let { Names.primaryArtist(it.artistName) } ?: key
+            val to = dao.artist(key) ?: ArtistEntity(artistKey = key, displayName = name)
+            dao.putArtist(
+                to.copy(
+                    rating = if (to.rating == 0) from.rating else to.rating,
+                    styles = to.styles.ifBlank { from.styles },
+                    note = to.note.ifBlank { from.note },
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
     }
 
     /** Preserve track IDs, stats and existing title/album corrections. */
     suspend fun mergeArtist(sourceKey: String, targetName: String): Int = withContext(Dispatchers.IO) {
         require(targetName.isNotBlank())
-        RhythmDatabase.get(context).withTransaction {
+        val before = dao.allSongs().associate { it.id to it.artistKey }
+        val moved = RhythmDatabase.get(context).withTransaction {
             val overrides = dao.allOverrides().associateBy { it.songId }
             val changes = dao.allSongs().mapNotNull { song ->
                 val renamed = ArtistMerge.renameCredit(song.artistName, sourceKey, targetName)
@@ -686,6 +723,8 @@ class MusicRepository(
             dao.insertSongs(changes.map { it.second })
             changes.size
         }
+        carryArtistProfiles(before)
+        moved
     }
 
     suspend fun clearOverrides() = withContext(Dispatchers.IO) {

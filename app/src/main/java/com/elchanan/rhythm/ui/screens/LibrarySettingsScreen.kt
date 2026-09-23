@@ -60,8 +60,34 @@ fun LibrarySettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     var skipRecordings by remember { mutableStateOf(vm.prefs.skipRecordings) }
     var resumeSpoken by remember { mutableStateOf(vm.prefs.resumeSpoken) }
     var foldersOpen by remember { mutableStateOf(false) }
+    var musicFoldersOpen by remember { mutableStateOf(false) }
+    var musicFolders by remember { mutableStateOf(vm.prefs.musicFolders) }
 
     SettingsScaffold(title = "ספרייה וסריקה", onBack = onBack) {
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth().clickable { musicFoldersOpen = true }
+                    .padding(horizontal = gutter, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("תיקיות המוזיקה", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        text = musicFolders.joinToString(", ") { folderLabel(it) }
+                            .ifBlank { "מאיפה האפליקציה מביאה את המוזיקה. כרגע: כל המכשיר" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        maxLines = 2
+                    )
+                }
+                Button(
+                    onClick = { musicFoldersOpen = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                ) { Text("בחר") }
+            }
+        }
+
         item {
             Row(
                 modifier = Modifier
@@ -254,6 +280,18 @@ fun LibrarySettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             }
         }
 
+    }
+
+    if (musicFoldersOpen) {
+        MusicFoldersDialog(
+            initial = musicFolders,
+            onDismiss = { musicFoldersOpen = false },
+            onApply = {
+                musicFolders = it
+                vm.prefs.musicFolders = it
+                vm.rescan()
+            }
+        )
     }
 
     if (foldersOpen) {

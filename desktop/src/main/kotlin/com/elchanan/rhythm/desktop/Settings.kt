@@ -520,10 +520,22 @@ internal fun SettingsScreen(
 
             if (page == SettingsPage.ABOUT) item {
                 SettingSection("הסריקה האחרונה", "כמה קבצים נמצאו, ומתי")
-                Fact("קבצים שנמצאו", "${prefs.lastScanCount}")
+                // A library scanned by a build that did not keep these, or a
+                // scan still running, used to read as "0 found" beside a full
+                // library. Now it says what is happening, and a count it does
+                // not have is never shown as nothing.
+                val found = maxOf(prefs.lastScanCount, songs)
+                Fact("קבצים שנמצאו", if (scanning) "סורק עכשיו…" else "$found")
                 Fact("נכנסו לספרייה", "$songs")
-                Fact("נסרק לאחרונה", lastScanLabel(prefs.lastScanAt))
-                if (prefs.lastScanCount > songs) {
+                Fact(
+                    "נסרק לאחרונה",
+                    when {
+                        scanning -> "עכשיו"
+                        prefs.lastScanAt <= 0L && songs > 0 -> "לפני העדכון האחרון"
+                        else -> lastScanLabel(prefs.lastScanAt)
+                    }
+                )
+                if (!scanning && prefs.lastScanCount > songs) {
                     Text(
                         "ההפרש הוא מה שהמסננים הסירו — אורך מינימלי, תיקיות מוחרגות, " +
                             "הקלטות וכפילויות. כל אחד מהם ניתן לכיבוי או לשינוי בהגדרות.",
