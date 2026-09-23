@@ -63,6 +63,7 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     var shelvesOpen by remember { mutableStateOf(false) }
     var songMenuOpen by remember { mutableStateOf(false) }
     var queueButton by remember { mutableStateOf(vm.prefs.homeQueueButton) }
+    var collapseHeader by remember { mutableStateOf(vm.prefs.collapseHomeHeader) }
     var pinMoods by remember { mutableStateOf(vm.prefs.pinMoodRow) }
     var firstTab by remember { mutableStateOf(vm.prefs.libraryFirstTab) }
     var folderTree by remember { mutableStateOf(vm.prefs.folderTree) }
@@ -174,6 +175,15 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 onClick = { songMenuOpen = true },
                 colors = ButtonDefaults.buttonColors(containerColor = Accent)
             ) { Text("ערוך") }
+        }
+
+        SettingSwitch(
+            title = "הכותרת נעלמת בגלילה",
+            subtitle = "הלוגו והכפתורים שלמעלה מפנים מקום כשגוללים למטה, וחוזרים ברגע שגוללים למעלה",
+            checked = collapseHeader
+        ) {
+            collapseHeader = it
+            vm.prefs.collapseHomeHeader = it
         }
 
         SettingSwitch(

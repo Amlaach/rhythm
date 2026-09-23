@@ -1110,14 +1110,12 @@ private fun FolderTreeTab(
     }
 
     if (root.total == 0) {
-        EmptyState(
-            title = "לא נמצאו תיקיות",
-            body = "התיקיות מופיעות אחרי שהאפליקציה סורקת את המכשיר."
-        )
+        NoFolders(vm, gutter)
         return
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        if (here.path == root.path) MainFolderRow(vm, gutter)
         // Where we are, and a way back to any level above without tapping back
         // once per folder.
         if (trail.size > 1) {
@@ -1474,6 +1472,58 @@ private fun BulkStyleDialog(
     )
 }
 
+/**
+ * The main folder - where the music comes from - said above the folders, and
+ * changed from here as well as from the settings. In both folder views, and
+ * when nothing was found: a folder chosen by mistake would otherwise leave the
+ * tab empty with no way back from it.
+ */
+@Composable
+private fun MainFolderRow(vm: MainViewModel, gutter: Dp) {
+    var musicFolders by remember { mutableStateOf(vm.prefs.musicFolders) }
+    var musicFoldersOpen by remember { mutableStateOf(false) }
+    if (musicFoldersOpen) {
+        MusicFoldersDialog(
+            initial = musicFolders,
+            onDismiss = { musicFoldersOpen = false },
+            onApply = {
+                musicFolders = it
+                vm.prefs.musicFolders = it
+                vm.rescan()
+            }
+        )
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { musicFoldersOpen = true }
+            .padding(horizontal = gutter, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            localized("תיקייה ראשית:").orEmpty() + " " + musicFolders.joinToString(", ") { folderLabel(it) }
+                .ifBlank { localized("כל המכשיר").orEmpty() },
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Text("שינוי", style = MaterialTheme.typography.labelLarge, color = Accent)
+    }
+}
+
+@Composable
+private fun NoFolders(vm: MainViewModel, gutter: Dp) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        MainFolderRow(vm, gutter)
+        EmptyState(
+            title = "לא נמצאו תיקיות",
+            body = "התיקיות מופיעות אחרי שהאפליקציה סורקת את המכשיר."
+        )
+    }
+}
+
 /** The older flat list, for anyone who preferred it. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1492,61 +1542,61 @@ private fun FolderListTab(
             .sortedBy { it.first.lowercase(Locale.ROOT) }
     }
     if (folders.isEmpty()) {
-        EmptyState(
-            title = "לא נמצאו תיקיות",
-            body = "התיקיות מופיעות אחרי שהאפליקציה סורקת את המכשיר."
-        )
+        NoFolders(vm, gutter)
         return
     }
-    LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
-        items(folders, key = { it.first }) { (path, list) ->
-            val picked = list.isNotEmpty() && selection.containsAll(list.map { it.id })
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .combinedClickable(
-                        onClick = {
-                            if (selectionMode) {
-                                onToggleGroup(list)
-                            } else {
-                                vm.openList(folderName(path), path, list, "folder:$path")
-                                onOpenDetail()
-                            }
-                        },
-                        onLongClick = { onToggleGroup(list) }
-                    )
-                    .background(if (picked) Accent.copy(alpha = 0.16f) else Color.Transparent)
-                    .padding(horizontal = gutter, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (selectionMode) {
-                    SelectionTick(picked)
-                    Spacer(Modifier.width(10.dp))
-                }
-                val (c1, c2) = gradientFor(path)
-                Box(
+    Column(modifier = Modifier.fillMaxSize()) {
+        MainFolderRow(vm, gutter)
+        LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
+            items(folders, key = { it.first }) { (path, list) ->
+                val picked = list.isNotEmpty() && selection.containsAll(list.map { it.id })
+                Row(
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Brush.linearGradient(listOf(c1, c2))),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .combinedClickable(
+                            onClick = {
+                                if (selectionMode) {
+                                    onToggleGroup(list)
+                                } else {
+                                    vm.openList(folderName(path), path, list, "folder:$path")
+                                    onOpenDetail()
+                                }
+                            },
+                            onLongClick = { onToggleGroup(list) }
+                        )
+                        .background(if (picked) Accent.copy(alpha = 0.16f) else Color.Transparent)
+                        .padding(horizontal = gutter, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.Folder, contentDescription = null, tint = Color.White)
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        folderName(path),
-                        style = MaterialTheme.typography.bodyLarge,
-                        maxLines = 1
-                    )
-                    Text(
-                        "${list.size} שירים · $path",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (selectionMode) {
+                        SelectionTick(picked)
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    val (c1, c2) = gradientFor(path)
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Brush.linearGradient(listOf(c1, c2))),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Filled.Folder, contentDescription = null, tint = Color.White)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            folderName(path),
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 1
+                        )
+                        Text(
+                            "${list.size} שירים · $path",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }

@@ -95,7 +95,7 @@ internal fun MusicFoldersDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Surface1,
-        title = { Text("תיקיות המוזיקה") },
+        title = { Text("תיקייה ראשית") },
         text = {
             Column(modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
                 Text(

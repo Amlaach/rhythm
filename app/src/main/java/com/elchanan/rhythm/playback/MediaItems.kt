@@ -28,14 +28,28 @@ object MediaItems {
     @Volatile
     var looseAlbums: Set<Long> = emptySet()
 
-    /** A folder-named album holding more than one artist is a folder of singles. */
+    /**
+     * Which albums may lend their picture to a song without one of its own:
+     * only those that look like a real release.
+     *
+     * A folder of downloads often comes as one "album" - the folder's name,
+     * or a tag every file got from the same site - and its picture is one of
+     * its songs' covers, so every other song in the folder showed that one
+     * song's picture. A real album numbers its tracks; a folder of singles
+     * does not. So an album lends its picture only when at least half its
+     * songs carry a track number and it is not a folder-named mix of
+     * artists. A song on its own lends only to itself, which is harmless.
+     */
     fun noteLibrary(songs: List<SongEntity>) {
         looseAlbums = songs.groupBy { it.albumId }.filter { (_, list) ->
+            if (list.size == 1) return@filter false
             val first = list.first()
             val folder = first.folder.replace('\\', '/').trimEnd('/').substringAfterLast('/')
-            val named = first.albumName.isBlank() || first.albumName.startsWith("<") ||
-                first.albumName.trim().equals(folder.trim(), ignoreCase = true)
-            named && list.map { it.artistKey }.distinct().size > 1
+            val unnamed = first.albumName.isBlank() || first.albumName.startsWith("<")
+            val folderNamed = first.albumName.trim().equals(folder.trim(), ignoreCase = true)
+            val mixed = list.map { it.artistKey }.distinct().size > 1
+            val numbered = list.count { it.trackNumber > 0 } * 2 >= list.size
+            unnamed || (folderNamed && mixed) || !numbered
         }.keys
     }
 

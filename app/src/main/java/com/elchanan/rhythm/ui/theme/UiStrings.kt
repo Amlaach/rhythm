@@ -1715,6 +1715,12 @@ object UiStrings {
         "הסר" to "Remove",
         "הוסף תיקייה" to "Add folder",
         "אפשר לבחור רק תיקייה מהאחסון של הטלפון או מכרטיס הזיכרון." to "Only a folder on the phone's storage or the memory card can be chosen.",
+        "תיקייה ראשית" to "Main folder",
+        "תיקייה ראשית:" to "Main folder:",
+        "שינוי" to "Change",
+        "התיקייה שממנה האפליקציה מביאה את המוזיקה. כרגע: כל המכשיר" to "The folder the app takes its music from. Now: the whole device",
+        "הכותרת נעלמת בגלילה" to "Header hides on scroll",
+        "הלוגו והכפתורים שלמעלה מפנים מקום כשגוללים למטה, וחוזרים ברגע שגוללים למעלה" to "The logo and buttons at the top make room when you scroll down, and come back as soon as you scroll up",
         "סורק עכשיו…" to "Scanning now…",
         "עכשיו" to "Now",
         "לפני העדכון האחרון" to "Before the last update"
