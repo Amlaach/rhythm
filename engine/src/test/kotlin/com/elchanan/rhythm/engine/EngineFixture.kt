@@ -40,10 +40,19 @@ object EngineFixture {
         val features: List<AudioFeatureEntity>,
         val spoken: Set<Long>,
         val vocal: Set<Long>,
-        val lastHeard: Map<Long, Long>
+        val lastHeard: Map<Long, Long>,
+        /** Each song's genre, when built with genres; empty otherwise. */
+        val genreOf: Map<Long, Int> = emptyMap()
     )
 
-    fun build(songCount: Int = 2400, artistCount: Int = 120, now: Long = NOW): Library {
+    /**
+     * @param genres when above zero, artists come in that many genres that
+     *   share a sound, as real music does, so that "similar" has an answer
+     *   across artists and not only within one. Drawn from a random source of
+     *   its own, so the library without genres - the one the golden digests
+     *   were recorded on - is exactly what it always was.
+     */
+    fun build(songCount: Int = 2400, artistCount: Int = 120, now: Long = NOW, genres: Int = 0): Library {
         val rnd = Random(20260916)
         val styleWords = Styles.SUGGESTED
 
@@ -53,7 +62,7 @@ object EngineFixture {
             val happy: Float, val calm: Float
         )
 
-        val voices = List(artistCount) {
+        val ownVoices = List(artistCount) {
             Voice(
                 bpm = 70f + rnd.nextFloat() * 80f,
                 energy = 0.15f + rnd.nextFloat() * 0.6f,
@@ -65,6 +74,36 @@ object EngineFixture {
                 happy = rnd.nextFloat(),
                 calm = rnd.nextFloat()
             )
+        }
+        fun ownVoicesLike(r: Random) = Voice(
+            bpm = 70f + r.nextFloat() * 80f,
+            energy = 0.15f + r.nextFloat() * 0.6f,
+            bright = 0.2f + r.nextFloat() * 0.5f,
+            key = r.nextInt(12),
+            sound = FloatArray(SoundPrint.DIMS) { r.nextFloat() * 2f },
+            music = FloatArray(MusicPrint.DIMS) { r.nextFloat() * 2f - 1f },
+            tags = FloatArray(521) { if (r.nextFloat() < 0.15f) r.nextFloat() * 0.6f else r.nextFloat() * 0.05f },
+            happy = r.nextFloat(),
+            calm = r.nextFloat()
+        )
+        fun genreOfArtist(a: Int) = if (genres > 0) a % genres else -1
+        val voices = if (genres <= 0) ownVoices else {
+            val g = Random(4242)
+            val centres = List(genres) { ownVoicesLike(g) }
+            ownVoices.mapIndexed { a, v ->
+                val c = centres[genreOfArtist(a)]
+                Voice(
+                    bpm = 0.7f * c.bpm + 0.3f * v.bpm,
+                    energy = 0.7f * c.energy + 0.3f * v.energy,
+                    bright = 0.7f * c.bright + 0.3f * v.bright,
+                    key = v.key,
+                    sound = FloatArray(SoundPrint.DIMS) { GENRE_SHARE * c.sound[it] + (1 - GENRE_SHARE) * v.sound[it] },
+                    music = FloatArray(MusicPrint.DIMS) { GENRE_SHARE * c.music[it] + (1 - GENRE_SHARE) * v.music[it] },
+                    tags = FloatArray(521) { GENRE_SHARE * c.tags[it] + (1 - GENRE_SHARE) * v.tags[it] },
+                    happy = 0.7f * c.happy + 0.3f * v.happy,
+                    calm = 0.7f * c.calm + 0.3f * v.calm
+                )
+            }
         }
         val artistNames = List(artistCount) { i ->
             when (i % 4) {
@@ -105,7 +144,8 @@ object EngineFixture {
         for (a in 0 until artistCount) {
             if (a % 3 == 2) continue
             val key = Names.normalizeKey(artistNames[a])
-            val styles = listOf(styleWords[a % 6], styleWords[6 + a % 8]).let {
+            val first = if (genres > 0) styleWords[genreOfArtist(a)] else styleWords[a % 6]
+            val styles = listOf(first, styleWords[6 + a % 8]).let {
                 if (a % 5 == 0) it.take(1) else it
             }
             artists[key] = ArtistEntity(
@@ -230,8 +270,13 @@ object EngineFixture {
             Vocal.isVocal(s, stats[s.id], featureById[s.id], artists[s.artistKey]?.styles.orEmpty())
         }.mapTo(HashSet()) { it.id }
 
-        return Library(songs, stats, artists, affinity, transitions, features, spoken, vocal, lastHeard)
+        val genreOf = if (genres <= 0) emptyMap() else
+            songs.associate { it.id to genreOfArtist(((it.id * 7919) % artistCount).toInt()) }
+        return Library(songs, stats, artists, affinity, transitions, features, spoken, vocal, lastHeard, genreOf)
     }
+
+    /** How much of an artist's sound their genre decides, in the library built with genres. */
+    private const val GENRE_SHARE = 0.65f
 
     val TUNING = EngineTuning(
         discovery = 0.4f, artistWeight = 1.1f, styleWeight = 0.9f, repeatGuard = 1.0f,

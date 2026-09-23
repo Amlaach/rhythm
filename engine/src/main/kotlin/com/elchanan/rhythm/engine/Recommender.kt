@@ -1485,11 +1485,28 @@ class Recommender(
         salt: Long,
         maxPerArtist: Int = 2,
         maxPerAlbum: Int = 2,
+        /**
+         * For a shelf that promises "like this one": first keep only this many
+         * candidates, the closest by [extra] alone, and only then rank those
+         * by everything else.
+         *
+         * Added straight to the listener's score, the closeness was a nudge
+         * on a ranking the score decided - its whole spread was a third of the
+         * score's - so "sounds like X" and a song's radio came out as the
+         * listener's favourites with a lean towards X. Measured on a library
+         * with known genres, a radio's songs by other artists were from the
+         * seed's genre little more often than chance. Choosing the
+         * neighbourhood first and letting taste choose within it keeps both
+         * promises: related, and still what this listener likes.
+         */
+        nearest: Int = 0,
         extra: ((SongEntity) -> Double)? = null
     ): List<SongEntity> {
         if (candidates.isEmpty() || count <= 0) return emptyList()
         val jitter = 0.22 + 0.85 * effectiveDiscovery
-        val ranked = candidates.map { song ->
+        val pool = if (nearest <= 0 || extra == null || candidates.size <= nearest) candidates else
+            candidates.map { it to extra(it) }.sortedByDescending { it.second }.take(nearest).map { it.first }
+        val ranked = pool.map { song ->
             var s = baseScores[song.id] ?: 0.0
             if (extra != null) s += extra(song)
             s += noise(song.id, salt + feedSeed, jitter)
@@ -1613,7 +1630,8 @@ class Recommender(
             count = size,
             salt = seed.id,
             maxPerArtist = 4,
-            maxPerAlbum = 3
+            maxPerAlbum = 3,
+            nearest = size * NEAREST_FACTOR
         ) { candidate ->
             var bonus = 2.3 * affinityTo(seedIds, candidate.id)
             bonus += 1.35 * styleSimilarity(seed.id, candidate.id)
@@ -1679,10 +1697,19 @@ class Recommender(
         // Speed dial: the handful of tracks actually returned to, first on the
         // page. Held back until there is real listening behind it - a "most
         // played" shelf built from one play each is just a shuffle.
+        //
+        // "What you return to" is a matter of days, not of plays: a song put
+        // on repeat for one evening was ranked here beside one heard on
+        // thirty different days, on the same thirty-nine plays. And a song
+        // skipped more than it is heard is not something anyone returns to,
+        // so it has to be vouched for by the listening as well.
         val mostPlayed = dedupeVersions(
             notDisliked
-                .filter { (stats[it.id]?.playCount ?: 0) >= 3 }
-                .sortedByDescending { stats[it.id]?.playCount ?: 0 }
+                .filter { (stats[it.id]?.playCount ?: 0) >= 3 && (behaviour[it.id] ?: 0.0) > 0.35 }
+                .sortedWith(
+                    compareByDescending<SongEntity> { stats[it.id]?.playDays ?: 0 }
+                        .thenByDescending { stats[it.id]?.playCount ?: 0 }
+                )
         ).take(12)
         if (mostPlayed.size >= 4) {
             sections.add(
@@ -1787,7 +1814,10 @@ class Recommender(
         }
 
         // rated songs get their own shelf now that ratings exist per song
-        val topRated = playable.filter { (stats[it.id]?.rating ?: 0) >= 4 }
+        // From what may be offered at all: a medley and a disliked song are
+        // left out of every other mix, and a four star rating given before a
+        // thumbs down is not a reason to bring it back.
+        val topRated = notDisliked.filter { (stats[it.id]?.rating ?: 0) >= 4 }
         if (topRated.size >= 5) {
             mixes.add(
                 Mix(
@@ -1863,7 +1893,8 @@ class Recommender(
                     },
                     35,
                     salt = 79L,
-                    maxPerArtist = 3
+                    maxPerArtist = 3,
+                    nearest = 35 * NEAREST_FACTOR
                 ) { c -> 2.4 * acousticSimilarity(anchor.id, c.id) }
                 mixes.add(
                     Mix(
@@ -1901,6 +1932,7 @@ class Recommender(
             .take(4)
         for (artist in topArtists) {
             val own = songsByArtist[artist.artistKey].orEmpty()
+            val ownIds = own.map { it.id }
             // "Similar to him" has to mean similar within what the user is
             // willing to hear in one sitting. The neighbours were drawn from
             // the whole library and only checked against each other, so a
@@ -1915,10 +1947,13 @@ class Recommender(
                         !separations.clash(ownStyles, declaredStyles[it.id].orEmpty())
                 },
                 12,
-                salt = artist.artistKey.hashCode().toLong()
+                salt = artist.artistKey.hashCode().toLong(),
+                nearest = 12 * NEAREST_FACTOR
             ) { c ->
+                // To the artist as a whole. It was measured against whichever
+                // of their songs happened to come first in the list.
                 1.6 * affinityTo(own.map { it.id }.take(10), c.id) +
-                    0.9 * acousticSimilarity(own.first().id, c.id)
+                    0.9 * (acoustic?.similarityToSet(c.id, ownIds, ARTIST_SIMILARITY_K) ?: 0.0)
             }
             mixes.add(
                 Mix(
@@ -1977,8 +2012,11 @@ class Recommender(
             )
         }
 
-        val lastLiked = songs
-            .filter { (stats[it.id]?.liked ?: 0) == 1 }
+        // From what may be offered: the latest like could be a shiur, or a
+        // vocal song outside its weeks, and a shelf named after it would then
+        // stand on a song the feed itself keeps out of sight.
+        val lastLiked = playable
+            .filter { (stats[it.id]?.liked ?: 0) == 1 && !isMedley(it.title) }
             .maxByOrNull { stats[it.id]?.likedAt ?: 0L }
         if (lastLiked != null) {
             val related = radio(lastLiked, 18).drop(1)
@@ -2097,7 +2135,9 @@ class Recommender(
         // and they have two shelves of their own above, and mixing them in
         // left this one mostly full of concert tracks. Deduping by version key
         // would defeat the point, since the alternatives are the offer.
-        val alternates = Versions.alternates(notDisliked, versionTypes)
+        // Covers only. Remixes came in too, under a subtitle promising another
+        // singer's performance, and a remix is mostly the same singer.
+        val alternates = Versions.alternates(notDisliked, versionTypes, setOf(VersionType.COVER))
         if (alternates.size >= 3) {
             sections.add(
                 FeedSection(
@@ -2256,6 +2296,25 @@ class Recommender(
         pickedMood = leader.first.name
         return leader.first
     }
+
+    /**
+     * What a mood chip opens: the songs expressing [mood], strongest first.
+     *
+     * Answered from this snapshot, which already holds the analysis and a
+     * mood model built over it. The chip used to read every song's analysis
+     * from the database and build a second model on each tap - seconds on a
+     * large library, for the same answer. The same computation as
+     * [Mood.strongest] over the same rows and marks; drawn from what the feed
+     * may offer, so a shiur is never a mood and the vocal-only weeks apply.
+     */
+    fun strongestIn(mood: Mood): List<SongEntity> =
+        playable
+            .filter { (stats[it.id]?.liked ?: 0) != -1 }
+            .filter { moodModel.matches(mood, features[it.id]) }
+            .sortedByDescending { moodModel.strength(mood, features[it.id]) }
+
+    /** Whether anything in this snapshot has been analysed at all. */
+    val hasAnalysis: Boolean get() = features.isNotEmpty()
 
     /**
      * The mood [buildFeed] settled on, for the caller to remember.
@@ -2712,6 +2771,12 @@ class Recommender(
          * which a single play cannot manufacture.
          */
         private const val MOOD_MARGIN = 0.10
+
+        /** A "like this" shelf chooses among this many times its length of the closest candidates; see pick. */
+        private const val NEAREST_FACTOR = 5
+
+        /** An artist's radio measures a candidate against their closest few songs. */
+        private const val ARTIST_SIMILARITY_K = 3
 
         /** How long a newly chosen mood keeps the shelf whatever the margin; see [EngineTuning.lastMoodAt]. */
         const val MOOD_HOLD_MS = 3L * 24 * 60 * 60 * 1000

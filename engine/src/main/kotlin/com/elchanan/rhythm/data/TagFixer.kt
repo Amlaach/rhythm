@@ -1,6 +1,8 @@
 package com.elchanan.rhythm.data
 
+import com.elchanan.rhythm.engine.ArtistStyles
 import com.elchanan.rhythm.engine.Names
+import com.elchanan.rhythm.engine.Transliteration
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.TagOverrideEntity
 import java.util.Locale
@@ -96,7 +98,14 @@ object TagFixer {
         val oldTitle: String,
         val oldArtist: String,
         val newTitle: String,
-        val newArtist: String
+        val newArtist: String,
+        /**
+         * False where the repair is a reasonable reading rather than a sure
+         * one - an English song name matched to a Hebrew one elsewhere in
+         * the library, or a name split off an artist nobody knows. Shown as
+         * "לא בטוח" and left out unless the listener asks for them.
+         */
+        val certain: Boolean = true
     ) {
         val changed: Boolean
             get() = newTitle != oldTitle || newArtist != oldArtist
@@ -174,27 +183,190 @@ object TagFixer {
         return left to right
     }
 
+    /** Separators a name and its other-script copy are written with. */
+    private val PAIR = Regex("""\s*(?:\||/| - | – | — )\s*""")
+
+    /** "Name (Other)" - the copy in brackets. */
+    private val BRACKET_PAIR = Regex("""^(.*?)\s*[\(\[]([^\)\]]+)[\)\]]\s*$""")
+
+    /** Latin words then Hebrew, or Hebrew then Latin, with nothing between. */
+    private val LATIN_THEN_HEBREW = Regex("""^([A-Za-z][A-Za-z0-9 .'&]*?)\s+([\x{0590}-\x{05FF}].*)$""")
+    private val HEBREW_THEN_LATIN = Regex("""^([\x{0590}-\x{05FF}][^A-Za-z]*?)\s+([A-Za-z][A-Za-z0-9 .'&]*)$""")
+
+    private fun hebrewOnly(t: String) = Transliteration.hasHebrew(t) && !Transliteration.hasLatin(t)
+    private fun latinOnly(t: String) = Transliteration.hasLatin(t) && !Transliteration.hasHebrew(t)
+
+    /** The two halves of "X | Y", "X / Y", "X - Y" or "X (Y)", or null. */
+    private fun halves(text: String): Pair<String, String>? {
+        val parts = text.split(PAIR).map { it.trim() }.filter { it.isNotEmpty() }
+        if (parts.size == 2) return parts[0] to parts[1]
+        BRACKET_PAIR.matchEntire(text)?.let { m ->
+            val a = m.groupValues[1].trim()
+            val b = m.groupValues[2].trim()
+            if (a.isNotEmpty() && b.isNotEmpty()) return a to b
+        }
+        return null
+    }
+
+    /** The Hebrew half and the Latin half, whichever order they came in. */
+    private fun bilingual(a: String, b: String): Pair<String, String>? = when {
+        hebrewOnly(a) && latinOnly(b) -> a to b
+        latinOnly(a) && hebrewOnly(b) -> b to a
+        else -> null
+    }
+
+    /**
+     * The Hebrew name alone, where [text] is a name written twice - once in
+     * Hebrew and once in Latin letters, with or without anything between
+     * them: "דרשו גלובל | Dirshu Global", "השיבנו (Hashivenu)",
+     * "השיבנו Hashivenu". Null when it is not one name twice.
+     */
+    fun dropDuplicateName(text: String): String? {
+        val pair = halves(text)?.let { bilingual(it.first, it.second) }
+            ?: LATIN_THEN_HEBREW.matchEntire(text)?.let { bilingual(it.groupValues[1].trim(), it.groupValues[2].trim()) }
+            ?: HEBREW_THEN_LATIN.matchEntire(text)?.let { bilingual(it.groupValues[1].trim(), it.groupValues[2].trim()) }
+            ?: return null
+        val (hebrew, latin) = pair
+        return if (Transliteration.sameName(hebrew, latin)) hebrew else null
+    }
+
+    /**
+     * What the library and the built-in catalogue already know about names:
+     * which artists exist, how the catalogue's are written in English, and
+     * which Hebrew song names each artist has.
+     */
+    class Knowledge(songs: List<SongEntity>) {
+        /** Every name and English alias in the catalogue, to its Hebrew name. */
+        private val catalogue: Map<String, String> = HashMap<String, String>().apply {
+            for (seed in ArtistStyles.CATALOGUE) {
+                for (name in listOf(seed.name) + seed.aliases) put(ArtistStyles.matchKey(name), seed.name)
+            }
+        }
+
+        /** Hebrew artist names that stand alone as the whole artist field of some song. */
+        private val hebrewArtists: List<String> = songs.asSequence()
+            .map { normalize(it.artistName) }
+            .filter { hebrewOnly(it) && !PAIR.containsMatchIn(it) }
+            .distinct().toList()
+
+        private val known: Set<String> =
+            (hebrewArtists.map { ArtistStyles.matchKey(it) } + catalogue.keys).toSet()
+
+        /** Hebrew song names by artist key. */
+        private val hebrewTitles: Map<String, List<String>> = songs
+            .filter { hebrewOnly(it.title) }
+            .groupBy({ Names.normalizeKey(Names.primaryArtist(it.artistName)) }, { normalize(it.title) })
+
+        /** Whether this is an artist the library or the catalogue knows by this exact name. */
+        fun isKnown(name: String): Boolean = ArtistStyles.matchKey(name) in known
+
+        /** The Hebrew name of an artist written in Latin letters, if anyone knows it. */
+        fun hebrewFor(latin: String): String? {
+            catalogue[ArtistStyles.matchKey(latin)]?.let { if (hebrewOnly(it)) return it }
+            return hebrewArtists.firstOrNull { Transliteration.sameName(it, latin) }
+        }
+
+        /** A Hebrew song by the same artist whose name this Latin title spells. */
+        fun hebrewTitleFor(artist: String, latinTitle: String): String? =
+            hebrewTitles[Names.normalizeKey(Names.primaryArtist(artist))]
+                ?.firstOrNull { Transliteration.sameName(it, latinTitle) }
+    }
+
+    private class Repaired(val title: String, val artist: String, val certain: Boolean)
+
+    /**
+     * The names written twice, the song name stuck in the artist field, an
+     * artist's English name glued to a Hebrew song name, and an English song
+     * name that another file of the same artist has in Hebrew.
+     */
+    private fun repairNames(title: String, artist: String, originalArtist: String, k: Knowledge): Repaired {
+        var t = title
+        var a = artist
+        var certain = true
+
+        // A: a song name written twice.
+        dropDuplicateName(t)?.let { t = it }
+
+        // "Hanan Ben Ari השיבנו": an artist the library or catalogue knows, in
+        // English, stuck to a Hebrew song name with nothing between them.
+        LATIN_THEN_HEBREW.matchEntire(t)?.let { m ->
+            val latin = m.groupValues[1].trim()
+            val rest = m.groupValues[2].trim()
+            val hebrew = k.hebrewFor(latin)
+            if (hebrew != null && !Transliteration.hasLatin(rest)) {
+                val artistSaysOtherwise = hebrewOnly(originalArtist) && Names.hasRealArtist(originalArtist) &&
+                    ArtistStyles.matchKey(originalArtist) != ArtistStyles.matchKey(hebrew)
+                t = rest
+                a = hebrew
+                if (artistSaysOtherwise) certain = false
+            }
+        }
+
+        // The artist field.
+        val names = halves(a)?.let { bilingual(it.first, it.second) }
+        when {
+            // A: the artist's name written twice.
+            dropDuplicateName(a) != null -> a = dropDuplicateName(a)!!
+            names != null -> {
+                val (hebrew, latin) = names
+                when {
+                    // C: the English half is this song's name - "ישי ריבו | Erets Israel".
+                    hebrewOnly(t) && Transliteration.sameName(t, latin) -> a = hebrew
+                    // B: the Hebrew half is an artist the library or the catalogue knows.
+                    k.isKnown(hebrew) -> a = hebrew
+                    // The English half is: "Ishay Ribo | ארץ ישראל".
+                    k.hebrewFor(latin) != null -> a = k.hebrewFor(latin)!!
+                    // Probably the artist, but nothing confirms it.
+                    else -> { a = hebrew; certain = false }
+                }
+            }
+            else -> {
+                // "Hanan Ben Ari השיבנו" in the artist field.
+                LATIN_THEN_HEBREW.matchEntire(a)?.let { m ->
+                    k.hebrewFor(m.groupValues[1].trim())?.let { a = it }
+                }
+            }
+        }
+
+        // D: a song name in English only, which the same artist has in Hebrew.
+        if (latinOnly(t)) {
+            k.hebrewTitleFor(a, t)?.let { t = it; certain = false }
+        }
+        return Repaired(t, a, certain)
+    }
+
     /**
      * @param dropForeign also drop Latin script leftovers from the song name -
      *   producer credits in brackets, an English gloss of the Hebrew title, the
      *   remains of a video page's heading.
      */
-    fun propose(songs: List<SongEntity>, dropForeign: Boolean = false): List<Proposal> =
-        songs.map { song ->
-            val (fromTitle, rawName) = split(song.title)
+    fun propose(songs: List<SongEntity>, dropForeign: Boolean = false): List<Proposal> {
+        val knowledge = Knowledge(songs)
+        return songs.map { song ->
+            // A song name written twice is one name, not "Artist - Title":
+            // "השיבנו - Hashivenu" must not become a song by השיבנו.
+            val twice = dropDuplicateName(normalize(song.title))
+            val (fromTitle, rawName) = if (twice != null) null to twice else split(song.title)
             val songName = if (dropForeign) stripForeign(rawName) else rawName
             val artist = (fromTitle ?: cleanArtist(song.artistName)).trim()
+            val repaired = repairNames(songName.ifEmpty { song.title }, artist.ifEmpty { song.artistName }, song.artistName, knowledge)
             Proposal(
                 songId = song.id,
                 oldTitle = song.title,
                 oldArtist = song.artistName,
-                newTitle = songName.ifEmpty { song.title },
-                newArtist = artist.ifEmpty { song.artistName }
+                newTitle = repaired.title.ifEmpty { song.title },
+                newArtist = repaired.artist.ifEmpty { song.artistName },
+                certain = repaired.certain
             )
         }
+    }
 
-    fun toOverrides(proposals: List<Proposal>): List<TagOverrideEntity> =
-        proposals.filter { it.changed }.map {
+    /**
+     * @param includeUncertain whether the proposals marked [Proposal.certain]
+     *   false are applied too. Off unless the listener asked.
+     */
+    fun toOverrides(proposals: List<Proposal>, includeUncertain: Boolean = false): List<TagOverrideEntity> =
+        proposals.filter { it.changed && (it.certain || includeUncertain) }.map {
             TagOverrideEntity(
                 songId = it.songId,
                 title = it.newTitle,

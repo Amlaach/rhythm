@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -25,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -94,6 +96,7 @@ fun AlgorithmSettingsScreen(
     var minPlay by remember { mutableFloatStateOf(vm.prefs.minPlaySeconds.toFloat()) }
     var separations by remember { mutableStateOf(vm.prefs.styleSeparations) }
     var separationsOpen by remember { mutableStateOf(false) }
+    var confirmReset by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         Row(
@@ -112,6 +115,36 @@ fun AlgorithmSettingsScreen(
             }
             Spacer(Modifier.width(4.dp))
             Text("הגדרות האלגוריתם", style = MaterialTheme.typography.titleLarge)
+        }
+
+        if (confirmReset) {
+            AlertDialog(
+                onDismissRequest = { confirmReset = false },
+                title = { Text("לאפס את הכוונונים?") },
+                text = {
+                    Text(
+                        "כל הפסים במסך הזה יחזרו למקום שבו הם מגיעים בהתקנה חדשה: " +
+                            "גילוי, משקלי האמנים, הסגנונות והסאונד, מניעת החזרתיות, " +
+                            "ומתי שיר נספר כהשמעה. הלייקים, ההיסטוריה והסגנונות שלך לא משתנים."
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        vm.resetTuning()
+                        val defaults = com.elchanan.rhythm.engine.EngineTuning()
+                        discovery = defaults.discovery
+                        artistWeight = defaults.artistWeight
+                        styleWeight = defaults.styleWeight
+                        acousticWeight = defaults.acousticWeight
+                        repeatGuard = defaults.repeatGuard
+                        minPlay = Listening.DEFAULT_MINIMUM_SEC.toFloat()
+                        confirmReset = false
+                    }) { Text("אפס", color = Accent) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmReset = false }) { Text("ביטול") }
+                }
+            )
         }
 
         LazyColumn(contentPadding = PaddingValues(bottom = 60.dp)) {
@@ -159,6 +192,16 @@ fun AlgorithmSettingsScreen(
                     onChange = { repeatGuard = it * 2f },
                     onDone = { vm.updateTuning(repeatGuard = repeatGuard) }
                 )
+            }
+            item {
+                // A slider moves under a thumb that was only scrolling past,
+                // and nothing said where it started. Asked first, because a
+                // tuning someone set on purpose is just as easy to lose.
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 4.dp)) {
+                    TextButton(onClick = { confirmReset = true }) {
+                        Text("אפס לברירת המחדל", color = Accent)
+                    }
+                }
             }
 
             item {

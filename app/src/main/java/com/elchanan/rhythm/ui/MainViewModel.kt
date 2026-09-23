@@ -145,7 +145,9 @@ data class DetailList(
     val subtitle: String?,
     val songs: List<SongEntity>,
     val gradientKey: String,
-    val playlistId: Long? = null
+    val playlistId: Long? = null,
+    /** Still being worked out: the screen is already open and says so. */
+    val loading: Boolean = false
 )
 
 data class PlaylistInfo(
@@ -1550,10 +1552,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _legacyPermissionRequest = MutableStateFlow(false)
     val legacyPermissionRequest: StateFlow<Boolean> = _legacyPermissionRequest.asStateFlow()
 
-    fun applyTagFix(proposals: List<TagFixer.Proposal>) {
+    fun applyTagFix(proposals: List<TagFixer.Proposal>, includeUncertain: Boolean = false) {
         viewModelScope.launch {
-            val changed = proposals.filter { it.changed }
-            repo.saveOverrides(TagFixer.toOverrides(proposals))
+            val changed = proposals.filter { it.changed && (it.certain || includeUncertain) }
+            repo.saveOverrides(TagFixer.toOverrides(proposals, includeUncertain))
             prefs.tagTipSeen = true
             // The shelves hold a snapshot of the songs taken when the feed was
             // built, so without this the home screen keeps showing the old
@@ -1955,12 +1957,45 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openMood(mood: Mood, onReady: () -> Unit) {
+        // The screen opens at once and fills when the list is ready. Working
+        // it out means reading every song's analysis from the database, which
+        // on a large library takes seconds - and the chip used to wait for all
+        // of it before anything happened, so it felt as if the tap was lost.
+        val key = "mood:${mood.name}"
+        _detail.value = DetailList(mood.label, mood.subtitle, emptyList(), key, loading = true)
+        onReady()
+        // Only the list this call opened: if the listener has gone back and
+        // opened something else meanwhile, the late answer must not replace it.
+        fun stillOpen() = _detail.value?.let { it.gradientKey == key && it.loading } == true
         viewModelScope.launch {
-            // Read from the database rather than from featuresById. That flow is
-            // only alive while a screen is subscribed to it, and no screen on the
-            // home tab is - so tapping a mood chip there found an empty map and
-            // reported that nothing had been analysed, however long the analysis
-            // had been finished.
+            // From the engine the feed was built with, when there is one: it
+            // already holds the analysis and a mood model over it, so the list
+            // is there at once. Reading every song's analysis back from the
+            // database took seconds on a large library, on every tap.
+            val snapshot = engine
+            if (snapshot != null) {
+                val fromEngine = withContext(Dispatchers.Default) { snapshot.strongestIn(mood) }
+                if (fromEngine.isEmpty()) {
+                    val why = if (!snapshot.hasAnalysis) {
+                        "השירים עדיין לא נותחו. אפשר להתחיל ניתוח בהגדרות."
+                    } else {
+                        "אין שירים שמתאימים ל\"${mood.label}\" בספרייה הזאת"
+                    }
+                    if (stillOpen()) _detail.value = DetailList(mood.label, why, emptyList(), key)
+                    return@launch
+                }
+                val ordered = withContext(Dispatchers.Default) {
+                    snapshot.sequence(fromEngine.first(), fromEngine.drop(1).take(80))
+                }
+                if (stillOpen()) openList(mood.label, mood.subtitle, ordered, key)
+                return@launch
+            }
+            // No feed built yet - the first moments after launch. Read from the
+            // database rather than from featuresById. That flow is only alive
+            // while a screen is subscribed to it, and no screen on the home tab
+            // is - so tapping a mood chip there found an empty map and reported
+            // that nothing had been analysed, however long the analysis had
+            // been finished.
             val features = runCatching { repo.featureMap() }.getOrDefault(emptyMap())
             val list = withContext(Dispatchers.Default) {
                 // Strongest first. Disliked songs are dropped before the sort
@@ -1968,21 +2003,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 // of the places the list is later trimmed to.
                 // Vocal-only songs follow the same season as the feed.
                 val inSeason = season != null
+                val stats = library.value.stats
                 Mood.strongest(
                     library.value.songs
-                        .filter { (library.value.stats[it.id]?.liked ?: 0) != -1 }
-                        .filter { inSeason || !isVocal(it, features[it.id]) },
+                        .filter { (stats[it.id]?.liked ?: 0) != -1 }
+                        .filter { inSeason || !isVocal(it, features[it.id]) }
+                        // Talking is not a mood. Shiurim came into these lists
+                        // the same way they came into the mixes, and a calm
+                        // list is exactly where a quiet lecture lands.
+                        .filter { song ->
+                            val feature = features[song.id]
+                            val tags = feature?.tags?.let { AudioTags.pick(it, AudioTags.SPEECH_INDICES) }
+                            !Spoken.isSpoken(song, feature, tags, stats[song.id]?.spoken ?: -1)
+                        },
                     features,
                     mood,
                     moodMarks()
                 )
             }
             if (list.isEmpty()) {
-                _message.value = if (features.isEmpty()) {
+                val why = if (features.isEmpty()) {
                     "השירים עדיין לא נותחו. אפשר להתחיל ניתוח בהגדרות."
                 } else {
                     "אין שירים שמתאימים ל\"${mood.label}\" בספרייה הזאת"
                 }
+                if (stillOpen()) _detail.value = DetailList(mood.label, why, emptyList(), key)
                 return@launch
             }
             val currentEngine = engine
@@ -2002,8 +2047,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     e.sequence(head, list.drop(1).take(80))
                 } ?: list
             }
-            openList(mood.label, mood.subtitle, ordered, "mood:${mood.name}")
-            onReady()
+            if (stillOpen()) openList(mood.label, mood.subtitle, ordered, key)
         }
     }
 
@@ -2094,6 +2138,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         crossfadeMs?.let { repo.prefs.crossfadeMs = it }
         skipSilence?.let { repo.prefs.skipSilence = it }
         refreshFeed()
+    }
+
+    /**
+     * The sliders on the algorithm screen back where a fresh install has them.
+     *
+     * They are easy to nudge with a thumb on the way to scrolling past, and
+     * nothing on the screen said where they started. The defaults are the
+     * engine's own, so there is one place that says what they are.
+     */
+    fun resetTuning() {
+        val defaults = com.elchanan.rhythm.engine.EngineTuning()
+        repo.prefs.minPlaySeconds = com.elchanan.rhythm.engine.Listening.DEFAULT_MINIMUM_SEC
+        updateTuning(
+            discovery = defaults.discovery,
+            artistWeight = defaults.artistWeight,
+            styleWeight = defaults.styleWeight,
+            repeatGuard = defaults.repeatGuard,
+            acousticWeight = defaults.acousticWeight
+        )
+        _message.value = "הכוונונים הוחזרו לברירת המחדל"
     }
 
     fun resetLearning() {

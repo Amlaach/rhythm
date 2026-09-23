@@ -111,7 +111,15 @@ fun DetailListScreen(vm: MainViewModel, onBack: () -> Unit) {
             EmptyState(title = "אין מה להציג", body = "אפשר לחזור אחורה ולבחור רשימה.")
             return@Column
         }
+        if (data.loading) {
+            EmptyState(title = "טוען…", body = data.subtitle.orEmpty())
+            return@Column
+        }
         val songs = data.songs
+        if (songs.isEmpty()) {
+            EmptyState(title = data.title, body = data.subtitle ?: "אין כאן שירים")
+            return@Column
+        }
         LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
             item {
                 val (c1, c2) = gradientFor(data.gradientKey)

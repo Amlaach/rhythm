@@ -29,6 +29,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.clickable
@@ -101,6 +103,10 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
     }
 
     val changed = proposals.filter { it.changed }
+    // The uncertain ones are shown and marked, and applied only when asked.
+    val uncertain = changed.count { !it.certain }
+    var includeUncertain by remember { mutableStateOf(false) }
+    val applying = changed.count { it.certain || includeUncertain }
     val gutter = rememberMetrics().gutter
     var filter by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<SongEntity?>(null) }
@@ -189,13 +195,38 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = if (writesToFiles) Accent else TextSecondary
                     )
+                    if (uncertain > 0) {
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { includeUncertain = !includeUncertain },
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("כולל הצעות לא בטוחות ($uncertain)", style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "הצעות שנשענות על ניחוש, למשל שם שיר באנגלית שהותאם לשם בעברית. " +
+                                        "כדאי לעבור עליהן ברשימה - הן מסומנות \"לא בטוח\"",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                            }
+                            Switch(
+                                checked = includeUncertain,
+                                onCheckedChange = { includeUncertain = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Accent,
+                                    checkedTrackColor = Accent.copy(alpha = 0.4f)
+                                )
+                            )
+                        }
+                    }
                     Spacer(Modifier.height(14.dp))
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Button(
-                            onClick = { vm.applyTagFix(proposals) },
-                            enabled = changed.isNotEmpty(),
+                            onClick = { vm.applyTagFix(proposals, includeUncertain) },
+                            enabled = applying > 0,
                             colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                        ) { Text("החל על ${changed.size} שירים") }
+                        ) { Text("החל על $applying שירים") }
                         Spacer(Modifier.width(10.dp))
                         TextButton(onClick = { vm.resetTagFix() }) {
                             Text("שחזר מקור", color = TextSecondary)
@@ -248,9 +279,10 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
                     if (proposal != null) {
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "מוצע: ${proposal.newTitle} · ${proposal.newArtist}",
+                            "מוצע: ${proposal.newTitle} · ${proposal.newArtist}" +
+                                if (proposal.certain) "" else " · לא בטוח",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Accent,
+                            color = if (proposal.certain) Accent else TextSecondary,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )

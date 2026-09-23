@@ -5,6 +5,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -255,10 +258,20 @@ fun RhythmRoot(
                     .fillMaxSize()
                     .padding(bottom = inner.calculateBottomPadding())
             ) {
+            // Navigation's own default is a 700 ms crossfade on every change of
+            // screen. Nothing here asked for it, and it was most of what a tap
+            // on a mix felt like: the tile answered at once, and then the page
+            // took the better part of a second to arrive - where the three dots,
+            // which open a sheet instead of a screen, answered straight away.
+            // A short fade keeps the change readable without the wait.
             NavHost(
                 navController = navController,
                 startDestination = Routes.HOME,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                enterTransition = { fadeIn(tween(SCREEN_FADE_MS)) },
+                exitTransition = { fadeOut(tween(SCREEN_FADE_MS)) },
+                popEnterTransition = { fadeIn(tween(SCREEN_FADE_MS)) },
+                popExitTransition = { fadeOut(tween(SCREEN_FADE_MS)) }
             ) {
                 composable(Routes.HOME) {
                     HomeScreen(
@@ -439,3 +452,6 @@ private fun RhythmBottomBar(
         }
     }
 }
+
+/** How long a change of screen takes; see the NavHost. */
+private const val SCREEN_FADE_MS = 120

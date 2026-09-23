@@ -791,7 +791,9 @@ private fun RhythmApp() {
     fun buildProposals() {
         scope.launch {
             proposals = withContext(Dispatchers.Default) {
-                TagFixer.propose(songs, dropForeign = prefs.tagStripForeign)
+                // Only the sure ones here: this screen has no way yet to show
+                // a proposal as uncertain, and those are never applied unasked.
+                TagFixer.propose(songs, dropForeign = prefs.tagStripForeign).filter { it.certain }
             }
         }
     }

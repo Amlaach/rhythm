@@ -73,7 +73,13 @@ object Spoken {
             // 0.4 on Speech and 0.9 on Music is not a shiur.
             val heard = ((speech - music) / 0.6).coerceIn(-1.0, 1.0)
             val fromModel = (0.5 + 0.5 * heard).coerceIn(0.0, 1.0)
-            return (0.65 * fromModel + 0.35 * lengthTerm).coerceIn(0.0, 1.0)
+            // The model decides; the clock only leans. At 0.35 the clock was
+            // most of the answer: an eight minute shiur needed the model to
+            // be all but certain before it counted as talking, so the short
+            // divrei Torah - the commonest kind - went on turning up in the
+            // mixes. Now speech clearly ahead of music is enough at any
+            // length, and a long track needs only a little less.
+            return (MODEL_SHARE * fromModel + (1 - MODEL_SHARE) * lengthTerm).coerceIn(0.0, 1.0)
         }
 
         val measured = fromFeatures(feature)
@@ -132,9 +138,18 @@ object Spoken {
     ): Boolean {
         // The user's own answer always wins. They have listened to it.
         if (stored >= 0) return stored == 1
-        if (song.durationMs < SHORT_MINUTES * 60_000L) return false
+        // Short tracks only on the model's word. It was refused to them
+        // outright, whatever the model heard, so everything under eight
+        // minutes - most shiurim of the short kind - could never be told
+        // from a song. The measured features alone are still not trusted that
+        // far: without the model, short stays music.
+        val heardByModel = tagScores != null && tagScores.size >= AudioTags.SPEECH_INDICES.size
+        if (!heardByModel && song.durationMs < SHORT_MINUTES * 60_000L) return false
         return score(song, feature, tagScores) >= THRESHOLD
     }
 
     const val THRESHOLD = 0.62
+
+    /** How much of the verdict is the model's where it ran; the rest is the length. */
+    private const val MODEL_SHARE = 0.85
 }
