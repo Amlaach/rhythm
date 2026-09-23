@@ -163,6 +163,9 @@ class AcousticSpace(
 
     val bpmById: Map<Long, Float> = features.associate { it.songId to it.bpm }
 
+    /** How sure the tempo detector was, per song. */
+    private val bpmConfidenceById: Map<Long, Float> = features.associate { it.songId to it.bpmConfidence }
+
     val size: Int get() = vectors.size
 
     init {
@@ -310,13 +313,28 @@ class AcousticSpace(
         return if (count == 0) 0.0 else sum / count
     }
 
-    /** 0 when the tempos match, 1 when they are a factor of two apart. */
+    /**
+     * 0 when the tempos match, 1 when they are a factor of two apart - as
+     * far as the detector can be believed.
+     *
+     * The commonest thing a tempo detector gets wrong is the octave: a pulse
+     * at 70 read as 140, or the other way round. Taken at its word, that
+     * pair was the furthest apart two songs could be, and a radio pushed
+     * away exactly the song whose beat matched. So the distance is also
+     * measured with the octave folded away - 70 and 140 the same, 100 and
+     * 141 still as far apart as it gets at a half - and the two are blended
+     * by how sure the detector was of both: sure, and a factor of two is a
+     * real difference; unsure, and it is most likely the octave.
+     */
     fun tempoDistance(a: Long, b: Long): Double {
         val ba = bpmById[a] ?: return 0.0
         val bb = bpmById[b] ?: return 0.0
         if (ba < 20f || bb < 20f) return 0.0
-        val ratio = ln(ba.toDouble() / bb.toDouble())
-        return (kotlin.math.abs(ratio) / ln(2.0)).coerceIn(0.0, 1.0)
+        val octaves = kotlin.math.abs(ln(ba.toDouble() / bb.toDouble()) / ln(2.0))
+        val plain = octaves.coerceIn(0.0, 1.0)
+        val folded = kotlin.math.abs(octaves - kotlin.math.round(octaves))
+        val sure = minOf(bpmConfidenceById[a] ?: 0f, bpmConfidenceById[b] ?: 0f).toDouble().coerceIn(0.0, 1.0)
+        return sure * plain + (1.0 - sure) * folded
     }
 
     fun has(songId: Long): Boolean = vectors.containsKey(songId)
