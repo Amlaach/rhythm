@@ -101,6 +101,8 @@ class MusicRepository(
 
     suspend fun rescan(): Int = withContext(Dispatchers.IO) {
         val excluded = prefs.excludedFolders.map { it.lowercase() }
+        // The folders the library is made of, when the listener chose some.
+        val roots = prefs.musicFolders.map { it.trimEnd('/').lowercase() + "/" }
         val overrides = dao.allOverrides().associateBy { it.songId }
         val skipRecordings = prefs.skipRecordings
         val minMs = prefs.minDurationSec * 1000L
@@ -141,7 +143,9 @@ class MusicRepository(
                 keep
             }
             .filter { song ->
-                val keep = excluded.none { pattern -> song.folder.lowercase().contains(pattern) }
+                val path = song.path.lowercase()
+                val keep = (roots.isEmpty() || roots.any { path.startsWith(it) }) &&
+                    excluded.none { pattern -> song.folder.lowercase().contains(pattern) }
                 if (!keep) inExcluded++
                 keep
             }

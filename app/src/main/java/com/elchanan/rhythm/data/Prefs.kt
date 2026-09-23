@@ -315,10 +315,15 @@ class Prefs(context: Context) {
      * only easier when there are few enough folders for the difference not to
      * matter - in which case the tree is no harder either.
      */
-    /** The folder the folder view opens on; empty for the top of the tree. */
-    var folderHome: String
-        get() = sp.getString(KEY_FOLDER_HOME, "").orEmpty()
-        set(value) = sp.edit { putString(KEY_FOLDER_HOME, value) }
+    /**
+     * The folders the library is made of, as absolute paths; empty for the
+     * whole device. A song elsewhere is left out as an excluded folder's is -
+     * hidden, not forgotten: everything learned about it comes back with it.
+     */
+    var musicFolders: List<String>
+        get() = sp.getString(KEY_MUSIC_FOLDERS, "").orEmpty()
+            .split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+        set(value) = sp.edit { putString(KEY_MUSIC_FOLDERS, value.joinToString("\n")) }
 
     /** The folders as a tab of their own on the bottom bar. */
     var foldersTab: Boolean
@@ -608,7 +613,7 @@ class Prefs(context: Context) {
         const val KEY_COMPACT = "compact_mode"
         const val KEY_SONG_MENU = "song_menu"
         const val KEY_HOME_QUEUE = "home_queue_button"
-        const val KEY_FOLDER_HOME = "folder_home"
+        const val KEY_MUSIC_FOLDERS = "music_folders"
         const val KEY_FOLDERS_TAB = "folders_tab"
         const val KEY_ARTIST_BY_ALBUM = "artist_by_album"
         const val KEY_ARTWORK_TAP_MODE = "artwork_tap_mode"

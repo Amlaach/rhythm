@@ -28,7 +28,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.SwitchDefaults
 import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -70,7 +69,6 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     var hideDupes by remember { mutableStateOf(vm.prefs.hideDuplicates) }
     var compact by remember { mutableStateOf(Display.compact) }
     var foldersTab by remember { mutableStateOf(Display.foldersTab) }
-    var folderHome by remember { mutableStateOf(vm.prefs.folderHome) }
 
     Column(
         modifier = Modifier
@@ -237,7 +235,6 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             )
         }
 
-
         SettingSwitch(
             title = "תיקיות בסרגל התחתון",
             subtitle = "לשונית משלהן ליד הספרייה, כדי להגיע לתיקיות בנגיעה אחת",
@@ -248,31 +245,6 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             Display.foldersTab = it
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = gutter, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("תיקייה ראשית", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    if (folderHome.isEmpty()) {
-                        "התיקיות נפתחות מההתחלה. לקביעת תיקייה ראשית: \"תיקייה ראשית\" בתוך התיקייה"
-                    } else {
-                        folderHome.substringAfterLast('/')
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-            }
-            if (folderHome.isNotEmpty()) {
-                TextButton(onClick = {
-                    folderHome = ""
-                    vm.prefs.folderHome = ""
-                }) { Text("נקה", color = Accent) }
-            }
-        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()

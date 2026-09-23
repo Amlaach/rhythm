@@ -47,7 +47,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
@@ -841,7 +840,7 @@ internal fun SelectionBar(vm: MainViewModel) {
                     onClick = { moreOpen = false; rateOpen = true }
                 )
                 DropdownMenuItem(
-                    text = { Text("עריכת פרטים") },
+                    text = { Text("עריכת תגיות") },
                     leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
                     onClick = { moreOpen = false; editOpen = true }
                 )
@@ -1066,17 +1065,6 @@ private fun FolderTreeTab(
     val selectionMode = selection.isNotEmpty()
     val root = remember(library.songs) { Folders.build(library.songs) }
     var path by rememberSaveable { mutableStateOf(root.path) }
-    // The folder chosen as the main one: where the view opens, and where back
-    // stops climbing.
-    var home by remember { mutableStateOf(vm.prefs.folderHome) }
-    val homeExists = home.isNotEmpty() && Folders.find(root, home) != null
-    var homeApplied by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(root) {
-        if (!homeApplied && root.total > 0) {
-            homeApplied = true
-            if (homeExists && path == root.path) path = home
-        }
-    }
     val folderRequest by vm.folderRequest.collectAsStateWithLifecycle()
     LaunchedEffect(folderRequest, root) {
         val wanted = folderRequest ?: return@LaunchedEffect
@@ -1117,7 +1105,7 @@ private fun FolderTreeTab(
         )
     }
 
-    BackHandler(enabled = here.path != root.path && here.path != home) {
+    BackHandler(enabled = here.path != root.path) {
         path = trail.getOrNull(trail.size - 2)?.path ?: root.path
     }
 
@@ -1132,8 +1120,7 @@ private fun FolderTreeTab(
     Column(modifier = Modifier.fillMaxSize()) {
         // Where we are, and a way back to any level above without tapping back
         // once per folder.
-        val homeLink = homeExists && here.path != home
-        if (trail.size > 1 || homeLink) {
+        if (trail.size > 1) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1141,17 +1128,6 @@ private fun FolderTreeTab(
                     .padding(horizontal = gutter, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (homeLink) {
-                    Icon(
-                        Icons.Filled.Home,
-                        contentDescription = localized("התיקייה הראשית"),
-                        tint = Accent,
-                        modifier = Modifier
-                            .clickable { path = home }
-                            .padding(end = 10.dp)
-                            .size(18.dp)
-                    )
-                }
                 trail.forEachIndexed { index, node ->
                     if (index > 0) {
                         Text(
@@ -1196,10 +1172,6 @@ private fun FolderTreeTab(
                         })
                         Chip(label = "תייג סגנון", selected = false, onClick = { tagging = here })
                         Chip(label = "דרג", selected = false, onClick = { rating = here })
-                        Chip(label = "תיקייה ראשית", selected = here.path == home, onClick = {
-                            home = if (here.path == home) "" else here.path
-                            vm.prefs.folderHome = home
-                        })
                     }
                 }
             }

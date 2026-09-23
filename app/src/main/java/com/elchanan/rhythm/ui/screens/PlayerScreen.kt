@@ -937,8 +937,8 @@ private fun SongDetailsDialog(
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } },
-        // The name, artist and album, into the file itself.
-        dismissButton = { TextButton(onClick = onEdit) { Text("ערוך", color = Accent) } }
+        // The song's tags, into the file itself.
+        dismissButton = { TextButton(onClick = onEdit) { Text("עריכת תגיות", color = Accent) } }
     )
 }
 
