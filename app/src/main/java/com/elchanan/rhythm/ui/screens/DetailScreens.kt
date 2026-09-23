@@ -465,8 +465,11 @@ private fun ShelfHeading(shelf: ArtistShelf, onOpen: (() -> Unit)?, onPlay: () -
             .padding(start = gutter, end = gutter - 8.dp, top = 18.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (shelf.albumId != null) {
-            Artwork(shelf.songs.first().id, shelf.albumId, shelf.name, Modifier.size(52.dp), corner = 10)
+        // Read once: the shelf comes from :engine, where the compiler cannot
+        // assume the property stays what it was checked to be.
+        val albumId = shelf.albumId
+        if (albumId != null) {
+            Artwork(shelf.songs.first().id, albumId, shelf.name, Modifier.size(52.dp), corner = 10)
             Spacer(Modifier.width(12.dp))
         }
         Column(modifier = Modifier.weight(1f)) {
