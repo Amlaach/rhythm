@@ -290,7 +290,9 @@ fun RhythmRoot(
                             onExpand = { playerOpen = true }
                         )
                     }
-                    RhythmBottomBar(
+                    // Not under the open player: it is put away by a swipe down
+                    // from anywhere, so the tabs would only take room from it.
+                    if (!playerOpen) RhythmBottomBar(
                         navController = navController,
                         currentRoute = currentRoute,
                         onNavigate = { route ->

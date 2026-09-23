@@ -536,6 +536,11 @@ class Prefs(context: Context) {
             putString(KEY_SONG_MENU, value.entries.joinToString(",") { "${it.key}=${it.value}" })
         }
 
+    /** The home screen's header steps aside while the feed scrolls down. */
+    var collapseHomeHeader: Boolean
+        get() = sp.getBoolean(KEY_COLLAPSE_HEADER, false)
+        set(value) = sp.edit { putBoolean(KEY_COLLAPSE_HEADER, value) }
+
     /** A queue button beside the others at the top of the home screen. */
     var homeQueueButton: Boolean
         get() = sp.getBoolean(KEY_HOME_QUEUE, false)
@@ -613,6 +618,7 @@ class Prefs(context: Context) {
         const val KEY_COMPACT = "compact_mode"
         const val KEY_SONG_MENU = "song_menu"
         const val KEY_HOME_QUEUE = "home_queue_button"
+        const val KEY_COLLAPSE_HEADER = "collapse_home_header"
         const val KEY_MUSIC_FOLDERS = "music_folders"
         const val KEY_FOLDERS_TAB = "folders_tab"
         const val KEY_ARTIST_BY_ALBUM = "artist_by_album"

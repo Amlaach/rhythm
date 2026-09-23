@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -287,11 +288,9 @@ fun PlayerScreen(
     }
 
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    // Nothing at the bottom. The player opens above the tab bar, and the tab
-    // bar already stands clear of the system's navigation buttons; clearing
-    // them a second time here left a strip of dead space under the controls,
-    // as tall as those buttons.
-    val bottomPad = 0.dp
+    // The tab bar is put away while the player is open, so the player itself
+    // stands clear of the system's navigation buttons - once.
+    val bottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     // Swipe the sheet down to put the player away, the way YouTube Music does.
     // The offset follows the finger while dragging and either carries on past the

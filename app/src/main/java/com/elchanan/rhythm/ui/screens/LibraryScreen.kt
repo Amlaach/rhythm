@@ -1117,7 +1117,43 @@ private fun FolderTreeTab(
         return
     }
 
+    // The main folder - where the music comes from - said where the folders
+    // are, and changed from here as well as from the settings.
+    var musicFolders by remember { mutableStateOf(vm.prefs.musicFolders) }
+    var musicFoldersOpen by remember { mutableStateOf(false) }
+    if (musicFoldersOpen) {
+        MusicFoldersDialog(
+            initial = musicFolders,
+            onDismiss = { musicFoldersOpen = false },
+            onApply = {
+                musicFolders = it
+                vm.prefs.musicFolders = it
+                vm.rescan()
+            }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
+        if (here.path == root.path) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { musicFoldersOpen = true }
+                    .padding(horizontal = gutter, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    localized("תיקייה ראשית:").orEmpty() + " " + musicFolders.joinToString(", ") { folderLabel(it) }
+                        .ifBlank { localized("כל המכשיר").orEmpty() },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Text("שינוי", style = MaterialTheme.typography.labelLarge, color = Accent)
+            }
+        }
         // Where we are, and a way back to any level above without tapping back
         // once per folder.
         if (trail.size > 1) {

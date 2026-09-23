@@ -72,10 +72,10 @@ fun LibrarySettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("תיקיות המוזיקה", style = MaterialTheme.typography.titleSmall)
+                    Text("תיקייה ראשית", style = MaterialTheme.typography.titleSmall)
                     Text(
                         text = musicFolders.joinToString(", ") { folderLabel(it) }
-                            .ifBlank { "מאיפה האפליקציה מביאה את המוזיקה. כרגע: כל המכשיר" },
+                            .ifBlank { "התיקייה שממנה האפליקציה מביאה את המוזיקה. כרגע: כל המכשיר" },
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                         maxLines = 2

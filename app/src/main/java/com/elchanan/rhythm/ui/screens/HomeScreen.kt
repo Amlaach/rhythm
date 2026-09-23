@@ -54,6 +54,15 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -133,7 +142,27 @@ fun HomeScreen(
         if (homeTop > 0) feedState.animateScrollToItem(0)
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
+    // The header - the mark, the name and the buttons - can step aside while
+    // the feed scrolls down and come back the moment it scrolls up, for those
+    // who chose it: the feed gets the room, and the buttons are one flick away.
+    val collapseHeader = remember { vm.prefs.collapseHomeHeader }
+    var headerShown by remember { mutableStateOf(true) }
+    val headerScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < -4f) headerShown = false
+                else if (available.y > 4f) headerShown = true
+                return Offset.Zero
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppBackground)
+            .then(if (collapseHeader) Modifier.nestedScroll(headerScroll) else Modifier)
+    ) {
         // A wash of colour behind the header and the category chips, fading out
         // into the page. It sits under both rather than belonging to either, so
         // the two keep their own spacing and the gradient ends where it likes
@@ -151,17 +180,25 @@ fun HomeScreen(
                     )
                 )
         ) {
-            HomeTopBar(
-                padding = statusPadding,
-                onRefresh = { vm.refreshFeed(reshuffle = true) },
-                onRecap = onOpenRecap,
-                onSettings = onOpenSettings,
-                onQueue = if (vm.prefs.homeQueueButton && hasQueue) {
-                    { vm.openQueue() }
-                } else {
-                    null
-                }
-            )
+            AnimatedVisibility(
+                visible = !collapseHeader || headerShown,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                HomeTopBar(
+                    padding = statusPadding,
+                    onRefresh = { vm.refreshFeed(reshuffle = true) },
+                    onRecap = onOpenRecap,
+                    onSettings = onOpenSettings,
+                    onQueue = if (vm.prefs.homeQueueButton && hasQueue) {
+                        { vm.openQueue() }
+                    } else {
+                        null
+                    }
+                )
+            }
+            // With the header away, the page still keeps clear of the status bar.
+            if (collapseHeader && !headerShown) Spacer(Modifier.height(statusPadding))
             if (busy) {
                 LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth(),
