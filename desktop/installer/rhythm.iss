@@ -83,6 +83,9 @@ Type: filesandordirs; Name: "{app}\runtime"
 ; runtime is a tree, not a file.
 Source: "{#SourceDir}\*"; DestDir: "{app}"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
+; Ship license notices alongside the JARs that the installer redistributes.
+Source: "THIRD_PARTY_NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "licenses\LGPL-2.1.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
