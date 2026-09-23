@@ -238,7 +238,10 @@ fun PlayerScreen(
     var whyOpen by remember { mutableStateOf(false) }
     var optionsOpen by remember { mutableStateOf(false) }
     var detailsOpen by remember { mutableStateOf(false) }
-    var editOpen by remember { mutableStateOf(false) }
+    // The song the tag editor was opened on, not whatever is playing now:
+    // the queue can move on while the dialog is open, and the edit belongs
+    // to the song it was started for.
+    var editing by remember { mutableStateOf<SongEntity?>(null) }
     var speedOpen by remember { mutableStateOf(false) }
     var bookmarksOpen by remember { mutableStateOf(false) }
     var volumeOpen by remember { mutableStateOf(false) }
@@ -852,11 +855,11 @@ fun PlayerScreen(
             song = song,
             feature = feature,
             onDismiss = { detailsOpen = false },
-            onEdit = { detailsOpen = false; editOpen = true }
+            onEdit = { detailsOpen = false; editing = song }
         )
     }
-    if (editOpen) {
-        SongEditDialog(vm = vm, songs = listOf(song), onDismiss = { editOpen = false })
+    editing?.let { target ->
+        SongEditDialog(vm = vm, songs = listOf(target), onDismiss = { editing = null })
     }
     if (speedOpen) {
         SpeedDialog(vm = vm, onDismiss = { speedOpen = false })

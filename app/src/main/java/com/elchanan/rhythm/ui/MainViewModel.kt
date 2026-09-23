@@ -1638,6 +1638,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     private var pendingWrites: List<TagFileWriter.Item> = emptyList()
 
+    /**
+     * Whether the pending edit lives in the file alone - an album artist, a
+     * year, a track number - so a file that cannot be written loses it, and
+     * saying "kept in the app" would be untrue.
+     */
+    private var pendingFileOnly = false
+
     private val _writePermissionRequest = MutableStateFlow<IntentSender?>(null)
     val writePermissionRequest: StateFlow<IntentSender?> = _writePermissionRequest.asStateFlow()
 
@@ -1689,11 +1696,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             edit.genre?.let { repo.setGenre(songIds, it.trim()) }
             refreshFeed()
-            _message.value = if (songIds.size == 1) "הפרטים עודכנו" else "עודכנו ${songIds.size} שירים"
+            val fileOnly = edit.title == null && edit.artist == null && edit.album == null && edit.genre == null
+            if (!fileOnly) {
+                _message.value = if (songIds.size == 1) "הפרטים עודכנו" else "עודכנו ${songIds.size} שירים"
+            }
             val songs = library.value.songsById
-            startFileWriteItems(songIds.mapNotNull { id ->
-                songs[id]?.let { TagFileWriter.Item(id, it.path, edit) }
-            })
+            startFileWriteItems(
+                songIds.mapNotNull { id -> songs[id]?.let { TagFileWriter.Item(id, it.path, edit) } },
+                fileOnly = fileOnly
+            )
         }
     }
 
@@ -1707,8 +1718,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         })
     }
 
-    private fun startFileWriteItems(items: List<TagFileWriter.Item>) {
+    private fun startFileWriteItems(items: List<TagFileWriter.Item>, fileOnly: Boolean = false) {
         pendingWrites = items
+        pendingFileOnly = fileOnly
         val request = tagFiles.permissionRequest(pendingWrites)
         when {
             // Android 11 and up: the system asks about these exact files.
@@ -1729,7 +1741,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             pendingWrites = emptyList()
             writeRetried = false
-            _message.value = "התיקון נשמר באפליקציה. הקבצים לא שונו."
+            _message.value = if (pendingFileOnly) {
+                "הקבצים לא שונו, ולכן השינוי לא נשמר"
+            } else {
+                "התיקון נשמר באפליקציה. הקבצים לא שונו."
+            }
         }
     }
 
@@ -1765,8 +1781,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
             _message.value = when {
                 outcome.written == 0 && outcome.failed == 0 && outcome.notMp3 > 0 ->
-                    "נשמר באפליקציה. הקובץ אינו MP3, ולכן הוא עצמו לא שונה."
-                outcome.written == 0 -> "לא הצלחתי לכתוב לקבצים. התיקון נשמר באפליקציה."
+                    if (pendingFileOnly) "הקובץ אינו MP3, ולכן השינוי לא נשמר"
+                    else "נשמר באפליקציה. הקובץ אינו MP3, ולכן הוא עצמו לא שונה."
+                outcome.written == 0 ->
+                    if (pendingFileOnly) "לא הצלחתי לכתוב לקבצים, ולכן השינוי לא נשמר"
+                    else "לא הצלחתי לכתוב לקבצים. התיקון נשמר באפליקציה."
                 outcome.notMp3 > 0 -> "נכתבו ${outcome.written} קבצים · ${outcome.notMp3} אינם MP3 ונשמרו רק באפליקציה"
                 outcome.ok -> "נכתבו ${outcome.written} קבצים"
                 else -> "נכתבו ${outcome.written}, נכשלו ${outcome.failed}"

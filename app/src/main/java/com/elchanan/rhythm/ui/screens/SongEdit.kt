@@ -53,24 +53,27 @@ internal fun SongEditDialog(
 ) {
     if (songs.isEmpty()) return
     val single = songs.singleOrNull()
+    // Every field belongs to these songs: if the dialog is ever handed others,
+    // it starts again rather than carry one song's name onto another.
+    val ids = remember(songs) { songs.map { it.id } }
 
     // Where each field starts: for one song, the file's own tags (the
     // library fills an empty album with the folder's name, and the file is
     // what is being edited); the library's name and artist until those are
     // read, and in their place if the file cannot be.
-    var original by remember {
+    var original by remember(ids) {
         mutableStateOf(
             if (single != null) TagEdit(single.title, single.artistName, "", "", "", "", "") else TagEdit()
         )
     }
-    var title by remember { mutableStateOf(original.title.orEmpty()) }
-    var artist by remember { mutableStateOf(original.artist.orEmpty()) }
-    var album by remember { mutableStateOf("") }
-    var albumArtist by remember { mutableStateOf("") }
-    var year by remember { mutableStateOf("") }
-    var track by remember { mutableStateOf("") }
-    var genre by remember { mutableStateOf("") }
-    var loaded by remember { mutableStateOf(single == null) }
+    var title by remember(ids) { mutableStateOf(original.title.orEmpty()) }
+    var artist by remember(ids) { mutableStateOf(original.artist.orEmpty()) }
+    var album by remember(ids) { mutableStateOf("") }
+    var albumArtist by remember(ids) { mutableStateOf("") }
+    var year by remember(ids) { mutableStateOf("") }
+    var track by remember(ids) { mutableStateOf("") }
+    var genre by remember(ids) { mutableStateOf("") }
+    var loaded by remember(ids) { mutableStateOf(single == null) }
 
     if (single != null) {
         LaunchedEffect(single.id) {
