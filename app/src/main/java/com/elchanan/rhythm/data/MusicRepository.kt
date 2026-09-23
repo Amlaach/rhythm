@@ -320,14 +320,16 @@ class MusicRepository(
     // -----------------------------------------------------------------------
 
     suspend fun setLike(songId: Long, value: Int) = withContext(Dispatchers.IO) {
-        val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
-        val next = if (current.liked == value) 0 else value
-        dao.putStats(
-            current.copy(
-                liked = next,
-                likedAt = if (next != 0) System.currentTimeMillis() else 0L
+        statsLock.withLock {
+            val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
+            val next = if (current.liked == value) 0 else value
+            dao.putStats(
+                current.copy(
+                    liked = next,
+                    likedAt = if (next != 0) System.currentTimeMillis() else 0L
+                )
             )
-        )
+        }
     }
 
     /** What this song is marked: 1 liked, -1 disliked, 0 neither. */
@@ -335,8 +337,10 @@ class MusicRepository(
         withContext(Dispatchers.IO) { dao.stats(songId)?.liked ?: 0 }
 
     suspend fun setSongRating(songId: Long, rating: Int) = withContext(Dispatchers.IO) {
-        val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
-        dao.putStats(current.copy(rating = if (current.rating == rating) 0 else rating))
+        statsLock.withLock {
+            val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
+            dao.putStats(current.copy(rating = if (current.rating == rating) 0 else rating))
+        }
     }
 
     /**
@@ -346,8 +350,10 @@ class MusicRepository(
      */
     suspend fun setSongStyles(songId: Long, styles: String, auto: Boolean = false) =
         withContext(Dispatchers.IO) {
-            val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
-            dao.putStats(current.copy(styles = styles, stylesAuto = if (auto) 1 else 0))
+            statsLock.withLock {
+                val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
+                dao.putStats(current.copy(styles = styles, stylesAuto = if (auto) 1 else 0))
+            }
         }
 
     /**
@@ -361,7 +367,7 @@ class MusicRepository(
      * @return how many songs were changed.
      */
     suspend fun applyImportedPlays(matches: List<PlayCountImport.Match>): Int =
-        withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) { statsLock.withLock {
             var changed = 0
             for (match in matches) {
                 val current = dao.stats(match.songId) ?: SongStatsEntity(songId = match.songId)
@@ -372,7 +378,7 @@ class MusicRepository(
                 changed++
             }
             changed
-        }
+        } }
 
     /**
      * Puts one set of style tags on many songs at once.
@@ -387,7 +393,7 @@ class MusicRepository(
         songIds: List<Long>,
         styles: List<String>,
         replace: Boolean
-    ): Int = withContext(Dispatchers.IO) {
+    ): Int = withContext(Dispatchers.IO) { statsLock.withLock {
         var changed = 0
         for (id in songIds) {
             val current = dao.stats(id)
@@ -398,7 +404,7 @@ class MusicRepository(
             changed++
         }
         changed
-    }
+    } }
 
     /**
      * Forgets every style tag the app guessed, keeping every one that was typed.
@@ -479,8 +485,10 @@ class MusicRepository(
 
     /** Sets a genre on many songs at once, creating stats rows as needed. */
     suspend fun setGenre(songIds: List<Long>, genre: String) = withContext(Dispatchers.IO) {
-        for (id in songIds) dao.ensureStats(id)
-        songIds.chunked(400).forEach { dao.setGenre(it, genre.trim()) }
+        statsLock.withLock {
+            for (id in songIds) dao.ensureStats(id)
+            songIds.chunked(400).forEach { dao.setGenre(it, genre.trim()) }
+        }
     }
 
     /**
@@ -498,7 +506,7 @@ class MusicRepository(
             dao.clearHistoryFor(id)
         }
         ids.chunked(400).forEach {
-            dao.deleteStats(it)
+            statsLock.withLock { dao.deleteStats(it) }
             // The song itself and its playlist places too, now. Those were
             // left to the scan that followed - and a scan asked for during
             // an analysis pass never ran, so a song deleted from inside the
@@ -513,25 +521,38 @@ class MusicRepository(
         withContext(Dispatchers.IO) {
             // Read, change, write: two chips tapped quickly must not both read
             // the old marks and have the second write erase the first.
-            moodMarkLock.withLock {
+            statsLock.withLock {
                 dao.ensureStats(songId)
                 val current = dao.stats(songId)?.moods.orEmpty()
                 dao.setMoods(songId, com.elchanan.rhythm.engine.MoodMarks.with(current, mood, value))
             }
         }
 
-    private val moodMarkLock = kotlinx.coroutines.sync.Mutex()
+    /**
+     * Every read, change and write of a song's stats, one at a time.
+     *
+     * Each of them reads the row, changes one field and writes the whole row
+     * back. Two at once - a like pressed as a play is being counted, a mood
+     * chip tapped as the song ends - both read the old row, and whichever
+     * wrote second erased the other: a like that did not stay, a play that
+     * was never counted.
+     */
+    private val statsLock = kotlinx.coroutines.sync.Mutex()
 
     /** The user saying a song is vocal-only (true), is not (false), or handing it back (null). */
     suspend fun setVocal(songId: Long, vocal: Boolean?) = withContext(Dispatchers.IO) {
-        dao.ensureStats(songId)
-        dao.setVocal(songId, when (vocal) { true -> 1; false -> 0; null -> -1 })
+        statsLock.withLock {
+            dao.ensureStats(songId)
+            dao.setVocal(songId, when (vocal) { true -> 1; false -> 0; null -> -1 })
+        }
     }
 
     /** The user overruling the speech detector, either way. */
     suspend fun setSpoken(songId: Long, spoken: Boolean) = withContext(Dispatchers.IO) {
-        dao.ensureStats(songId)
-        dao.setSpoken(songId, if (spoken) 1 else 0)
+        statsLock.withLock {
+            dao.ensureStats(songId)
+            dao.setSpoken(songId, if (spoken) 1 else 0)
+        }
     }
 
     /**
@@ -544,7 +565,7 @@ class MusicRepository(
      * those were said on purpose.
      */
     suspend fun resetPlayCount(songId: Long) = withContext(Dispatchers.IO) {
-        dao.resetPlayCount(songId)
+        statsLock.withLock { dao.resetPlayCount(songId) }
         dao.clearHistoryFor(songId)
     }
 
@@ -558,7 +579,7 @@ class MusicRepository(
         // SQLite caps how many values one statement may bind, and a prolific
         // artist in a large library goes past it.
         ids.chunked(400).forEach { chunk ->
-            dao.resetPlayCounts(chunk)
+            statsLock.withLock { dao.resetPlayCounts(chunk) }
             dao.clearHistoryFor(chunk)
         }
         ids.size
@@ -589,26 +610,28 @@ class MusicRepository(
         sessionTail: List<Long>
     ) = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
         val bucket = Recommender.bucketOf(now)
         val today = localDay(now)
-        val newDay = today != current.lastPlayDay
-        dao.putStats(
-            current.copy(
-                playDays = current.playDays + if (newDay) 1 else 0,
-                lastPlayDay = today,
-                playCount = current.playCount + 1,
-                completeCount = current.completeCount + if (completed) 1 else 0,
-                listenedMs = current.listenedMs + listenedMs,
-                lastPlayedAt = now,
-                b0 = current.b0 + if (bucket == 0) 1 else 0,
-                b1 = current.b1 + if (bucket == 1) 1 else 0,
-                b2 = current.b2 + if (bucket == 2) 1 else 0,
-                b3 = current.b3 + if (bucket == 3) 1 else 0,
-                dWeekend = current.dWeekend + if (Recommender.isWeekend(now)) 1 else 0,
-                dWeekday = current.dWeekday + if (Recommender.isWeekend(now)) 0 else 1
+        statsLock.withLock {
+            val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
+            val newDay = today != current.lastPlayDay
+            dao.putStats(
+                current.copy(
+                    playDays = current.playDays + if (newDay) 1 else 0,
+                    lastPlayDay = today,
+                    playCount = current.playCount + 1,
+                    completeCount = current.completeCount + if (completed) 1 else 0,
+                    listenedMs = current.listenedMs + listenedMs,
+                    lastPlayedAt = now,
+                    b0 = current.b0 + if (bucket == 0) 1 else 0,
+                    b1 = current.b1 + if (bucket == 1) 1 else 0,
+                    b2 = current.b2 + if (bucket == 2) 1 else 0,
+                    b3 = current.b3 + if (bucket == 3) 1 else 0,
+                    dWeekend = current.dWeekend + if (Recommender.isWeekend(now)) 1 else 0,
+                    dWeekday = current.dWeekday + if (Recommender.isWeekend(now)) 0 else 1
+                )
             )
-        )
+        }
         dao.insertHistory(HistoryEntity(songId = songId, playedAt = now, completed = completed, listenedMs = listenedMs))
         dao.trimHistory(HISTORY_FOR_RECENCY)
 
@@ -653,7 +676,7 @@ class MusicRepository(
         dao.putAffinity(AffinityEntity(a = a, b = b, weight = weight, updatedAt = now))
     }
 
-    suspend fun recordSkip(songId: Long, listenedMs: Long) = withContext(Dispatchers.IO) {
+    suspend fun recordSkip(songId: Long, listenedMs: Long) = withContext(Dispatchers.IO) { statsLock.withLock {
         val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
         val now = System.currentTimeMillis()
         val burst = synchronized(recentSkips) {
@@ -671,7 +694,7 @@ class MusicRepository(
                 lastPlayedAt = System.currentTimeMillis()
             )
         )
-    }
+    } }
 
     /** Records that [to] followed [from]; [skipped] flips it into a penalty. */
     suspend fun recordTransition(from: Long, to: Long, skipped: Boolean) = withContext(Dispatchers.IO) {
@@ -1006,19 +1029,23 @@ class MusicRepository(
     suspend fun bulkSetRating(songIds: List<Long>, rating: Int) = withContext(Dispatchers.IO) {
         // One transaction: a folder can hold a thousand songs, and a commit
         // per song made rating one take seconds.
-        RhythmDatabase.get(context).withTransaction {
-            for (id in songIds) {
-                val current = dao.stats(id) ?: SongStatsEntity(songId = id)
-                dao.putStats(current.copy(rating = rating))
+        statsLock.withLock {
+            RhythmDatabase.get(context).withTransaction {
+                for (id in songIds) {
+                    val current = dao.stats(id) ?: SongStatsEntity(songId = id)
+                    dao.putStats(current.copy(rating = rating))
+                }
             }
         }
     }
 
     suspend fun bulkSetLike(songIds: List<Long>, value: Int) = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        for (id in songIds) {
-            val current = dao.stats(id) ?: SongStatsEntity(songId = id)
-            dao.putStats(current.copy(liked = value, likedAt = if (value != 0) now else 0L))
+        statsLock.withLock {
+            for (id in songIds) {
+                val current = dao.stats(id) ?: SongStatsEntity(songId = id)
+                dao.putStats(current.copy(liked = value, likedAt = if (value != 0) now else 0L))
+            }
         }
     }
 
