@@ -282,6 +282,18 @@ class Recommender(
     }
 
     /**
+     * [playable] as a set, for the questions asked of it per song.
+     *
+     * Everything that reads the listening to learn a taste reads it through
+     * this: the taste vector did, and the sound model's seeds, the session's
+     * centre, the familiarity scale and the restlessness did not - so a shiur
+     * played daily, kept out of every shelf, still set what "sounds like what
+     * you love" meant, what was "playing now", and how well known every song
+     * looked beside it.
+     */
+    private val playableIds: Set<Long> = playable.mapTo(HashSet()) { it.id }
+
+    /**
      * When a song was last heard - played, not skipped - or 0 when unknown.
      *
      * The history is capped, so a song can be missing from it. When it has
@@ -364,7 +376,7 @@ class Recommender(
 
     private val hourBucket: Int = bucketOf(now)
     private val weekendNow: Boolean = isWeekend(now)
-    private val maxPlays: Int = stats.values.maxOfOrNull { it.playCount } ?: 0
+    private val maxPlays: Int = playable.maxOfOrNull { stats[it.id]?.playCount ?: 0 } ?: 0
 
     /** The styles the user has said must not be mixed, ready to consult. */
     private val separations: Styles.Separations =
@@ -427,15 +439,52 @@ class Recommender(
      * the ratio to mean anything.
      */
     private val restlessness: Double = run {
-        val plays = stats.values.sumOf { it.playCount }
-        val skips = stats.values.sumOf { it.skipCount }
+        var plays = 0
+        var skips = 0
+        for (song in playable) {
+            val st = stats[song.id] ?: continue
+            plays += st.playCount
+            skips += st.skipCount
+        }
         val attempts = plays + skips
         if (attempts < 10) 0.0 else (skips.toDouble() / attempts).coerceIn(0.0, 1.0)
     }
 
+    /**
+     * The same question asked of the last weeks only: of the songs touched
+     * lately, how many were last turned off rather than heard.
+     *
+     * [restlessness] is every skip since the app was installed, so a month
+     * of skipping a year ago widened the feed for good, and a listener whose
+     * feed stopped landing this week was drowned out by years of it
+     * landing. Still what the skip prior leans on - how often this listener
+     * skips anything at all is a lifetime question - but the discovery dial
+     * answers to now. Thirty days, then ninety if too little was touched,
+     * then the lifetime figure.
+     */
+    private val recentRestlessness: Double = run {
+        for (days in RESTLESS_WINDOWS_DAYS) {
+            val since = now - days * 86_400_000L
+            var touched = 0
+            var skipped = 0
+            for (song in playable) {
+                val st = stats[song.id] ?: continue
+                if (st.lastPlayedAt < since) continue
+                touched++
+                // The last touch was a skip when the skip is that touch and no
+                // play came after it.
+                if (st.lastSkipAt > 0L && st.lastSkipAt + SAME_EVENT_MS >= st.lastPlayedAt &&
+                    heardAt(song.id) < st.lastSkipAt
+                ) skipped++
+            }
+            if (touched >= RESTLESS_MIN_SONGS) return@run skipped.toDouble() / touched
+        }
+        restlessness
+    }
+
     /** The user's dial, widened when the recent picks are being skipped. */
     private val effectiveDiscovery: Double =
-        (tuning.discovery + 0.5 * restlessness).coerceIn(0.0, 1.0)
+        (tuning.discovery + 0.5 * recentRestlessness).coerceIn(0.0, 1.0)
 
     /**
      * The acoustic centre of the last three quarters of an hour, or null when too
@@ -451,8 +500,8 @@ class Recommender(
         // touched. Skips count as touches, so five skips in a row used to set
         // the session's centre to the sound being skipped, and the feed leaned
         // towards exactly what was being rejected.
-        val recent = stats.values
-            .map { it.songId to heardAt(it.songId) }
+        val recent = playable
+            .map { it.id to heardAt(it.id) }
             .filter { it.second >= cutoff }
             .sortedByDescending { it.second }
             .take(5)
@@ -787,12 +836,12 @@ class Recommender(
     init {
         val space = acoustic
         val listenedFor = behaviour.entries
-            .filter { it.value > 0.35 && space?.has(it.key) == true }
+            .filter { it.value > 0.35 && it.key in playableIds && space?.has(it.key) == true }
             .sortedByDescending { it.value }
             .take(60)
             .map { it.key }
         val listenedAgainst = behaviour.entries
-            .filter { it.value < -0.35 && space?.has(it.key) == true }
+            .filter { it.value < -0.35 && it.key in playableIds && space?.has(it.key) == true }
             .sortedBy { it.value }
             .take(30)
             .map { it.key }
@@ -1117,8 +1166,6 @@ class Recommender(
         for ((k, value) in v) dot += value * ((adjusted[k] ?: 0.0) / norm)
         return dot.coerceIn(-1.0, 1.0)
     }
-
-    private val playableIds: Set<Long> = playable.mapTo(HashSet()) { it.id }
 
     /**
      * Tracks the model heard as more talking than music, kept out of the
@@ -1908,12 +1955,14 @@ class Recommender(
                     )
                 )
             }
-            // acoustic neighbourhood of the single most endorsed song
-            val anchor = behaviour.entries
-                .filter { acoustic?.has(it.key) == true }
-                .maxByOrNull { it.value }
-                ?.key
-                ?.let { id -> songs.firstOrNull { it.id == id } }
+            // acoustic neighbourhood of the single most endorsed song - of the
+            // songs that may be offered: it opens the mix, and it was taken
+            // from the whole library, so a shiur played every day, a vocal
+            // song outside its weeks or a medley could open a mix of music
+            val anchor = notDisliked
+                .filter { acoustic?.has(it.id) == true }
+                .maxByOrNull { behaviour[it.id] ?: 0.0 }
+                ?.takeIf { (behaviour[it.id] ?: 0.0) > 0.0 }
             if (anchor != null && acousticPositives.isNotEmpty()) {
                 val neighbours = pick(
                     // Not the anchor's other copies: they are what it sounds
@@ -2775,6 +2824,12 @@ class Recommender(
 
         /** How far above the listener's average a mood must sit to count fully. */
         private const val MOOD_LIFT_SCALE = 0.8
+
+        /** The windows [recentRestlessness] tries, shortest first. */
+        private val RESTLESS_WINDOWS_DAYS = longArrayOf(30L, 90L)
+
+        /** Songs touched in a window before its skip share is believed. */
+        private const val RESTLESS_MIN_SONGS = 10
 
         /** How long a song must have been off before "listen again" offers it. */
         private const val AGAIN_AFTER_HOURS = 48.0
