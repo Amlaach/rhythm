@@ -540,7 +540,13 @@ class PlaybackService : MediaSessionService() {
         }
         scope.launch {
             val at = withContext(Dispatchers.IO) {
-                runCatching {
+                // Behind the player: decoding the end of a track is work for
+                // a spare moment, and on a slow phone it must never take the
+                // time the song that is playing needs.
+                val tid = android.os.Process.myTid()
+                val before = runCatching { android.os.Process.getThreadPriority(tid) }.getOrDefault(0)
+                runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND) }
+                try { runCatching {
                     val song = repo.songById(id) ?: return@runCatching -1L
                     val duration = song.durationMs
                     if (duration < TAIL_MS * 2) return@runCatching -1L
@@ -549,7 +555,9 @@ class PlaybackService : MediaSessionService() {
                         this@PlaybackService, MediaItems.songUri(id), startMs * 1000L, (TAIL_MS / 1000L).toInt()
                     ) ?: return@runCatching -1L
                     TrailingSilence.moveOnAt(samples, rate, startMs, duration) ?: -1L
-                }.getOrDefault(-1L)
+                }.getOrDefault(-1L) } finally {
+                    runCatching { android.os.Process.setThreadPriority(before) }
+                }
             }
             silenceFound[id] = at
             if (player.currentMediaItem?.mediaId?.toLongOrNull() == id) {

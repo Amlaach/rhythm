@@ -97,6 +97,11 @@ class AudioPlayer {
         _state.value = PlayerState(file = file, playing = true, durationMs = durationMs)
         worker = Thread({ run(file, durationMs) }, "rhythm-audio").apply {
             isDaemon = true
+            // Ahead of everything else the app does. The line holds well under
+            // a second, and a library being analysed in the background - the
+            // models on every spare core - starved a thread of equal rank long
+            // enough to empty it: the stutter people heard.
+            priority = Thread.MAX_PRIORITY
             start()
         }
     }
@@ -127,6 +132,9 @@ class AudioPlayer {
         // the user presses play, which looks like the seek was ignored.
         synchronized(pauseLock) { pauseLock.notifyAll() }
     }
+
+    /** How much sound the line holds ahead of the speaker. */
+    private val LINE_SECONDS = 0.75f
 
     /** How far from the end a seek is allowed to land. */
     private val END_MARGIN_MS = 400L
@@ -310,7 +318,13 @@ class AudioPlayer {
             runCatching { pcm.close() }
             return null
         }
-        runCatching { line.open(target, 64 * 1024) }.getOrElse {
+        // About three quarters of a second of sound, rounded to whole frames.
+        // It was 64 KB - a third of a second at CD quality - which a garbage
+        // collection or a busy moment on a slow machine could outlast. Volume
+        // and pause act on the line itself, so a longer one does not make
+        // either answer later; only an equaliser change takes that long.
+        val bytes = ((target.frameRate * target.frameSize * LINE_SECONDS).toInt() / target.frameSize) * target.frameSize
+        runCatching { line.open(target, bytes.coerceAtLeast(64 * 1024)) }.getOrElse {
             runCatching { pcm.close() }
             return null
         }

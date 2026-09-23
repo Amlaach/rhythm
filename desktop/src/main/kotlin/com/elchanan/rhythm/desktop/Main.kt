@@ -189,6 +189,7 @@ import javax.swing.UIManager
 import javax.swing.filechooser.FileNameExtensionFilter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -626,39 +627,53 @@ private fun RhythmApp() {
                 // unbounded: past the core count the passes only take turns,
                 // and every one of them is holding a decode buffer.
                 //
-                // One less than the cores, floor of two, so the machine is
-                // still usable while a library is being measured.
-                val lanes = (Runtime.getRuntime().availableProcessors() - 1)
-                    .coerceIn(2, 8)
+                // Half the cores, at the lowest priority, on threads of their
+                // own. It was every core but one, at the same rank as the
+                // player: since the models came in, each lane is heavy, and a
+                // library being measured while music played starved the
+                // player's thread until the sound stuttered. Measuring can
+                // wait a moment; the song in the speakers cannot.
+                val lanes = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4)
+                val analysisThreads = java.util.concurrent.Executors.newFixedThreadPool(lanes) { task ->
+                    Thread(task, "rhythm-analysis").apply {
+                        isDaemon = true
+                        priority = Thread.MIN_PRIORITY
+                    }
+                }
+                val analysisDispatcher = analysisThreads.asCoroutineDispatcher()
                 val counter = Mutex()
-                for (batch in todo.chunked(lanes)) {
-                    if (!isActive) break
-                    coroutineScope {
-                        for (song in batch) {
-                            launch(Dispatchers.IO) {
-                                val f = runCatching { Analyzer.analyze(song) }.getOrNull()
-                                // The store serialises its own writes, but
-                                // the two counters and the status line are
-                                // this coroutine's and are touched from every
-                                // lane.
-                                if (f != null) {
-                                    store.putFeature(f)
-                                } else if (snapshot[song.id] != null && File(song.path).isFile) {
-                                    // Measured once and back only for its
-                                    // prints, and now it will not decode: the
-                                    // measurements stay and the prints are
-                                    // marked tried, or it would be back on
-                                    // every pass for ever. The phone's rule.
-                                    store.markPrintTried(song.id)
-                                }
-                                counter.withLock {
-                                    done++
-                                    if (f == null) unreadable++
-                                    status = "מנתח… $done מתוך ${todo.size}"
+                try {
+                    for (batch in todo.chunked(lanes)) {
+                        if (!isActive) break
+                        coroutineScope {
+                            for (song in batch) {
+                                launch(analysisDispatcher) {
+                                    val f = runCatching { Analyzer.analyze(song) }.getOrNull()
+                                    // The store serialises its own writes, but
+                                    // the two counters and the status line are
+                                    // this coroutine's and are touched from every
+                                    // lane.
+                                    if (f != null) {
+                                        store.putFeature(f)
+                                    } else if (snapshot[song.id] != null && File(song.path).isFile) {
+                                        // Measured once and back only for its
+                                        // prints, and now it will not decode: the
+                                        // measurements stay and the prints are
+                                        // marked tried, or it would be back on
+                                        // every pass for ever. The phone's rule.
+                                        store.markPrintTried(song.id)
+                                    }
+                                    counter.withLock {
+                                        done++
+                                        if (f == null) unreadable++
+                                        status = "מנתח… $done מתוך ${todo.size}"
+                                    }
                                 }
                             }
                         }
                     }
+                } finally {
+                    analysisThreads.shutdown()
                 }
             } finally {
                 analysing = false
