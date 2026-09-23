@@ -22,6 +22,7 @@ import com.elchanan.rhythm.data.PlayCountImport
 import com.elchanan.rhythm.engine.ArtistStyles
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.BulkTagging
+import com.elchanan.rhythm.engine.EdgeDecay
 import com.elchanan.rhythm.engine.Spoken
 import com.elchanan.rhythm.engine.AcousticSpace
 import com.elchanan.rhythm.engine.Loudness
@@ -646,8 +647,10 @@ class MusicRepository(
     }
 
     private suspend fun bump(a: Long, b: Long, w: Double, now: Long) {
-        val current = dao.affinityWeight(a, b) ?: 0.0
-        dao.putAffinity(AffinityEntity(a = a, b = b, weight = current + w, updatedAt = now))
+        // Faded to now before anything is added - see EdgeDecay.
+        val current = dao.affinityEdge(a, b)
+        val weight = if (current == null) w else EdgeDecay.bump(current.weight, current.updatedAt, now, w)
+        dao.putAffinity(AffinityEntity(a = a, b = b, weight = weight, updatedAt = now))
     }
 
     suspend fun recordSkip(songId: Long, listenedMs: Long) = withContext(Dispatchers.IO) {
@@ -675,12 +678,13 @@ class MusicRepository(
         if (from == to || from <= 0L || to <= 0L) return@withContext
         val now = System.currentTimeMillis()
         val current = dao.transition(from, to)
+        val then = current?.updatedAt ?: 0L
         dao.putTransition(
             TransitionEntity(
                 a = from,
                 b = to,
-                weight = (current?.weight ?: 0.0) + if (skipped) 0.0 else 1.0,
-                penalty = (current?.penalty ?: 0.0) + if (skipped) 1.0 else 0.0,
+                weight = EdgeDecay.bump(current?.weight ?: 0.0, then, now, if (skipped) 0.0 else 1.0),
+                penalty = EdgeDecay.bump(current?.penalty ?: 0.0, then, now, if (skipped) 1.0 else 0.0),
                 updatedAt = now
             )
         )
@@ -688,8 +692,12 @@ class MusicRepository(
 
     suspend fun transitionMap(): Map<Long, Map<Long, TransitionEdge>> = withContext(Dispatchers.IO) {
         val out = HashMap<Long, MutableMap<Long, TransitionEdge>>()
+        val now = System.currentTimeMillis()
         for (row in dao.allTransitions()) {
-            out.getOrPut(row.a) { HashMap() }[row.b] = TransitionEdge(row.weight, row.penalty)
+            out.getOrPut(row.a) { HashMap() }[row.b] = TransitionEdge(
+                EdgeDecay.at(row.weight, row.updatedAt, now),
+                EdgeDecay.at(row.penalty, row.updatedAt, now)
+            )
         }
         out
     }
@@ -854,8 +862,9 @@ class MusicRepository(
     suspend fun affinityMap(): Map<Long, Map<Long, Double>> = withContext(Dispatchers.IO) {
         val rows: List<AffinityEntity> = dao.allAffinity()
         val out = HashMap<Long, MutableMap<Long, Double>>()
+        val now = System.currentTimeMillis()
         for (r in rows) {
-            out.getOrPut(r.a) { HashMap() }[r.b] = r.weight
+            out.getOrPut(r.a) { HashMap() }[r.b] = EdgeDecay.at(r.weight, r.updatedAt, now)
         }
         out
     }

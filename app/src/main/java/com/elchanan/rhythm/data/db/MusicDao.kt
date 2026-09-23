@@ -181,6 +181,9 @@ interface MusicDao {
     @Query("SELECT weight FROM affinity WHERE a = :a AND b = :b")
     suspend fun affinityWeight(a: Long, b: Long): Double?
 
+    @Query("SELECT * FROM affinity WHERE a = :a AND b = :b")
+    suspend fun affinityEdge(a: Long, b: Long): AffinityEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putAffinity(edge: AffinityEntity)
 
