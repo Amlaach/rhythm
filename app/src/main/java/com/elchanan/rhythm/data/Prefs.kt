@@ -266,7 +266,7 @@ class Prefs(context: Context) {
 
     /** In the Omer and the Three Weeks, recommend vocal-only songs and nothing else. */
     var onlyVocalInSeason: Boolean
-        get() = sp.getBoolean(KEY_ONLY_VOCAL, false)
+        get() = sp.getBoolean(KEY_ONLY_VOCAL, true)
         set(value) = sp.edit { putBoolean(KEY_ONLY_VOCAL, value) }
 
     /**

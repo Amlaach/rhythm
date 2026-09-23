@@ -123,7 +123,9 @@ data class SongStatsEntity(
      * [skipCount] as well; the engine gives each of these a fraction of a
      * skip's weight.
      */
-    val burstSkips: Int = 0
+    val burstSkips: Int = 0,
+    /** When the song was last skipped, 0 if never or before this was kept. */
+    val lastSkipAt: Long = 0L
 )
 
 /** User supplied artist profile: rating 1..5 and free style tags. */

@@ -41,4 +41,17 @@ class ListeningDaysTest {
         ))
         assertTrue(e.totalScore(song(1)) > e.totalScore(song(2)))
     }
+
+    @Test fun skipsFadeAsTheyAgeButNeverVanish() {
+        val e = engine(mapOf(
+            1L to SongStatsEntity(1L, skipCount = 5, lastSkipAt = now - 400 * day, lastPlayedAt = now - 400 * day),
+            2L to SongStatsEntity(2L, skipCount = 5, lastSkipAt = now - 2 * day, lastPlayedAt = now - 400 * day),
+            3L to SongStatsEntity(3L, lastPlayedAt = now - 400 * day)
+        ))
+        val old = e.totalScore(song(1))
+        val fresh = e.totalScore(song(2))
+        val never = e.totalScore(song(3))
+        assertTrue("old $old fresh $fresh", old > fresh)
+        assertTrue("an old skip still counts: $old vs $never", old < never)
+    }
 }

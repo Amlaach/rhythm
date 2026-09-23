@@ -324,6 +324,19 @@ class Recommender(
         return if (heardSinceLastSkip(songId)) skips * SKIP_FORGIVEN else skips
     }
 
+    /**
+     * 0.5..1: skips fade as they age. Taste moves, and a song turned off
+     * every time a year ago is not the same verdict as one turned off this
+     * week. Measured from the latest skip, so skipping it again renews the
+     * whole count; never below half, because a song skipped thirty times was
+     * not an accident. 1 when the date is unknown - skips from before it was
+     * kept count as they always did.
+     */
+    private fun skipAge(st: SongStatsEntity): Double {
+        if (st.lastSkipAt <= 0L) return 1.0
+        return 0.5 + 0.5 * exp(-daysSince(st.lastSkipAt) / SKIP_FADE_DAYS)
+    }
+
     private val hourBucket: Int = bucketOf(now)
     private val weekendNow: Boolean = isWeekend(now)
     private val maxPlays: Int = stats.values.maxOfOrNull { it.playCount } ?: 0
@@ -908,7 +921,7 @@ class Recommender(
         if (st.rating > 0) w += (st.rating - 3) * 0.8
         val skips = countedSkips(songId)
         val attempts = st.playCount + skips
-        if (attempts > 0.0) w -= 0.7 * (skips / attempts) * ln(1.0 + skips)
+        if (attempts > 0.0) w -= 0.7 * (skips / attempts) * ln(1.0 + skips) * skipAge(st)
         return w
     }
 
@@ -1134,7 +1147,9 @@ class Recommender(
         // so a library that is skipped through constantly does not read every
         // song in it as bad.
         val rate = (skips + SKIP_PRIOR * restlessness) / (attempts + SKIP_PRIOR)
-        return -1.25 * rate
+        // The size of the penalty fades, not the rate: a song only ever
+        // skipped has a rate of one however old the skips are.
+        return -1.25 * rate * skipAge(st)
     }
 
     /**
@@ -2617,6 +2632,9 @@ class Recommender(
 
         /** Vocal songs needed before "only vocal" in the season replaces everything else. */
         const val MIN_VOCAL_TO_REPLACE = 15
+
+        /** How many days it takes an old skip to lose most of what can fade. */
+        const val SKIP_FADE_DAYS = 180.0
 
         /** What one skip in a burst of skipping counts for, against a considered one. */
         const val BURST_SKIP = 0.3

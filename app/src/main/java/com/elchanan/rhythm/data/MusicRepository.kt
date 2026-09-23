@@ -597,6 +597,7 @@ class MusicRepository(
         dao.putStats(
             current.copy(
                 burstSkips = current.burstSkips + if (burst) 1 else 0,
+                lastSkipAt = now,
                 skipCount = current.skipCount + 1,
                 listenedMs = current.listenedMs + listenedMs,
                 lastPlayedAt = System.currentTimeMillis()

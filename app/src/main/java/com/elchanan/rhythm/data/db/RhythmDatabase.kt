@@ -171,7 +171,13 @@ abstract class RhythmDatabase : RoomDatabase() {
          */
         private val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("UPDATE audio_features SET musicPrint = '', musicMoods = '' WHERE energy > 0")
+                // YAMNet was fed the same wrong rate, so its tags and sound
+                // print go too: emptying the print sends every analysed song
+                // back through the whole analysis once, which makes both again.
+                db.execSQL(
+                    "UPDATE audio_features SET musicPrint = '', musicMoods = '', soundPrint = '' WHERE energy > 0"
+                )
+                db.execSQL("ALTER TABLE song_stats ADD COLUMN lastSkipAt INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE song_stats ADD COLUMN vocal INTEGER NOT NULL DEFAULT -1")
                 db.execSQL("ALTER TABLE song_stats ADD COLUMN playDays INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE song_stats ADD COLUMN lastPlayDay INTEGER NOT NULL DEFAULT -1")
