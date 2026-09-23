@@ -66,7 +66,7 @@ object MusicModelEvaluation {
             MusicMoods.parse(features[id]?.musicMoods.orEmpty()).isNotEmpty()
         }
         val withMusic = MoodModel(features.values, marked).report()
-        val withoutMusicFeatures = features.values.map { it.copy(musicMoods = "") }
+        val withoutMusicFeatures = features.values.map { it.copy(musicMoods = "", musicPrint = "") }
         val withoutMusic = MoodModel(withoutMusicFeatures, marked).report().associateBy { it.mood }
         val moods = withMusic.mapNotNull { result ->
             val baseline = withoutMusic[result.mood] ?: return@mapNotNull null

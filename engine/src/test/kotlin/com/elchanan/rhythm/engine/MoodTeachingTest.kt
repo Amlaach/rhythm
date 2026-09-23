@@ -78,6 +78,77 @@ class MoodTeachingTest {
         assertFalse(model.report().first { it.mood == Mood.CALM }.usingLearned)
     }
 
+    /** Slow, quiet and still by every measure the rules use - "calm" is always their answer. */
+    private fun still(id: Long, region: Int, r: Random, music: String = "") = busy(id, region, r).copy(
+        bpm = 62f + r.nextFloat() * 4f, energy = 0.08f + r.nextFloat() * 0.02f,
+        brightness = 0.2f + r.nextFloat() * 0.05f, onsetRate = 0.8f + r.nextFloat() * 0.2f,
+        musicPrint = music
+    )
+
+    /** A music print that leans towards one region, like [print]. */
+    private fun musicPrint(region: Int, r: Random): String {
+        val v = FloatArray(MusicPrint.DIMS) { r.nextFloat() * 0.3f }
+        for (i in region * 100 until region * 100 + 100) v[i] = v[i] + 3f + r.nextFloat()
+        return MusicPrint.pack(v)
+    }
+
+    @Test fun noAloneTakesOutThatSound() {
+        val r = Random(9)
+        // region 2: the kind the listener says is not calm; region 5: calm, as the rules say
+        // and busy ones beside them, since the rules read a library against itself
+        val still = (1L..40L).map { still(it, if (it <= 20) 2 else 5, r) } + (41L..60L).map { busy(it, 7, r) }
+        val ids = still.associateBy { it.songId }
+        val plain = MoodModel(still)
+        assertEquals("the fixture should read as calm", 40, (1L..40L).count { plain.matches(Mood.CALM, ids[it]) })
+
+        val marks = (1L..4L).associateWith { mapOf(Mood.CALM to false) }
+        val taught = MoodModel(still, marks)
+        val stillIn = (5L..20L).count { taught.matches(Mood.CALM, ids[it]) }
+        val kept = (21L..40L).count { taught.matches(Mood.CALM, ids[it]) }
+        assertTrue("$stillIn of 16 unmarked songs of that sound are still calm", stillIn <= 2)
+        assertEquals("the calm songs must stay", 20, kept)
+        val report = taught.report().first { it.mood == Mood.CALM }
+        assertTrue(report.usingLearned && report.onlyRemoves)
+        assertEquals(0, report.yes)
+        assertEquals(4, report.no)
+
+        // Below three, nothing is learned yet.
+        val few = MoodModel(still, (1L..2L).associateWith { mapOf(Mood.CALM to false) })
+        assertEquals(16, (5L..20L).count { few.matches(Mood.CALM, ids[it]) })
+    }
+
+    @Test fun aNoNeverAddsASong() {
+        // Busy songs the rules never call calm, and still ones they do.
+        val r = Random(11)
+        val songs = (1L..20L).map { busy(it, 1, r) } + (21L..40L).map { still(it, if (it <= 30) 2 else 5, r) }
+        val ids = songs.associateBy { it.songId }
+        val marks = (21L..24L).associateWith { mapOf(Mood.CALM to false) }
+        val taught = MoodModel(songs, marks)
+        assertEquals(0, (1L..20L).count { taught.matches(Mood.CALM, ids[it]) })
+        assertTrue((31L..40L).all { taught.matches(Mood.CALM, ids[it]) })
+    }
+
+    @Test fun theMusicModelTeachesToo() {
+        // The same sound print for all of them: only the music print tells the two kinds apart.
+        val r = Random(13)
+        val songs = (1L..40L).map { busy(it, 3, r).copy(musicPrint = musicPrint(if (it <= 20) 1 else 7, r)) }
+        val ids = songs.associateBy { it.songId }
+        val marks = HashMap<Long, Map<Mood, Boolean>>()
+        for (id in 1L..5L) marks[id] = mapOf(Mood.CALM to true)
+        for (id in 21L..24L) marks[id] = mapOf(Mood.CALM to false)
+        val taught = MoodModel(songs, marks)
+        val calmNow = (6L..20L).count { taught.matches(Mood.CALM, ids[it]) }
+        val drivingCalm = (25L..40L).count { taught.matches(Mood.CALM, ids[it]) }
+        assertTrue("only $calmNow of 15 unmarked songs of that kind became calm", calmNow >= 13)
+        assertEquals(0, drivingCalm)
+
+        // Handed the prints the engine holds, it reads the same.
+        val space = AcousticSpace(songs)
+        val lean = songs.map { it.copy(musicPrint = "") }
+        val fromEngine = MoodModel(lean, marks, space.musicPrints)
+        assertTrue((1L..40L).all { fromEngine.matches(Mood.CALM, ids[it]) == taught.matches(Mood.CALM, ids[it]) })
+    }
+
     @Test fun marksRoundTrip() {
         val raw = MoodMarks.with(MoodMarks.with("", Mood.CALM, true), Mood.ENERGETIC, false)
         assertEquals(mapOf(Mood.CALM to true, Mood.ENERGETIC to false), MoodMarks.parse(raw))
