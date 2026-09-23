@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.elchanan.rhythm.MainActivity
 import com.elchanan.rhythm.R
@@ -76,14 +77,15 @@ class LibraryWorkService : Service() {
         // The service keeps the process alive; the wake lock keeps the CPU
         // from idling between the file reads, which on some devices is the
         // difference between a pass that takes four minutes and one that
-        // takes forty. Timed, so a bug here can never hold the CPU awake for
-        // longer than the longest plausible pass.
+        // takes forty. Timed, and renewed while the work lasts - see
+        // WAKE_LOCK_MS.
         wakeLock = (getSystemService(Context.POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "rhythm:library")
             .also { lock ->
                 lock.setReferenceCounted(false)
                 runCatching { lock.acquire(WAKE_LOCK_MS) }
             }
+        var lockTakenAt = SystemClock.elapsedRealtime()
 
         work = holder.launch {
             try {
@@ -102,6 +104,16 @@ class LibraryWorkService : Service() {
                     // owns the loop, and this only has to keep the service up
                     // and the notification honest until it finishes.
                     while (isActive) {
+                        // Renewed while the pass is still at work. It was taken
+                        // once for an hour, and the first run over a large
+                        // library on a weak phone is many hours: after the
+                        // first, the processor was free to sleep whenever the
+                        // screen went off, and the pass crawled.
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lockTakenAt > WAKE_LOCK_RENEW_MS) {
+                            runCatching { wakeLock?.acquire(WAKE_LOCK_MS) }
+                            lockTakenAt = now
+                        }
                         val progress = app.analysis.progress.value
                         if (!progress.running && progress.remaining == 0) break
                         notify(
@@ -200,8 +212,14 @@ class LibraryWorkService : Service() {
         private const val EXTRA_SCAN = "scan"
         private const val EXTRA_ANALYZE = "analyze"
 
-        /** Longer than any plausible pass, and short enough to be a backstop. */
+        /**
+         * The wake lock is taken for this long and renewed every
+         * [WAKE_LOCK_RENEW_MS] while the work goes on, so a pass of any
+         * length keeps it, and a bug here can hold the processor awake for an
+         * hour past the end at most.
+         */
         private const val WAKE_LOCK_MS = 60L * 60L * 1000L
+        private const val WAKE_LOCK_RENEW_MS = 20L * 60L * 1000L
 
         /**
          * Starts the work, or runs it in the caller's process if the system

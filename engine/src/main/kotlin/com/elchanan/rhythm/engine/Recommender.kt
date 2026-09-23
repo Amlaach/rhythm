@@ -703,7 +703,7 @@ class Recommender(
     }
 
     /** The mood reading of the analysed library, built once per snapshot. */
-    private val moodModel: MoodModel = MoodModel(features.values, MoodMarks.of(stats))
+    private val moodModel: MoodModel = MoodModel(features.values, MoodMarks.of(stats), acoustic?.musicPrints)
 
     /** Which moods each analysed song expresses, worked out once. */
     private val moodsOf: Map<Long, List<Mood>> =

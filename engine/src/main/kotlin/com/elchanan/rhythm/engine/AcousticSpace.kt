@@ -102,6 +102,38 @@ class AcousticSpace(
             return out
         }
 
+        /**
+         * Folded, centred, unit length prints of [features], read by [read] -
+         * none at all when fewer than eight songs have one. Also how [MoodModel]
+         * reads the music prints when it is not handed the engine's.
+         */
+        internal fun folded(
+            features: Collection<AudioFeatureEntity>,
+            read: (AudioFeatureEntity) -> FloatArray?
+        ): Map<Long, DoubleArray> {
+            val folded = HashMap<Long, DoubleArray>()
+            for (f in features) {
+                val p = read(f) ?: continue
+                folded[f.songId] = fold(p)
+            }
+            return if (folded.size < 8) emptyMap() else {
+                // Folding is linear, so the folded mean is the fold of the mean.
+                val mean = DoubleArray(PRINT_DIMS)
+                for (v in folded.values) for (i in 0 until PRINT_DIMS) mean[i] += v[i]
+                for (i in 0 until PRINT_DIMS) mean[i] = mean[i] / folded.size
+                folded.mapValues { (_, v) ->
+                    var norm = 0.0
+                    for (i in 0 until PRINT_DIMS) {
+                        v[i] -= mean[i]
+                        norm += v[i] * v[i]
+                    }
+                    val length = sqrt(norm)
+                    if (length > 1e-9) for (i in 0 until PRINT_DIMS) v[i] /= length
+                    v
+                }
+            }
+        }
+
         internal fun rawVector(f: AudioFeatureEntity): DoubleArray {
             val out = DoubleArray(DIMS)
             out[0] = if (f.bpm > 20f) ln(f.bpm.toDouble()) else ln(100.0)
@@ -222,32 +254,12 @@ class AcousticSpace(
     private val music: Map<Long, DoubleArray> =
         if (!useMusic) emptyMap() else folded(features) { MusicPrint.unpack(it.musicPrint) }
 
-    private fun folded(
-        features: Collection<AudioFeatureEntity>,
-        read: (AudioFeatureEntity) -> FloatArray?
-    ): Map<Long, DoubleArray> {
-        val folded = HashMap<Long, DoubleArray>()
-        for (f in features) {
-            val p = read(f) ?: continue
-            folded[f.songId] = fold(p)
-        }
-        return if (folded.size < 8) emptyMap() else {
-            // Folding is linear, so the folded mean is the fold of the mean.
-            val mean = DoubleArray(PRINT_DIMS)
-            for (v in folded.values) for (i in 0 until PRINT_DIMS) mean[i] += v[i]
-            for (i in 0 until PRINT_DIMS) mean[i] = mean[i] / folded.size
-            folded.mapValues { (_, v) ->
-                var norm = 0.0
-                for (i in 0 until PRINT_DIMS) {
-                    v[i] -= mean[i]
-                    norm += v[i] * v[i]
-                }
-                val length = sqrt(norm)
-                if (length > 1e-9) for (i in 0 until PRINT_DIMS) v[i] /= length
-                v
-            }
-        }
-    }
+    /**
+     * The music prints as this space holds them, for [MoodModel]: the
+     * engine's rows no longer carry the raw prints once it is built, and
+     * these are already here. Read only.
+     */
+    val musicPrints: Map<Long, DoubleArray> get() = music
 
     /** The hand-made features alone: tempo, loudness, timbre, harmony, shape. */
     fun featureSimilarity(a: Long, b: Long): Double {

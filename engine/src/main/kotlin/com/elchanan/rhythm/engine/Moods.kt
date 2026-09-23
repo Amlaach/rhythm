@@ -84,7 +84,13 @@ enum class Mood(val label: String, val subtitle: String) {
 class MoodModel(
     all: Collection<AudioFeatureEntity>,
     /** What the user said about songs' moods; see [MoodMarks]. */
-    private val marks: Map<Long, Map<Mood, Boolean>> = emptyMap()
+    private val marks: Map<Long, Map<Mood, Boolean>> = emptyMap(),
+    /**
+     * The music prints folded as [AcousticSpace.musicPrints] holds them.
+     * The engine hands its own over, because the rows it keeps no longer
+     * carry the raw prints; null reads them from [all], the same way.
+     */
+    private val musicPrints: Map<Long, DoubleArray>? = null
 ) {
 
     private val usable = all.filter { it.energy > 0f }
@@ -326,7 +332,7 @@ class MoodModel(
         val feature = f ?: return false
         marks[feature.songId]?.get(mood)?.let { return it }
         if (feature.energy <= 0f) return false
-        learner(mood)?.let { return it.probability(feature) >= 0.5 }
+        learner(mood)?.let { return it.matches(feature) }
         return ruleMatches(mood, feature)
     }
 
@@ -363,7 +369,9 @@ class MoodModel(
         val feature = f ?: return 0.0
         if (marks[feature.songId]?.get(mood) == true) return 1.0
         if (feature.energy <= 0f) return 0.0
-        learner(mood)?.let { return it.probability(feature) }
+        // Learned from "no" alone, it decides what leaves the list and not
+        // the order of what stays.
+        learner(mood)?.takeIf { !it.onlyRemoves }?.let { return it.probability(feature) }
         return ruleStrength(mood, feature)
     }
 
@@ -461,68 +469,171 @@ class MoodModel(
     }
 
     /**
-     * Per mood, the summed prints of the songs marked as it and as not it.
-     * A print's dot product with a sum, over the count, is its average
-     * similarity to every song in the group - so one pass per song, however
-     * many songs were marked.
+     * The music model's prints, folded and centred like the engine's. Read
+     * only once a mood has marks to learn from.
      */
-    private class Groups(val yes: DoubleArray, val yesCount: Int, val no: DoubleArray, val noCount: Int)
-
-    private val groups: Map<Mood, Groups> by lazy {
-        Mood.entries.mapNotNull { mood ->
-            val yes = DoubleArray(SoundPrint.DIMS)
-            val no = DoubleArray(SoundPrint.DIMS)
-            var y = 0
-            var n = 0
-            for ((id, label) in examples[mood].orEmpty()) {
-                val p = markedPrints[id] ?: continue
-                val target = if (label) yes else no
-                for (k in 0 until SoundPrint.DIMS) target[k] = target[k] + p[k]
-                if (label) y++ else n++
-            }
-            if (y == 0 || n == 0) null else mood to Groups(yes, y, no, n)
-        }.toMap()
+    private val music: Map<Long, DoubleArray> by lazy {
+        musicPrints ?: AcousticSpace.folded(usable) { MusicPrint.unpack(it.musicPrint) }
     }
 
     /**
-     * How much more a track sounds like the songs marked as the mood than
-     * like the ones marked as not it, the track itself left out of both.
-     * Zero when there is no print to go on.
+     * Whether a mood learns only what to take out of its list: enough "no"
+     * marks, not enough "yes".
+     *
+     * Most corrections are a "no" - a song taken out of a list it should not
+     * have been in - and until there were three of each, a mood learned
+     * nothing from any of them. Here the list itself stands in for the
+     * missing "yes": the songs the rules put in the mood, against the songs
+     * the user took out. What is learned can then only take songs out - a
+     * "no" is never a reason to add one.
      */
-    private fun soundLean(mood: Mood, songId: Long, print: FloatArray?): Double {
-        val p = print ?: return 0.0
-        val g = groups[mood] ?: return 0.0
-        val own = examples[mood].orEmpty().firstOrNull { it.first == songId }?.second
-            ?.takeIf { markedPrints[songId] != null }
-        var dotYes = 0.0
-        var dotNo = 0.0
-        for (k in 0 until SoundPrint.DIMS) {
-            dotYes += p[k] * g.yes[k]
-            dotNo += p[k] * g.no[k]
+    private fun removing(mood: Mood): Boolean {
+        val list = examples[mood].orEmpty()
+        return list.count { !it.second } >= MIN_MARKS && list.count { it.second } < MIN_MARKS
+    }
+
+    /** The mood's list as the rules have it, the songs marked for it left out. In id order. */
+    private fun ruleList(mood: Mood): List<Long> {
+        val marked = examples[mood].orEmpty().mapTo(HashSet()) { it.first }
+        return usable.filter { it.songId !in marked && ruleMatches(mood, it) }
+            .map { it.songId }
+            .sorted()
+    }
+
+    /** What each mood is taught with: the marks, and the list where only "no" was said. */
+    private val teaching: Map<Mood, List<Pair<Long, Boolean>>> by lazy {
+        Mood.entries.associateWith { mood ->
+            val list = examples[mood].orEmpty()
+            if (removing(mood)) list + ruleList(mood).map { it to true } else list
         }
-        var yesCount = g.yesCount
-        var noCount = g.noCount
+    }
+
+    /**
+     * Per mood, the summed prints of the songs taught as it and as not it,
+     * and which songs went into each. A print's dot product with a sum, over
+     * the count, is its average similarity to every song in the group - so
+     * one pass per song, however many songs were marked.
+     */
+    private class Groups(val yes: DoubleArray, val yesIds: Set<Long>, val no: DoubleArray, val noIds: Set<Long>)
+
+    private fun groupsOf(dims: Int, addInto: (Long, DoubleArray) -> Boolean): Map<Mood, Groups> =
+        Mood.entries.mapNotNull { mood ->
+            val yes = DoubleArray(dims)
+            val no = DoubleArray(dims)
+            val yesIds = HashSet<Long>()
+            val noIds = HashSet<Long>()
+            for ((id, label) in teaching[mood].orEmpty()) {
+                if (label) {
+                    if (addInto(id, yes)) yesIds.add(id)
+                } else {
+                    if (addInto(id, no)) noIds.add(id)
+                }
+            }
+            if (yesIds.isEmpty() || noIds.isEmpty()) null else mood to Groups(yes, yesIds, no, noIds)
+        }.toMap()
+
+    private fun soundOf(id: Long): FloatArray? = markedPrints[id] ?: byId[id]?.let { centredPrint(it) }
+
+    private val soundGroups: Map<Mood, Groups> by lazy {
+        groupsOf(SoundPrint.DIMS) { id, into ->
+            val p = soundOf(id) ?: return@groupsOf false
+            for (k in 0 until SoundPrint.DIMS) into[k] = into[k] + p[k]
+            true
+        }
+    }
+
+    private val musicGroups: Map<Mood, Groups> by lazy {
+        groupsOf(AcousticSpace.PRINT_DIMS) { id, into ->
+            val p = music[id] ?: return@groupsOf false
+            for (k in 0 until AcousticSpace.PRINT_DIMS) into[k] = into[k] + p[k]
+            true
+        }
+    }
+
+    /**
+     * How much more a track sounds like the songs taught as the mood than
+     * like the ones taught as not it, the track itself left out of both.
+     * [dot] is the track's print against a group's sum. Zero when there is
+     * nothing to go on.
+     */
+    private fun lean(g: Groups?, songId: Long, dot: (DoubleArray) -> Double): Double {
+        if (g == null) return 0.0
+        var dotYes = dot(g.yes)
+        var dotNo = dot(g.no)
+        var yesCount = g.yesIds.size
+        var noCount = g.noIds.size
         // a song is always exactly like itself: take it out of its own group
-        if (own == true) { dotYes -= 1.0; yesCount-- }
-        if (own == false) { dotNo -= 1.0; noCount-- }
+        if (songId in g.yesIds) { dotYes -= 1.0; yesCount-- }
+        if (songId in g.noIds) { dotNo -= 1.0; noCount-- }
         if (yesCount <= 0 || noCount <= 0) return 0.0
         return dotYes / yesCount - dotNo / noCount
     }
 
-    /** A mood's reading learned from the user's marks. */
-    private inner class Learner(val mood: Mood, val w: DoubleArray) {
-        fun probability(f: AudioFeatureEntity): Double {
-            val print = markedPrints[f.songId] ?: centredPrint(f)
-            return sigmoid(dot(w, inputs(mood, f, print)))
+    /** By YAMNet's print: what the track sounds like. */
+    private fun soundLean(mood: Mood, songId: Long, print: FloatArray?): Double {
+        val p = print ?: return 0.0
+        return lean(soundGroups[mood], songId) { sum ->
+            var d = 0.0
+            for (k in 0 until SoundPrint.DIMS) d += p[k] * sum[k]
+            d
         }
     }
 
-    private fun inputs(mood: Mood, f: AudioFeatureEntity, print: FloatArray?): DoubleArray =
-        doubleArrayOf(1.0, ruleStrength(mood, f) - 0.5, soundLean(mood, f.songId, print))
+    /**
+     * By the music model's print: what kind of music it is. Trained on
+     * music, where YAMNet was trained on sounds of every kind, so it is the
+     * better ear for "these songs are alike".
+     */
+    private fun musicLean(mood: Mood, songId: Long): Double {
+        val p = music[songId] ?: return 0.0
+        return lean(musicGroups[mood], songId) { sum ->
+            var d = 0.0
+            for (k in 0 until AcousticSpace.PRINT_DIMS) d += p[k] * sum[k]
+            d
+        }
+    }
+
+    /**
+     * A mood's reading learned from the user's marks. [onlyRemoves]: learned
+     * from "no" alone - see [removing] - so it only takes songs out of the
+     * rules' list, and [w] is not used.
+     */
+    private inner class Learner(val mood: Mood, val w: DoubleArray, val onlyRemoves: Boolean) {
+        fun probability(f: AudioFeatureEntity): Double = sigmoid(dot(w, inputs(mood, f)))
+
+        fun matches(f: AudioFeatureEntity): Boolean =
+            if (onlyRemoves) ruleMatches(mood, f) && removalLean(mood, f) >= 0.0
+            else probability(f) >= 0.5
+    }
+
+    /**
+     * For a mood learned from "no" alone: how much more a track sounds like
+     * the rest of the list than like the songs taken out of it - below zero,
+     * it goes the way they went. By both prints where there are both, the
+     * track itself left out of its own group. Zero, and so kept, when there
+     * is nothing to go on.
+     */
+    private fun removalLean(mood: Mood, f: AudioFeatureEntity): Double {
+        val leans = ArrayList<Double>(2)
+        if (musicGroups[mood] != null && music[f.songId] != null) leans.add(musicLean(mood, f.songId))
+        val sound = soundOf(f.songId) ?: centredPrint(f)
+        if (soundGroups[mood] != null && sound != null) leans.add(soundLean(mood, f.songId, sound))
+        return if (leans.isEmpty()) 0.0 else leans.average()
+    }
+
+    private fun inputs(mood: Mood, f: AudioFeatureEntity): DoubleArray =
+        doubleArrayOf(
+            1.0,
+            ruleStrength(mood, f) - 0.5,
+            soundLean(mood, f.songId, soundOf(f.songId) ?: centredPrint(f)),
+            musicLean(mood, f.songId)
+        )
 
     /**
      * How well the rules and the learned reading each do on the songs the user
      * marked, every song judged by a reading that was not taught with it.
+     * Where a mood learned from "no" alone ([onlyRemoves]), the learned
+     * figure is how many of the songs taken out it finds by itself.
      */
     class MoodReport(
         val mood: Mood,
@@ -530,7 +641,8 @@ class MoodModel(
         val no: Int,
         val ruleAccuracy: Double,
         val learnedAccuracy: Double?,
-        val usingLearned: Boolean
+        val usingLearned: Boolean,
+        val onlyRemoves: Boolean = false
     )
 
     private val learned = HashMap<Mood, Pair<Learner?, MoodReport?>>()
@@ -547,22 +659,40 @@ class MoodModel(
         val yes = list.count { it.second }
         val no = list.size - yes
         if (yes == 0 && no == 0) return null to null
-        val rows = list.map { (id, label) ->
-            val f = byId.getValue(id)
-            inputs(mood, f, markedPrints[id]) to label
-        }
         val ruleAccuracy = balanced(list.map { (id, label) -> ruleMatches(mood, byId.getValue(id)) to label })
-        if (yes < MIN_MARKS || no < MIN_MARKS) {
+        val removes = removing(mood)
+        if (!removes && (yes < MIN_MARKS || no < MIN_MARKS)) {
             return null to MoodReport(mood, yes, no, ruleAccuracy, null, false)
         }
+        if (removes) return trainRemoval(mood, yes, no, ruleAccuracy)
+        val rows = list.map { (id, label) -> inputs(mood, byId.getValue(id)) to label }
         val held = rows.indices.map { i ->
             val w = fit(rows.filterIndexed { j, _ -> j != i })
             (sigmoid(dot(w, rows[i].first)) >= 0.5) to rows[i].second
         }
         val learnedAccuracy = balanced(held)
         val use = learnedAccuracy >= ruleAccuracy
-        val learner = if (use) Learner(mood, fit(rows)) else null
+        val learner = if (use) Learner(mood, fit(rows), false) else null
         return learner to MoodReport(mood, yes, no, ruleAccuracy, learnedAccuracy, use)
+    }
+
+    /**
+     * Learning from "no" alone. It earns its place when the marks agree with
+     * each other: each song taken out, left out of the teaching in turn, is
+     * found by the others - at least [REMOVALS_FOUND] of them. A few wrong
+     * songs that have nothing in common teach nothing, and are only taken
+     * out themselves. And it must leave at least [KEEP_OF_LIST] of the list:
+     * a correction is not a reason to empty a mood.
+     */
+    private fun trainRemoval(mood: Mood, yes: Int, no: Int, ruleAccuracy: Double): Pair<Learner?, MoodReport?> {
+        val list = ruleList(mood)
+        val taken = examples[mood].orEmpty().filter { !it.second }.map { byId.getValue(it.first) }
+        if (list.isEmpty()) return null to MoodReport(mood, yes, no, ruleAccuracy, null, false, true)
+        val found = taken.count { removalLean(mood, it) < 0.0 }.toDouble() / taken.size
+        val kept = list.count { removalLean(mood, byId.getValue(it)) >= 0.0 }.toDouble() / list.size
+        val use = found >= REMOVALS_FOUND && kept >= KEEP_OF_LIST
+        val learner = if (use) Learner(mood, DoubleArray(0), true) else null
+        return learner to MoodReport(mood, yes, no, ruleAccuracy, found, use, true)
     }
 
     internal companion object {
@@ -654,8 +784,17 @@ class MoodModel(
             }
         }
 
-        /** Marks each way a mood needs before it is learned rather than ruled. */
+        /**
+         * Marks a mood needs before it is learned rather than ruled: this
+         * many each way, or this many "no" to learn what to take out.
+         */
         const val MIN_MARKS = 3
+
+        /** How many of the songs taken out a mood learned from "no" alone must find on its own. */
+        const val REMOVALS_FOUND = 2.0 / 3.0
+
+        /** How much of its list a mood learned from "no" alone must keep. */
+        const val KEEP_OF_LIST = 0.5
 
         /** Moods that a song cannot be at once, so marking one teaches the other. */
         val OPPOSITES: Map<Mood, Set<Mood>> = mapOf(
@@ -679,25 +818,26 @@ class MoodModel(
         }
 
         /**
-         * Logistic regression over [bias, rule strength, sound lean], the
-         * classes balanced and the weights held near a start that trusts the
-         * rules: with a handful of marks, the rules are the prior and the
-         * marks move them, rather than a few examples replacing everything.
+         * Logistic regression over [bias, rule strength, sound lean, music
+         * lean], the classes balanced and the weights held near a start that
+         * trusts the rules: with a handful of marks, the rules are the prior
+         * and the marks move them, rather than a few examples replacing
+         * everything.
          */
         fun fit(rows: List<Pair<DoubleArray, Boolean>>): DoubleArray {
-            val start = doubleArrayOf(0.0, 8.0, 0.0)
+            val start = doubleArrayOf(0.0, 8.0, 0.0, 0.0)
             val w = start.copyOf()
             val pos = rows.count { it.second }.coerceAtLeast(1)
             val neg = (rows.size - rows.count { it.second }).coerceAtLeast(1)
             val n = rows.size.coerceAtLeast(1).toDouble()
             repeat(400) {
-                val g = DoubleArray(3)
+                val g = DoubleArray(start.size)
                 for ((x, label) in rows) {
                     val err = (sigmoid(dot(w, x)) - if (label) 1.0 else 0.0) *
                         (if (label) n / (2.0 * pos) else n / (2.0 * neg))
-                    for (i in 0 until 3) g[i] += err * x[i]
+                    for (i in start.indices) g[i] += err * x[i]
                 }
-                for (i in 0 until 3) {
+                for (i in start.indices) {
                     val pull = if (i == 0) 0.0 else 0.05 * (w[i] - start[i])
                     w[i] -= 0.8 * (g[i] / n + pull)
                 }
@@ -774,8 +914,9 @@ object MoodMarks {
     fun describe(reports: List<MoodModel.MoodReport>): String {
         if (reports.isEmpty()) {
             return "מצבי רוח: עוד לא תיקנת אף שיר. אפשר מתפריט השיר ← \"מצב רוח\", " +
-                "או מתוך רשימת מצב רוח ← \"לא מתאים\". מ-${MoodModel.MIN_MARKS} תיקונים לכל " +
-                "כיוון, האפליקציה לומדת לזהות את מצב הרוח הזה לפי האוזן שלך."
+                "או מתוך רשימת מצב רוח ← \"לא מתאים\". מ-${MoodModel.MIN_MARKS} סימוני \"לא\" " +
+                "האפליקציה לומדת להוציא ממצב הרוח שירים שנשמעים כמותם, ועם " +
+                "${MoodModel.MIN_MARKS} \"כן\" היא לומדת לזהות אותו לפי האוזן שלך."
         }
         fun pct(v: Double) = "${(v * 100).roundToInt()}%"
         return buildString {
@@ -784,13 +925,12 @@ object MoodMarks {
                 append("• ${r.mood.label}: ${r.yes} כן · ${r.no} לא — ")
                 append("הזיהוי האוטומטי ${pct(r.ruleAccuracy)}")
                 when {
-                    r.learnedAccuracy == null -> {
-                        val need = listOfNotNull(
-                            (MoodModel.MIN_MARKS - r.yes).takeIf { it > 0 }?.let { "עוד $it \"כן\"" },
-                            (MoodModel.MIN_MARKS - r.no).takeIf { it > 0 }?.let { "עוד $it \"לא\"" }
-                        ).joinToString(" ו")
-                        append(" · כדי ללמוד צריך $need")
+                    // "No" alone is enough to start: what is missing is only ever "no".
+                    r.learnedAccuracy == null -> (MoodModel.MIN_MARKS - r.no).takeIf { it > 0 }?.let {
+                        append(" · כדי ללמוד צריך עוד $it \"לא\"")
                     }
+                    r.usingLearned && r.onlyRemoves ->
+                        append(", אחרי לימוד ${pct(r.learnedAccuracy)} (פעיל — מוציא שירים שנשמעים כמו אלה שסימנת \"לא\")")
                     r.usingLearned -> append(", אחרי לימוד ${pct(r.learnedAccuracy)} (פעיל)")
                     else -> append(", אחרי לימוד ${pct(r.learnedAccuracy)} (לא טוב יותר, לא הופעל)")
                 }

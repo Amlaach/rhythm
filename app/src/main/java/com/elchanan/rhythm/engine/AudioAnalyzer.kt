@@ -106,7 +106,7 @@ object AudioAnalyzer {
         synchronized(this) {
             if (!musicAttempted) {
                 musicAttempted = true
-                music = MusicTagger.create(context.applicationContext)
+                music = MusicTagger.create(context.applicationContext, threads)
             }
         }
         return music
@@ -155,10 +155,49 @@ object AudioAnalyzer {
         synchronized(this) {
             if (!taggerAttempted) {
                 taggerAttempted = true
-                tagger = AudioTagger.create(context.applicationContext)
+                tagger = AudioTagger.create(context.applicationContext, threads)
             }
         }
         return tagger
+    }
+
+    /** How many threads the models are built with. See [useThreads]. */
+    @Volatile
+    private var threads = 2
+
+    /**
+     * Threads for the models: two, and more while the phone charges.
+     *
+     * Two keeps a phone in someone's hand responsive, and on battery it is
+     * also the cheaper pace. On the charger the pass may take more of the
+     * phone - the first run over a large library is hours, and that is
+     * where it is usually left to run. Three on a phone of four to seven
+     * cores, four on eight or more; never the whole phone, so the screen and
+     * the player keep a core of their own. The pass still runs at
+     * background priority either way.
+     */
+    fun threadsFor(charging: Boolean): Int {
+        if (!charging) return 2
+        val cores = Runtime.getRuntime().availableProcessors()
+        return when {
+            cores >= 8 -> 4
+            cores >= 4 -> 3
+            else -> 2
+        }
+    }
+
+    /**
+     * Sets the thread count for the models; ones already open with another
+     * count are closed and reopen with the new one on the next song.
+     * Threads divide the same arithmetic between cores - what the models
+     * compute does not depend on how many there are.
+     */
+    fun useThreads(count: Int) {
+        synchronized(this) {
+            if (count == threads) return
+            threads = count
+            releaseTagger()
+        }
     }
 
     /** Frees the model once a pass is over. */

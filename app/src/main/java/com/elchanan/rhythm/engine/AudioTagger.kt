@@ -148,13 +148,14 @@ class AudioTagger private constructor(private val interpreter: Interpreter) {
         /** The sample rate the model was trained at. Not negotiable. */
         const val SAMPLE_RATE = 16000
 
-        fun create(context: Context): AudioTagger? = runCatching {
-            val options = Interpreter.Options().apply {
-                // Two threads: the analyser already runs several songs in
-                // sequence on a background thread, and taking every core would
-                // make the interface stutter while a library is scanned.
-                setNumThreads(2)
-            }
+        /**
+         * [threads]: two normally - the analyser already runs several songs
+         * in sequence on a background thread, and taking every core would
+         * make the interface stutter while a library is scanned. More while
+         * the phone charges; see [AudioAnalyzer.threadsFor].
+         */
+        fun create(context: Context, threads: Int = 2): AudioTagger? = runCatching {
+            val options = Interpreter.Options().apply { setNumThreads(threads) }
             AudioTagger(Interpreter(loadModel(context), options))
         }.getOrNull()
 
