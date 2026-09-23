@@ -45,13 +45,15 @@ android {
         buildConfigField("String", "GIT_SHA", "\"$ciCommit\"")
         vectorDrawables { useSupportLibrary = true }
 
-        // TensorFlow Lite ships a native library per architecture, and carrying
-        // all four roughly doubles the download for nothing: arm64 covers every
-        // phone sold in years, and x86_64 is what the emulator runs on. The two
-        // that are left out are 32-bit builds this app's minimum already makes
-        // rare.
+        // TensorFlow Lite ships a native library per architecture. 32-bit ARM
+        // is in, because leaving it out made the app refuse to install at all
+        // on exactly the phones minSdk 21 is there for: older and budget
+        // devices, and many newer Android Go ones, run a 32-bit system even
+        // on 64-bit chips, and Android will not install an apk whose native
+        // code has no build for the running system. It costs about a
+        // megabyte and a half. 32-bit x86 stays out: no phone runs it.
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
     }
 
@@ -86,6 +88,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Java 8 library methods - Map.getOrDefault, putIfAbsent, merge and
+        // the rest - only exist on the device from Android 7. Kotlin calls
+        // them happily and lint is switched off for release builds, so on
+        // Android 5 and 6 they compiled and then crashed. Desugaring supplies
+        // them to older systems at build time.
+        isCoreLibraryDesugaringEnabled = true
     }
     kotlinOptions {
         jvmTarget = "17"
@@ -123,6 +131,7 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
     testImplementation("junit:junit:4.13.2")
     // The music engine. Pure Kotlin, no Android - see engine/build.gradle.kts.
     implementation(project(":engine"))
