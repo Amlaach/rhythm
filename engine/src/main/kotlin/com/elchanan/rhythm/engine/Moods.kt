@@ -26,7 +26,7 @@ enum class Mood(val label: String, val subtitle: String) {
             marks: Map<Long, Map<Mood, Boolean>> = emptyMap()
         ): List<SongEntity> {
             val model = MoodModel(features.values, marks)
-            return songs.filter { model.matches(mood, features[it.id]) }
+            return songs.filter { model.matches(mood, features[it.id]) && !Spoken.speechAhead(features[it.id]) }
         }
 
         /**
@@ -45,7 +45,8 @@ enum class Mood(val label: String, val subtitle: String) {
             marks: Map<Long, Map<Mood, Boolean>> = emptyMap()
         ): List<SongEntity> {
             val model = MoodModel(features.values, marks)
-            return songs.filter { model.matches(mood, features[it.id]) }
+            // Talking is not a mood: see Spoken.speechAhead.
+            return songs.filter { model.matches(mood, features[it.id]) && !Spoken.speechAhead(features[it.id]) }
                 .sortedByDescending { model.strength(mood, features[it.id]) }
         }
     }

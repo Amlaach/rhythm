@@ -1121,6 +1121,15 @@ class Recommender(
     private val playableIds: Set<Long> = playable.mapTo(HashSet()) { it.id }
 
     /**
+     * Tracks the model heard as more talking than music, kept out of the
+     * mood lists even when they were not filed as spoken word - a lecture
+     * is not "energetic" however fast the speaker. See [Spoken.speechAhead].
+     */
+    private val speechAhead: Set<Long> by lazy {
+        playable.filterTo(HashSet()) { Spoken.speechAhead(features[it.id]) }.mapTo(HashSet()) { it.id }
+    }
+
+    /**
      * What the engine can say about a song without its own history: the five
      * signals of [SignalWeights], each read with the song itself left out.
      *
@@ -2206,7 +2215,10 @@ class Recommender(
             if (favourite != null) {
                 val more = offered(
                     notDisliked
-                        .filter { moodModel.matches(favourite, features[it.id]) && it !in engaged }
+                        .filter {
+                            moodModel.matches(favourite, features[it.id]) && it !in engaged &&
+                                it.id !in speechAhead
+                        }
                         .sortedByDescending { totalScore(it) }
                 ).take(20)
                 if (more.size >= 6) {
@@ -2333,7 +2345,7 @@ class Recommender(
     fun strongestIn(mood: Mood): List<SongEntity> =
         playable
             .filter { (stats[it.id]?.liked ?: 0) != -1 }
-            .filter { moodModel.matches(mood, features[it.id]) }
+            .filter { moodModel.matches(mood, features[it.id]) && it.id !in speechAhead }
             .sortedByDescending { moodModel.strength(mood, features[it.id]) }
 
     /** Whether anything in this snapshot has been analysed at all. */
