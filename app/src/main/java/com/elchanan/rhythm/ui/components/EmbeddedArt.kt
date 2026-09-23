@@ -28,9 +28,17 @@ import okio.Buffer
  */
 data class SongArt(val songId: Long, val albumId: Long)
 
+/**
+ * Whether the song may borrow its album's picture is part of the key: a cover
+ * cached before the library marked its album as only a folder would otherwise
+ * keep showing that other song's sleeve from the cache.
+ */
 class SongArtKeyer : Keyer<SongArt> {
-    override fun key(data: SongArt, options: Options): String =
-        if (data.songId > 0) "song-art:${data.songId}" else "album-art:${data.albumId}"
+    override fun key(data: SongArt, options: Options): String = when {
+        data.songId <= 0 -> "album-art:${data.albumId}"
+        data.albumId in MediaItems.looseAlbums -> "song-art:${data.songId}:own"
+        else -> "song-art:${data.songId}:album"
+    }
 }
 
 class SongArtFetcher(

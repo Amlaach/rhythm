@@ -273,7 +273,11 @@ fun RhythmRoot(
                     // that acts on it has to follow rather than vanish with
                     // the screen it was born on. Empty selection draws
                     // nothing, so this costs a row only while it is wanted.
-                    SelectionBar(vm)
+                    // Put away under the open player with the tabs, whose
+                    // row gave it its room above the system navigation; the
+                    // selection itself stays, and the bar is back with the
+                    // list it acts on.
+                    if (!playerOpen) SelectionBar(vm)
                     // Hidden while the full player is up - it is the same controls.
                     if (currentSong != null && !playerOpen) {
                         val miniState by vm.player.state.collectAsStateWithLifecycle()
