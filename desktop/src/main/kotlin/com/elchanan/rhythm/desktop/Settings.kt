@@ -115,6 +115,7 @@ internal fun SettingsScreen(
     onResetAnalysis: () -> Unit,
     onPickLyricsFolder: () -> Unit,
     onImportPlaylist: () -> Unit,
+    onImportYouTubeMusic: () -> Unit,
     onImportPlayCounts: () -> Unit,
     onExportPlaylists: () -> Unit,
     onExportAnalysis: () -> Unit,
@@ -306,6 +307,16 @@ internal fun SettingsScreen(
                     enabled = true,
                     primary = false,
                     onClick = onImportPlaylist
+                )
+                ActionRow(
+                    title = "ייבוא מ־YouTube Music",
+                    subtitle = "בוחרים את קובץ ה־ZIP מ־Google Takeout (\"YouTube ו־YouTube Music\"), " +
+                        "או קובצי CSV של פלייליסטים. כל פלייליסט נוצר כאן, והשירים " +
+                        "מזוהים לפי שם ואמן",
+                    action = "בחר קבצים",
+                    enabled = true,
+                    primary = false,
+                    onClick = onImportYouTubeMusic
                 )
                 ActionRow(
                     title = "ייצוא כל הרשימות",

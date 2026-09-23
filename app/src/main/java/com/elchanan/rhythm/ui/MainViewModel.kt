@@ -18,6 +18,7 @@ import com.elchanan.rhythm.data.MusicRepository
 import com.elchanan.rhythm.data.PlaylistExport
 import com.elchanan.rhythm.data.PlayCountImport
 import com.elchanan.rhythm.data.PlaylistImport
+import com.elchanan.rhythm.data.YouTubeMusicImport
 import com.elchanan.rhythm.data.TagFileWriter
 import com.elchanan.rhythm.data.TagFixer
 import com.elchanan.rhythm.data.db.ArtistEntity
@@ -1360,6 +1361,78 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 "יובאה הרשימה \"$name\" עם ${songs.size} שירים"
             }
         }
+    }
+
+    /**
+     * Imports playlists from YouTube Music, by way of Google Takeout: the zip
+     * (or zips) itself, or files from inside it, or a converter's CSV. See
+     * [YouTubeMusicImport]. Every playlist that matched anything is created;
+     * what did not match is counted, as with any import.
+     */
+    fun importYouTubeMusic(files: List<Pair<Uri, String>>) {
+        viewModelScope.launch {
+            _busy.value = true
+            val outcome = runCatching {
+                withContext(Dispatchers.IO) {
+                    val resolver = getApplication<Application>().contentResolver
+                    val collector = YouTubeMusicImport.Collector()
+                    for ((uri, name) in files) {
+                        resolver.openInputStream(uri)?.use { stream ->
+                            if (name.endsWith(".zip", ignoreCase = true)) {
+                                java.util.zip.ZipInputStream(stream.buffered()).use { zip ->
+                                    while (true) {
+                                        val entry = zip.nextEntry ?: break
+                                        if (!entry.isDirectory && collector.wants(entry.name)) {
+                                            collector.add(entry.name, readCapped(zip))
+                                        }
+                                    }
+                                }
+                            } else {
+                                collector.add(name, readCapped(stream))
+                            }
+                        }
+                    }
+                    YouTubeMusicImport.match(collector, library.value.songs)
+                }
+            }.getOrNull()
+
+            if (outcome == null) {
+                _busy.value = false
+                _message.value = "לא הצלחתי לקרוא את הקבצים"
+                return@launch
+            }
+            if (outcome.isEmpty()) {
+                _busy.value = false
+                _message.value = "לא נמצאו פלייליסטים — צריך את ה־ZIP מ־Google Takeout או קובץ CSV של פלייליסט"
+                return@launch
+            }
+            val found = outcome.filter { it.songs.isNotEmpty() }
+            for (list in found) {
+                val id = repo.createPlaylist(list.name)
+                repo.bulkAddToPlaylist(id, list.songs.map { it.id })
+            }
+            _busy.value = false
+            val songs = found.sumOf { it.songs.size }
+            val missing = outcome.sumOf { it.missing }
+            _message.value = when {
+                found.isEmpty() -> "אף שיר מהפלייליסטים לא נמצא בספרייה שלך"
+                missing > 0 -> "יובאו ${found.size} פלייליסטים עם $songs שירים · $missing לא נמצאו"
+                else -> "יובאו ${found.size} פלייליסטים עם $songs שירים"
+            }
+        }
+    }
+
+    /** A file's text, up to what a watch history needs; the rest of a huge one is skipped. */
+    private fun readCapped(input: java.io.InputStream): String {
+        val out = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(64 * 1024)
+        val cap = YouTubeMusicImport.HISTORY_MAX_CHARS
+        while (out.size() < cap) {
+            val n = input.read(buffer)
+            if (n < 0) break
+            out.write(buffer, 0, minOf(n, cap - out.size()))
+        }
+        return out.toString(Charsets.UTF_8.name())
     }
 
     /**
