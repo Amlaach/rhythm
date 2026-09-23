@@ -49,8 +49,10 @@ Why:
   roughly 5,000+ songs are at risk there.
 
 Also: the analysis pass (`AnalysisManager`) now runs on its own thread at
-background priority (PR #32). TFLite uses 2 threads, and there is still no
-charging-only option. Weak phones can take around 10-20 s per song for
+background priority (PR #32). TFLite uses 2 threads, 3-4 while the phone is
+plugged in (outputs are bit-identical across thread counts, checked with the
+phone's models under TFLite), and the wake lock is renewed for the whole
+pass (it used to lapse after one hour). There is still no charging-only option. Weak phones can take around 10-20 s per song for
 hours on the first run (estimate).
 
 Status: steps 1-2 below are done (PR #31): the golden test, and

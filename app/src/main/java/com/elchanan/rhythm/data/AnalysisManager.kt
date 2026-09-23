@@ -1,6 +1,9 @@
 package com.elchanan.rhythm.data
 
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import android.os.Process
 import com.elchanan.rhythm.engine.Analysis
 import com.elchanan.rhythm.engine.AudioAnalyzer
@@ -97,6 +100,10 @@ class AnalysisManager(
                     // cannot change halfway through twelve songs in a way that
                     // matters.
                     val mounted = Volumes.mountedRoots(batch.map { it.path })
+                    // Charging or not, once a batch as well: the charger is
+                    // plugged in or out a few times a day, and a batch is
+                    // a few minutes at most.
+                    AudioAnalyzer.useThreads(AudioAnalyzer.threadsFor(isCharging()))
                     for (song in batch) {
                         if (!isActive) break
                         // A file on a card that is not in the device is not a
@@ -160,6 +167,12 @@ class AnalysisManager(
             }
         }
     }
+
+    /** Whether the phone is plugged in now - charging or already full. Unknown counts as not. */
+    private fun isCharging(): Boolean = runCatching {
+        val battery = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        (battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0
+    }.getOrDefault(false)
 
     fun stop() {
         job?.cancel()
