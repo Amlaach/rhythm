@@ -29,7 +29,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
+import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -315,6 +315,11 @@ fun RhythmRoot(
                 composable(Routes.SETTINGS) {
                     SettingsScreen(
                         onBack = { navController.popBackStack() },
+                        language = com.elchanan.rhythm.ui.theme.UiLanguage.code,
+                        onLanguageChange = { choice ->
+                            vm.prefs.language = choice
+                            com.elchanan.rhythm.ui.theme.UiLanguage.code = choice
+                        },
                         onOpenHomeSettings = { navController.navigate(Routes.HOME_SETTINGS) },
                         onOpenPlayerSettings = { navController.navigate(Routes.PLAYER_SETTINGS) },
                         onOpenAlgorithmSettings = { navController.navigate(Routes.ALGORITHM_SETTINGS) },

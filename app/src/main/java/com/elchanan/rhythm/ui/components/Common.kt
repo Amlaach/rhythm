@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.components
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -39,7 +41,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Text
+import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -312,7 +314,7 @@ fun SongRow(
             IconButton(onClick = onDislike, modifier = Modifier.size(34.dp)) {
                 Icon(
                     imageVector = if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
-                    contentDescription = "דיסלייק",
+                    contentDescription = localized("דיסלייק"),
                     tint = if (liked == -1) Accent else TextTertiary,
                     modifier = Modifier.size(18.dp)
                 )
@@ -322,7 +324,7 @@ fun SongRow(
             IconButton(onClick = onLike, modifier = Modifier.size(34.dp)) {
                 Icon(
                     imageVector = if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-                    contentDescription = "לייק",
+                    contentDescription = localized("לייק"),
                     tint = if (liked == 1) Accent else TextTertiary,
                     modifier = Modifier.size(18.dp)
                 )
@@ -332,7 +334,7 @@ fun SongRow(
             IconButton(onClick = onMore, modifier = Modifier.size(34.dp)) {
                 Icon(
                     Icons.Filled.MoreVert,
-                    contentDescription = "עוד",
+                    contentDescription = localized("עוד"),
                     tint = TextSecondary,
                     modifier = Modifier.size(20.dp)
                 )
@@ -423,7 +425,7 @@ fun SongCard(
                 ) {
                     Icon(
                         Icons.Filled.MoreVert,
-                        contentDescription = "עוד",
+                        contentDescription = localized("עוד"),
                         tint = TextSecondary,
                         modifier = Modifier.size(18.dp)
                     )
@@ -519,7 +521,7 @@ fun MixCard(
                     .clickable(onClick = onPlay),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = "נגן", tint = Color.White)
+                Icon(Icons.Filled.PlayArrow, contentDescription = localized("נגן"), tint = Color.White)
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -545,7 +547,7 @@ fun StarRow(
             val scale by animateFloatAsState(if (filled) 1f else 0.9f, label = "star$i")
             Icon(
                 imageVector = if (filled) Icons.Filled.Star else Icons.Outlined.StarBorder,
-                contentDescription = "דירוג $i",
+                contentDescription = localized("דירוג $i"),
                 tint = if (filled) Accent else TextSecondary,
                 modifier = Modifier
                     .size((size * scale).dp)
@@ -596,7 +598,7 @@ fun LikeButtons(
         IconButton(onClick = onLike) {
             Icon(
                 imageVector = if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-                contentDescription = "לייק",
+                contentDescription = localized("לייק"),
                 tint = if (liked == 1) Accent else TextSecondary,
                 modifier = Modifier.size(size.dp)
             )
@@ -604,7 +606,7 @@ fun LikeButtons(
         IconButton(onClick = onDislike) {
             Icon(
                 imageVector = if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
-                contentDescription = "דיסלייק",
+                contentDescription = localized("דיסלייק"),
                 tint = if (liked == -1) Accent else TextSecondary,
                 // The two glyphs are not vertical mirrors of each other: the
                 // thumb sits high in one and low in the other, so centring them

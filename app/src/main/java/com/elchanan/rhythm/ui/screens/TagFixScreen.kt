@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import android.Manifest
 import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -31,7 +33,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
+import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.AlertDialog
@@ -163,7 +165,7 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "חזור", tint = TextSecondary)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = localized("חזור"), tint = TextSecondary)
             }
             Spacer(Modifier.width(4.dp))
             Text("תיקון תגיות", style = MaterialTheme.typography.titleLarge)
@@ -279,8 +281,8 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
                     if (proposal != null) {
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "מוצע: ${proposal.newTitle} · ${proposal.newArtist}" +
-                                if (proposal.certain) "" else " · לא בטוח",
+                            if (proposal.certain) "מוצע: ${proposal.newTitle} · ${proposal.newArtist}"
+                            else "לא בטוח · מוצע: ${proposal.newTitle} · ${proposal.newArtist}",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (proposal.certain) Accent else TextSecondary,
                             maxLines = 2,

@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.desktop
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -38,7 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
+import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -538,7 +540,7 @@ internal fun QueueScreen(
                                     // queue does not do, and the wrong thing
                                     // to promise on a button that deletes.
                                     Icons.Filled.Close,
-                                    contentDescription = "הסר מהתור",
+                                    contentDescription = localized("הסר מהתור"),
                                     tint = TextSecondary,
                                     modifier = Modifier.size(18.dp)
                                 )
@@ -666,7 +668,7 @@ internal fun BookmarksDialog(
                                 IconButton(onClick = { onDelete(mark.id) }) {
                                     Icon(
                                         Icons.Filled.Delete,
-                                        contentDescription = "מחק",
+                                        contentDescription = localized("מחק"),
                                         tint = TextSecondary
                                     )
                                 }

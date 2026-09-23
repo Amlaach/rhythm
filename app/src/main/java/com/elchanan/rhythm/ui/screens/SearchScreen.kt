@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -21,7 +23,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -78,7 +80,7 @@ fun SearchScreen(
             trailingIcon = {
                 if (query.isNotEmpty()) {
                     IconButton(onClick = { vm.onSearchQuery("") }) {
-                        Icon(Icons.Filled.Close, contentDescription = "נקה", tint = TextSecondary)
+                        Icon(Icons.Filled.Close, contentDescription = localized("נקה"), tint = TextSecondary)
                     }
                 }
             },

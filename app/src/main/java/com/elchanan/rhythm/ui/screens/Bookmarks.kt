@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,7 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
+import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -144,7 +146,7 @@ fun BookmarksSheet(
                             IconButton(onClick = { vm.deleteBookmark(mark.id) }) {
                                 Icon(
                                     Icons.Filled.Delete,
-                                    contentDescription = "מחק סימנייה",
+                                    contentDescription = localized("מחק סימנייה"),
                                     tint = TextTertiary,
                                     modifier = Modifier.size(18.dp)
                                 )

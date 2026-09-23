@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.desktop
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -85,7 +87,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -156,6 +158,7 @@ import com.elchanan.rhythm.engine.Versions
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.RhythmTheme
+import com.elchanan.rhythm.ui.theme.UiLanguage
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface2
 import com.elchanan.rhythm.ui.theme.TextPrimary
@@ -276,7 +279,7 @@ private fun RhythmApp() {
     // The song the options dialog is open on, if any. Held here rather than
     // inside each screen so every list in the app opens the same one.
     var options by remember { mutableStateOf<SongEntity?>(null) }
-    val prefs = remember(store) { Prefs(store) }
+    val prefs = remember(store) { Prefs(store).also { UiLanguage.code = it.language } }
     // Read once: a nudge that has been turned down stays down, and the flag
     // only ever changes from this screen.
     var tagTipVisible by remember { mutableStateOf(!prefs.tagTipSeen) }
@@ -2008,7 +2011,7 @@ private fun RowScope.NavTab(
     NavigationBarItem(
         selected = current == index,
         onClick = onClick,
-        icon = { Icon(icon, contentDescription = label) },
+        icon = { Icon(icon, contentDescription = localized(label)) },
         label = { Text(label, style = MaterialTheme.typography.labelSmall) },
         colors = NavigationBarItemDefaults.colors(
             selectedIconColor = Accent,
@@ -2208,7 +2211,7 @@ private fun SearchPane(
             trailingIcon = {
                 if (query.isNotEmpty()) {
                     IconButton(onClick = { onQuery("") }) {
-                        Icon(Icons.Filled.Close, contentDescription = "נקה", tint = TextSecondary)
+                        Icon(Icons.Filled.Close, contentDescription = localized("נקה"), tint = TextSecondary)
                     }
                 }
             },
@@ -2389,7 +2392,7 @@ private fun PlayerScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onClose) {
-                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "סגור")
+                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = localized("סגור"))
             }
             // No "now playing" caption: the cover, the title and the transport
             // directly below already say it.
@@ -2398,13 +2401,13 @@ private fun PlayerScreen(
             // switched off, because it is what anything switched off the
             // header goes into.
             IconButton(onClick = onMore) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "עוד", tint = TextSecondary)
+                Icon(Icons.Filled.MoreVert, contentDescription = localized("עוד"), tint = TextSecondary)
             }
             if (placement(PlayerAction.SLEEP) == ActionPlacement.BUTTON) {
                 IconButton(onClick = onSleep) {
                     Icon(
                         Icons.Filled.Bedtime,
-                        contentDescription = "טיימר שינה",
+                        contentDescription = localized("טיימר שינה"),
                         tint = if (sleepArmed) Accent else TextSecondary
                     )
                 }
@@ -2416,7 +2419,7 @@ private fun PlayerScreen(
                 }) {
                     Icon(
                         Icons.Filled.FormatQuote,
-                        contentDescription = "מילות השיר",
+                        contentDescription = localized("מילות השיר"),
                         tint = if (showLyrics) Accent else TextSecondary
                     )
                 }
@@ -2428,7 +2431,7 @@ private fun PlayerScreen(
                 }) {
                     Icon(
                         Icons.AutoMirrored.Filled.QueueMusic,
-                        contentDescription = "תור",
+                        contentDescription = localized("תור"),
                         tint = if (showQueue) Accent else TextSecondary
                     )
                 }
@@ -2510,14 +2513,14 @@ private fun PlayerScreen(
                     IconButton(onClick = onDislike) {
                         Icon(
                             if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
-                            contentDescription = if (liked == -1) "בטל דיסלייק" else "דיסלייק",
+                            contentDescription = localized(if (liked == -1) "בטל דיסלייק" else "דיסלייק"),
                             tint = if (liked == -1) Accent else TextSecondary
                         )
                     }
                     IconButton(onClick = onLike) {
                         Icon(
                             if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-                            contentDescription = if (liked == 1) "בטל לייק" else "לייק",
+                            contentDescription = localized(if (liked == 1) "בטל לייק" else "לייק"),
                             tint = if (liked == 1) Accent else TextSecondary
                         )
                     }
@@ -2526,7 +2529,7 @@ private fun PlayerScreen(
                     IconButton(onClick = onRadio) {
                         Icon(
                             Icons.Filled.Radio,
-                            contentDescription = "התחל רדיו מהשיר",
+                            contentDescription = localized("התחל רדיו מהשיר"),
                             tint = TextSecondary
                         )
                     }
@@ -2535,7 +2538,7 @@ private fun PlayerScreen(
                     IconButton(onClick = { detailsOpen = true }) {
                         Icon(
                             Icons.Filled.Info,
-                            contentDescription = "פרטי השיר",
+                            contentDescription = localized("פרטי השיר"),
                             tint = TextSecondary
                         )
                     }
@@ -2544,7 +2547,7 @@ private fun PlayerScreen(
                     IconButton(onClick = { whyOpen = true }) {
                         Icon(
                             Icons.Filled.Insights,
-                            contentDescription = "למה זה הומלץ",
+                            contentDescription = localized("למה זה הומלץ"),
                             tint = TextSecondary
                         )
                     }
@@ -2553,7 +2556,7 @@ private fun PlayerScreen(
                     IconButton(onClick = onEqualizer) {
                         Icon(
                             Icons.Filled.GraphicEq,
-                            contentDescription = "אקולייזר",
+                            contentDescription = localized("אקולייזר"),
                             tint = TextSecondary
                         )
                     }
@@ -2562,7 +2565,7 @@ private fun PlayerScreen(
                     IconButton(onClick = onBookmarks) {
                         Icon(
                             Icons.Filled.BookmarkBorder,
-                            contentDescription = "סימניות",
+                            contentDescription = localized("סימניות"),
                             tint = TextSecondary
                         )
                     }
@@ -2625,7 +2628,7 @@ private fun PlayerScreen(
                 ) {
                     Icon(
                         Icons.Filled.Close,
-                        contentDescription = "סגור",
+                        contentDescription = localized("סגור"),
                         tint = TextSecondary,
                         modifier = Modifier.size(16.dp)
                     )
@@ -2673,7 +2676,7 @@ private fun PlayerScreen(
                 IconButton(onClick = onShuffle) {
                     Icon(
                         Icons.Filled.Shuffle,
-                        contentDescription = "ערבוב",
+                        contentDescription = localized("ערבוב"),
                         tint = if (shuffling) Accent else TextSecondary
                     )
                 }
@@ -2681,7 +2684,7 @@ private fun PlayerScreen(
                     IconButton(onClick = { onSeek((positionMs - 10_000L).coerceAtLeast(0L)) }) {
                         Icon(
                             Icons.Filled.Replay10,
-                            contentDescription = "אחורה 10 שניות",
+                            contentDescription = localized("אחורה 10 שניות"),
                             tint = TextSecondary
                         )
                     }
@@ -2689,7 +2692,7 @@ private fun PlayerScreen(
                 IconButton(onClick = onPrevious) {
                     Icon(
                         Icons.Filled.SkipPrevious,
-                        contentDescription = "הקודם",
+                        contentDescription = localized("הקודם"),
                         // Without an explicit tint these two inherit a colour
                         // near the background and read as missing.
                         tint = TextPrimary,
@@ -2706,7 +2709,7 @@ private fun PlayerScreen(
                 ) {
                     Icon(
                         if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (playing) "השהה" else "נגן",
+                        contentDescription = localized(if (playing) "השהה" else "נגן"),
                         tint = Color.White,
                         modifier = Modifier.size(34.dp)
                     )
@@ -2714,7 +2717,7 @@ private fun PlayerScreen(
                 IconButton(onClick = onNext) {
                     Icon(
                         Icons.Filled.SkipNext,
-                        contentDescription = "הבא",
+                        contentDescription = localized("הבא"),
                         tint = TextPrimary,
                         modifier = Modifier.size(40.dp)
                     )
@@ -2723,7 +2726,7 @@ private fun PlayerScreen(
                     IconButton(onClick = { onSeek(positionMs + 10_000L) }) {
                         Icon(
                             Icons.Filled.Forward10,
-                            contentDescription = "קדימה 10 שניות",
+                            contentDescription = localized("קדימה 10 שניות"),
                             tint = TextSecondary
                         )
                     }
@@ -2732,7 +2735,7 @@ private fun PlayerScreen(
                     Icon(
                         if (repeat == RepeatMode.ONE) Icons.Filled.RepeatOne
                         else Icons.Filled.Repeat,
-                        contentDescription = "חזרה",
+                        contentDescription = localized("חזרה"),
                         tint = if (repeat == RepeatMode.OFF) TextSecondary else Accent
                     )
                 }
@@ -2955,7 +2958,7 @@ private fun QueuePanel(
                     ) {
                         Icon(
                             Icons.Filled.Close,
-                            contentDescription = "הסר מהתור",
+                            contentDescription = localized("הסר מהתור"),
                             tint = TextSecondary,
                             modifier = Modifier.size(18.dp)
                         )
@@ -3253,21 +3256,21 @@ private fun MiniPlayer(
             IconButton(onClick = onLike) {
                 Icon(
                     imageVector = if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-                    contentDescription = "לייק",
+                    contentDescription = localized("לייק"),
                     tint = if (liked == 1) Accent else TextSecondary
                 )
             }
             IconButton(onClick = onToggle) {
                 Icon(
                     if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = "נגן",
+                    contentDescription = localized("נגן"),
                     tint = MaterialTheme.colorScheme.onBackground
                 )
             }
             IconButton(onClick = onNext) {
                 Icon(
                     Icons.Filled.SkipNext,
-                    contentDescription = "הבא",
+                    contentDescription = localized("הבא"),
                     tint = MaterialTheme.colorScheme.onBackground
                 )
             }
@@ -3278,7 +3281,7 @@ private fun MiniPlayer(
             // everything quieter.
             Icon(
                 Icons.AutoMirrored.Filled.VolumeUp,
-                contentDescription = "עוצמה",
+                contentDescription = localized("עוצמה"),
                 tint = TextSecondary
             )
             Slider(

@@ -33,6 +33,7 @@ import com.elchanan.rhythm.RhythmApp
 import com.elchanan.rhythm.data.MusicRepository
 import com.elchanan.rhythm.engine.Listening
 import com.elchanan.rhythm.engine.Spoken
+import com.elchanan.rhythm.ui.theme.UiStrings
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
@@ -269,7 +270,7 @@ class PlaybackService : MediaSessionService() {
      */
     private fun customLayout(liked: Int): List<CommandButton> = listOf(
         CommandButton.Builder()
-            .setDisplayName(if (liked == 1) "בטל לייק" else "לייק")
+            .setDisplayName(UiStrings.translate(if (liked == 1) "בטל לייק" else "לייק", repo.prefs.language))
             .setIconResId(
                 if (liked == 1) R.drawable.ic_thumb_up else R.drawable.ic_thumb_up_outline
             )
@@ -277,7 +278,7 @@ class PlaybackService : MediaSessionService() {
             .setEnabled(true)
             .build(),
         CommandButton.Builder()
-            .setDisplayName(if (liked == -1) "בטל דיסלייק" else "דיסלייק")
+            .setDisplayName(UiStrings.translate(if (liked == -1) "בטל דיסלייק" else "דיסלייק", repo.prefs.language))
             .setIconResId(
                 if (liked == -1) R.drawable.ic_thumb_down else R.drawable.ic_thumb_down_outline
             )
@@ -285,7 +286,7 @@ class PlaybackService : MediaSessionService() {
             .setEnabled(true)
             .build(),
         CommandButton.Builder()
-            .setDisplayName("רדיו")
+            .setDisplayName(UiStrings.translate("רדיו", repo.prefs.language))
             .setIconResId(R.drawable.ic_radio)
             .setSessionCommand(SessionCommand(ACTION_RADIO, Bundle.EMPTY))
             .setEnabled(true)

@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.localized
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -41,7 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
+import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -130,14 +132,14 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
                 )
             }
             IconButton(onClick = { bulkOpen = true }) {
-                Icon(Icons.Filled.PostAdd, contentDescription = "הזנה מרוכזת", tint = Accent)
+                Icon(Icons.Filled.PostAdd, contentDescription = localized("הזנה מרוכזת"), tint = Accent)
             }
             IconButton(onClick = {
                 scope.launch {
                     clipboard.setText(AnnotatedString(vm.exportArtistsJson()))
                 }
             }) {
-                Icon(Icons.Filled.ContentCopy, contentDescription = "העתק גיבוי", tint = TextSecondary)
+                Icon(Icons.Filled.ContentCopy, contentDescription = localized("העתק גיבוי"), tint = TextSecondary)
             }
         }
 
@@ -232,7 +234,7 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = { selection = emptySet() }) {
-                    Icon(Icons.Filled.Close, contentDescription = "בטל", tint = TextSecondary)
+                    Icon(Icons.Filled.Close, contentDescription = localized("בטל"), tint = TextSecondary)
                 }
                 Text("${selection.size} אמנים נבחרו", style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.weight(1f))

@@ -26,7 +26,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
+import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -52,6 +52,7 @@ import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface2
 import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
+import com.elchanan.rhythm.ui.theme.UiLanguage
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -156,6 +157,14 @@ internal fun SettingsScreen(
             // everything you are not looking for.
             if (page == SettingsPage.DOORS) {
                 item {
+                    LinkRow(
+                        if (UiLanguage.english) "Language" else "שפה / Language",
+                        if (UiLanguage.english) "English · Click to switch to Hebrew" else "עברית · לחצו כדי לעבור ל־English"
+                    ) {
+                        val choice = if (UiLanguage.english) "he" else "en"
+                        prefs.language = choice
+                        UiLanguage.code = choice
+                    }
                     LinkRow(
                         "דף הבית ותצוגה",
                         "אילו מדפים מופיעים, מה נפתח ראשון, איך מוצגות התיקיות"
