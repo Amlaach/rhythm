@@ -268,6 +268,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_RESUME_SPOKEN, true)
         set(value) = sp.edit { putBoolean(KEY_RESUME_SPOKEN, value) }
 
+    /** Small-screen mode: the whole app drawn a size smaller. Off by default. See ui.Display. */
+    var compactMode: Boolean
+        get() = sp.getBoolean(KEY_COMPACT, false)
+        set(value) = sp.edit { putBoolean(KEY_COMPACT, value) }
+
     /** From how many minutes a track counts as a medley, 0 for the title alone. See EngineTuning.medleyMinutes. */
     var medleyMinutes: Int
         get() = sp.getInt(KEY_MEDLEY_MINUTES, 0)
@@ -546,5 +551,6 @@ class Prefs(context: Context) {
         const val KEY_RESUME_SPOKEN = "resume_spoken"
         const val KEY_ONLY_VOCAL = "only_vocal_in_season"
         const val KEY_MEDLEY_MINUTES = "medley_minutes"
+        const val KEY_COMPACT = "compact_mode"
     }
 }

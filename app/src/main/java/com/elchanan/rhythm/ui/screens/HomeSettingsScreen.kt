@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.elchanan.rhythm.engine.ShelfKind
+import com.elchanan.rhythm.ui.Display
 import com.elchanan.rhythm.ui.MainViewModel
 import com.elchanan.rhythm.ui.components.Chip
 import com.elchanan.rhythm.ui.components.rememberMetrics
@@ -64,6 +65,7 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     var firstTab by remember { mutableStateOf(vm.prefs.libraryFirstTab) }
     var folderTree by remember { mutableStateOf(vm.prefs.folderTree) }
     var hideDupes by remember { mutableStateOf(vm.prefs.hideDuplicates) }
+    var compact by remember { mutableStateOf(Display.compact) }
 
     Column(
         modifier = Modifier
@@ -87,6 +89,17 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             }
             Spacer(Modifier.width(4.dp))
             Text("דף הבית ותצוגה", style = MaterialTheme.typography.titleLarge)
+        }
+
+        SettingSwitch(
+            title = "מצב מסך קטן",
+            subtitle = "כל האפליקציה בגודל אחד קטן יותר — טקסט, מרווחים, תמונות והטאבים " +
+                "למטה — כדי שייכנס יותר למסך קטן. העיצוב נשאר אותו עיצוב",
+            checked = compact
+        ) {
+            compact = it
+            vm.prefs.compactMode = it
+            Display.compact = it
         }
 
         Row(

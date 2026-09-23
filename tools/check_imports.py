@@ -104,6 +104,9 @@ PLAIN_EXT = {
     "rememberScrollState",
 }
 
+# A number with a Compose unit: `12.dp`, `1.5.sp`, `(x).dp` is left alone.
+UNITS = re.compile(r"\b\d+(?:\.\d+)?\.(dp|sp)\b")
+
 IMPORT = re.compile(r"^\s*import\s+([\w.]+)(?:\s+as\s+(\w+))?", re.M)
 PACKAGE = re.compile(r"^\s*package\s+([\w.]+)", re.M)
 # Anything declared at any level in a file: these need no import of their own.
@@ -216,6 +219,10 @@ def scan(roots):
             used_ext |= {n for n in MOD_LINK.findall(chain) if n in MODIFIER_EXT}
         used_ext |= {n for n in PLAIN_USE.findall(body_no_imports) if n in PLAIN_EXT}
         used_ext |= {n for n in BARE_USE.findall(body_no_imports) if n in BARE_FUN}
+        # `12.dp` and `14.sp` are extensions too, imported one by one, and a
+        # line of layout moved from one file to another brings the `.dp` and
+        # leaves its import behind.
+        used_ext |= {u for u in UNITS.findall(body_no_imports)}
         for name in sorted(used_ext):
             if name not in available:
                 problems.append((path, name, "extension"))

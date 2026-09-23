@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
@@ -421,7 +423,9 @@ private fun RhythmBottomBar(
 ) {
     NavigationBar(
         containerColor = Color.Transparent,
-        modifier = Modifier.fillMaxWidth()
+        // Compact mode: a lower bar. Icons and labels stay; the air around
+        // them is what a small screen cannot spare.
+        modifier = Modifier.fillMaxWidth().then(if (Display.compact) Modifier.height(62.dp) else Modifier)
     ) {
         TABS.forEach { tab ->
             // Home is the root of the app, so its tab ignores what was saved for
