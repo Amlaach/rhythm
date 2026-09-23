@@ -926,6 +926,7 @@ private fun PlayerActionsDialog(prefs: Prefs, onDismiss: () -> Unit) {
 @Composable
 internal fun AlgorithmSettingsScreen(
     prefs: Prefs,
+    checks: AlgorithmChecks,
     tuning: EngineTuning,
     learning: Boolean,
     learningReport: String?,
@@ -939,6 +940,18 @@ internal fun AlgorithmSettingsScreen(
     onBack: () -> Unit
 ) {
     var autoLearn by remember { mutableStateOf(prefs.autoLearn) }
+    var confirmReset by remember { mutableStateOf(false) }
+    if (confirmReset) {
+        ConfirmDialog(
+            title = "לאפס את הכוונונים?",
+            body = "הפסים יחזרו לברירת המחדל, וכך גם הזמן שנספר כהשמעה. " +
+                "הדירוגים, הלייקים וההיסטוריה נשארים.",
+            confirm = "אפס",
+            danger = false,
+            onConfirm = { confirmReset = false; checks.onResetTuning() },
+            onDismiss = { confirmReset = false }
+        )
+    }
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = "הגדרות האלגוריתם", onBack = onBack)
         LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
@@ -964,6 +977,88 @@ internal fun AlgorithmSettingsScreen(
                         "משקל הדמיון האקוסטי", tuning.acousticWeight, 0f..2f,
                         "כמה הצליל עצמו קובע, לעומת מה שכתוב על השיר"
                     ) { onChange(tuning.copy(acousticWeight = it)) }
+                    // A slider moves under a pointer that was only passing,
+                    // and nothing said where it started. Asked first, because
+                    // a tuning someone set on purpose is just as easy to lose.
+                    TextButton(onClick = { confirmReset = true }) {
+                        Text("אפס לברירת המחדל", color = Accent)
+                    }
+                }
+            }
+            item {
+                SettingSection("מה האלגוריתם יודע", null)
+                SwitchRow(
+                    title = "ווקאלי רק בספירה ובשלושת השבועות",
+                    subtitle = "שירים ווקאליים לא מוצעים בשאר השנה. כשהאפשרות מופעלת, בימי ספירת " +
+                        "העומר (חוץ מל\"ג בעומר) ובשלושת השבועות מוצעים רק שירים ווקאליים. " +
+                        "שיר נחשב ווקאלי לפי השם שלו (ווקאלי, אקפלה), לפי תגית, לפי הצליל, " +
+                        "או לפי מה שסימנת בתפריט השיר. " +
+                        (checks.season?.let { "כרגע: $it." } ?: "כרגע לא בתקופות האלה."),
+                    checked = checks.onlyVocalInSeason
+                ) { checks.onOnlyVocal(it) }
+                ActionRow(
+                    title = "תעודת ציונים לאלגוריתם",
+                    subtitle = "בודק על ההיסטוריה שלך אם האלגוריתם יודע לחזות אילו שירים " +
+                        "תאהב לפני ששמעת אותם, ולומד ממנה כמה לסמוך על כל אות — " +
+                        "אמן, סגנון, סאונד ומצב רוח. " +
+                        (if (checks.usingLearned) "כרגע פעילים משקלים אישיים" else "כרגע פעילים המשקלים הרגילים"),
+                    action = if (checks.calibrating) "בודק…" else "בדוק",
+                    enabled = !checks.calibrating,
+                    primary = true,
+                    onClick = checks.onCalibrate
+                )
+                checks.calibration?.let { report ->
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER, vertical = 12.dp)) {
+                        Text(report, color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(10.dp))
+                        Row {
+                            if (checks.canApplyLearned) {
+                                Button(
+                                    onClick = checks.onApplyLearned,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                                ) { Text("הפעל משקלים אישיים") }
+                                Spacer(Modifier.width(10.dp))
+                            }
+                            if (checks.usingLearned) {
+                                OutlinedButton(onClick = checks.onResetLearned) { Text("חזור לרגילים") }
+                            }
+                        }
+                    }
+                }
+                ActionRow(
+                    title = "בדיקת טביעת הצליל",
+                    subtitle = "בודק על הספרייה שלך אם השירים שנשמעים דומה באמת מאותו " +
+                        "סגנון — פעם לפי מדידת הסאונד הנוכחית ופעם לפי טביעת " +
+                        "הצליל החדשה. לא משנה כלום; רק מודד",
+                    action = "בדוק",
+                    enabled = !busy,
+                    primary = true,
+                    onClick = checks.onSoundCheck
+                )
+                checks.soundCheck?.let { report ->
+                    Text(
+                        report,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER, vertical = 12.dp),
+                        color = TextPrimary,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                ActionRow(
+                    title = "בדיקת דיוק המודל המוזיקלי",
+                    subtitle = "משווה את למידת הסגנונות והזיהוי של מצבי רוח עם ובלי המודל, " +
+                        "על שירים מתויגים ותיקונים ידניים בספרייה שלך. הבדיקה לא משנה תגיות.",
+                    action = if (checks.modelChecking) "בודק…" else "בדוק",
+                    enabled = !checks.modelChecking,
+                    primary = true,
+                    onClick = checks.onModelCheck
+                )
+                checks.modelReport?.let { report ->
+                    Text(
+                        report,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = GUTTER, vertical = 12.dp),
+                        color = TextPrimary,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                 }
             }
             item {
@@ -1048,6 +1143,28 @@ internal fun AlgorithmSettingsScreen(
         }
     }
 }
+
+/** The algorithm screen's checks and the switches beside them; the state lives in Main. */
+internal class AlgorithmChecks(
+    val onResetTuning: () -> Unit,
+    val onlyVocalInSeason: Boolean,
+    val onOnlyVocal: (Boolean) -> Unit,
+    /** The Omer or the Three Weeks by name, when today is in one. */
+    val season: String?,
+    val usingLearned: Boolean,
+    val calibrating: Boolean,
+    /** The report card in words, with the mood reading's own report under it. */
+    val calibration: String?,
+    val canApplyLearned: Boolean,
+    val onCalibrate: () -> Unit,
+    val onApplyLearned: () -> Unit,
+    val onResetLearned: () -> Unit,
+    val soundCheck: String?,
+    val onSoundCheck: () -> Unit,
+    val modelChecking: Boolean,
+    val modelReport: String?,
+    val onModelCheck: () -> Unit
+)
 
 @Composable
 private fun ActionRow(

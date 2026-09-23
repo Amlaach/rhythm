@@ -146,6 +146,11 @@ import com.elchanan.rhythm.engine.LyricLine
 import com.elchanan.rhythm.engine.Lyrics
 import com.elchanan.rhythm.engine.Mood
 import com.elchanan.rhythm.engine.MoodMarks
+import com.elchanan.rhythm.engine.JewishSeasons
+import com.elchanan.rhythm.engine.MusicModelEvaluation
+import com.elchanan.rhythm.engine.SoundCheck
+import com.elchanan.rhythm.engine.SignalWeights
+import com.elchanan.rhythm.engine.SignalCalibration
 import com.elchanan.rhythm.engine.MoodModel
 import com.elchanan.rhythm.engine.Vocal
 import com.elchanan.rhythm.engine.Names
@@ -319,6 +324,16 @@ private fun RhythmApp() {
     var learningReport by remember { mutableStateOf<String?>(null) }
     var shuffling by remember { mutableStateOf(false) }
     var engineReport by remember { mutableStateOf("") }
+    // The algorithm screen's checks. Each measures and changes nothing,
+    // except the learned weights, which only apply when asked to.
+    var onlyVocal by remember { mutableStateOf(store.onlyVocalInSeason) }
+    var usingLearned by remember { mutableStateOf(store.learnedWeights.isNotEmpty()) }
+    var calibrating by remember { mutableStateOf(false) }
+    var calibrationText by remember { mutableStateOf<String?>(null) }
+    var calibrationWeights by remember { mutableStateOf<SignalWeights?>(null) }
+    var soundCheckText by remember { mutableStateOf<String?>(null) }
+    var modelChecking by remember { mutableStateOf(false) }
+    var modelReportText by remember { mutableStateOf<String?>(null) }
     var repeat by remember { mutableStateOf(RepeatMode.OFF) }
     // The queue as it was before it was shuffled, so turning shuffle off puts
     // it back rather than leaving a scrambled order nobody can undo.
@@ -660,6 +675,110 @@ private fun RhythmApp() {
         scope.launch {
             withContext(Dispatchers.IO) { store.tuning = next }
             reload()
+        }
+    }
+
+    /**
+     * The sliders back to the engine's own defaults, and the play bar with
+     * them. They are easy to nudge on the way past; the defaults are
+     * EngineTuning's, so there is one place that says what they are.
+     */
+    fun resetTuning() {
+        val d = EngineTuning()
+        prefs.minPlaySeconds = Listening.DEFAULT_MINIMUM_SEC
+        retune(
+            tuning.copy(
+                discovery = d.discovery, artistWeight = d.artistWeight, styleWeight = d.styleWeight,
+                repeatGuard = d.repeatGuard, acousticWeight = d.acousticWeight
+            )
+        )
+        status = "הכוונונים הוחזרו לברירת המחדל"
+    }
+
+    fun setOnlyVocal(value: Boolean) {
+        onlyVocal = value
+        scope.launch {
+            withContext(Dispatchers.IO) { store.onlyVocalInSeason = value }
+            reload()
+        }
+    }
+
+    /**
+     * The report card: scores every song the listening has answered for
+     * without its own history, and learns this listener's signal weights from
+     * it. Changes nothing until the weights are applied. The phone's.
+     */
+    fun runCalibration() {
+        val snapshot = engine ?: run { status = "אין עדיין ספרייה לבדוק"; return }
+        calibrating = true
+        scope.launch {
+            val done = runCatching {
+                withContext(Dispatchers.Default) {
+                    val report = SignalCalibration.run(snapshot.calibrationRows())
+                    val moods = MoodModel(features.values, MoodMarks.of(stats)).report()
+                    report to moods
+                }
+            }.getOrNull()
+            calibrating = false
+            if (done == null) {
+                status = "הבדיקה נכשלה"
+                return@launch
+            }
+            val (report, moods) = done
+            calibrationWeights = report.weights?.takeIf { report.accepted }
+            calibrationText = SignalCalibration.describe(report) +
+                if (moods.isEmpty()) "" else "\n\n" + MoodMarks.describe(moods)
+        }
+    }
+
+    fun applyLearnedWeights() {
+        val weights = calibrationWeights ?: return
+        scope.launch {
+            withContext(Dispatchers.IO) { store.learnedWeights = weights.encode() }
+            usingLearned = true
+            reload()
+            status = "המשקלים האישיים הופעלו"
+        }
+    }
+
+    fun resetLearnedWeights() {
+        scope.launch {
+            withContext(Dispatchers.IO) { store.learnedWeights = "" }
+            usingLearned = false
+            reload()
+            status = "חזרה למשקלים הרגילים"
+        }
+    }
+
+    /** Whether songs that sound alike share a style, by the sound features and by the sound print. Measures only. */
+    fun runSoundCheck() {
+        soundCheckText = "בודק…"
+        val lib = library
+        val rows = features
+        scope.launch {
+            val result = withContext(Dispatchers.Default) {
+                runCatching { SoundCheck.measure(lib.songs, rows, lib.artists.associate { it.key to it.styles }) }.getOrNull()
+            }
+            soundCheckText = SoundCheck.describe(result)
+        }
+    }
+
+    /** The music model against the same labelled songs, with and without it. Writes no tags. */
+    fun runModelEvaluation() {
+        if (modelChecking) return
+        modelChecking = true
+        modelReportText = "בודק את תרומת המודל המוזיקלי…"
+        val lib = library
+        val rows = features
+        val st = stats
+        val manual = artists.filter { it.styles.isNotBlank() }.associate { it.artistKey to it.styles }
+        scope.launch {
+            modelReportText = runCatching {
+                withContext(Dispatchers.Default) {
+                    MusicModelEvaluation.describe(MusicModelEvaluation.measure(lib.songs, st, manual, rows), prefs.language)
+                }
+            }.getOrElse { "בדיקת המודל לא הושלמה. נסה שוב." }
+            modelChecking = false
         }
     }
 
@@ -1787,6 +1906,24 @@ private fun RhythmApp() {
 
                 Route.Algorithm -> AlgorithmSettingsScreen(
                     prefs = prefs,
+                    checks = AlgorithmChecks(
+                        onResetTuning = { resetTuning() },
+                        onlyVocalInSeason = onlyVocal,
+                        onOnlyVocal = { setOnlyVocal(it) },
+                        season = JewishSeasons.at(System.currentTimeMillis())?.label,
+                        usingLearned = usingLearned,
+                        calibrating = calibrating,
+                        calibration = calibrationText,
+                        canApplyLearned = calibrationWeights != null,
+                        onCalibrate = { runCalibration() },
+                        onApplyLearned = { applyLearnedWeights() },
+                        onResetLearned = { resetLearnedWeights() },
+                        soundCheck = soundCheckText,
+                        onSoundCheck = { runSoundCheck() },
+                        modelChecking = modelChecking,
+                        modelReport = modelReportText,
+                        onModelCheck = { runModelEvaluation() }
+                    ),
                     tuning = tuning,
                     learning = learning,
                     learningReport = learningReport,
