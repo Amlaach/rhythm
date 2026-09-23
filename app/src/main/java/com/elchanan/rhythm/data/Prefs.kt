@@ -288,6 +288,11 @@ class Prefs(context: Context) {
         set(value) = sp.edit { putFloat(KEY_APP_VOLUME, value) }
 
     /** Small-screen mode: the whole app drawn a size smaller. Off by default. See ui.Display. */
+    /** An artist's page lists their songs under their albums, rather than as one list. */
+    var artistByAlbum: Boolean
+        get() = sp.getBoolean(KEY_ARTIST_BY_ALBUM, true)
+        set(value) = sp.edit { putBoolean(KEY_ARTIST_BY_ALBUM, value) }
+
     var compactMode: Boolean
         get() = sp.getBoolean(KEY_COMPACT, false)
         set(value) = sp.edit { putBoolean(KEY_COMPACT, value) }
@@ -571,6 +576,7 @@ class Prefs(context: Context) {
         const val KEY_ONLY_VOCAL = "only_vocal_in_season"
         const val KEY_MEDLEY_MINUTES = "medley_minutes"
         const val KEY_COMPACT = "compact_mode"
+        const val KEY_ARTIST_BY_ALBUM = "artist_by_album"
         const val KEY_ARTWORK_TAP_MODE = "artwork_tap_mode"
         const val KEY_APP_VOLUME = "app_volume"
         const val KEY_TRIM_SILENCE = "trim_radio_silence"

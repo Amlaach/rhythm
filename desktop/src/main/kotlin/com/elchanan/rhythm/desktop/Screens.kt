@@ -101,6 +101,8 @@ import com.elchanan.rhythm.engine.AlphabetIndexing
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.Capo
 import com.elchanan.rhythm.data.ArtistMerge
+import com.elchanan.rhythm.data.ArtistShelf
+import com.elchanan.rhythm.data.ArtistShelves
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.elchanan.rhythm.engine.Folders
@@ -1912,9 +1914,14 @@ internal fun ArtistDetailScreen(
     onTag: (String) -> Unit,
     onLike: (SongEntity) -> Unit,
     onDislike: (SongEntity) -> Unit,
-    onMore: (SongEntity) -> Unit
+    onMore: (SongEntity) -> Unit,
+    onOpenAlbum: (Long) -> Unit
 ) {
     val selected = Styles.parse(artist.styles)
+    // As on the phone: the albums first, the one long list a chip away.
+    var byAlbum by remember { mutableStateOf(true) }
+    val shelves = remember(artist.songs) { ArtistShelves.of(artist.songs, looseName = "שירים בודדים") }
+    val shown = if (byAlbum) shelves.flatMap { it.songs } else artist.songs
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = artist.displayName, onBack = onBack)
         LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -1996,21 +2003,77 @@ internal fun ArtistDetailScreen(
                     }
                     Spacer(Modifier.height(16.dp))
                     Text("השירים", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Chip("לפי אלבומים", selected = byAlbum, onClick = { byAlbum = true })
+                        Chip("כל השירים", selected = !byAlbum, onClick = { byAlbum = false })
+                    }
                 }
             }
 
-            itemsIndexed(artist.songs, key = { _, song -> song.id }) { index, song ->
+            val row: @Composable (SongEntity) -> Unit = { song ->
                 SongRow(
                     song = song,
                     isCurrent = song.id == current,
                     liked = stats[song.id]?.liked ?: 0,
                     rating = stats[song.id]?.rating ?: 0,
-                    onClick = { onPlay(artist.songs, index) },
+                    onClick = { onPlay(shown, shown.indexOf(song)) },
                     onMore = { onMore(song) },
                     onLike = { onLike(song) },
                     onDislike = { onDislike(song) }
                 )
             }
+            if (byAlbum) {
+                // One heading would only repeat the page's own title.
+                val headed = !(shelves.size == 1 && shelves[0].albumId == null)
+                shelves.forEach { shelf ->
+                    if (headed) {
+                        item(key = "shelf:${shelf.albumId ?: "loose"}") {
+                            ShelfHeading(
+                                shelf = shelf,
+                                onOpen = shelf.albumId?.let { id -> { onOpenAlbum(id) } },
+                                onPlay = { onPlay(shelf.songs, 0) }
+                            )
+                        }
+                    }
+                    items(shelf.songs, key = { it.id }) { song -> row(song) }
+                }
+            } else {
+                items(artist.songs, key = { it.id }) { song -> row(song) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShelfHeading(shelf: ArtistShelf, onOpen: (() -> Unit)?, onPlay: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)
+            .padding(start = GUTTER, end = GUTTER - 8.dp, top = 18.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (shelf.albumId != null) {
+            Art(song = shelf.songs.first(), size = 52.dp, corner = 10.dp)
+            Spacer(Modifier.width(12.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                shelf.name,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row {
+                if (shelf.year > 0) {
+                    Text("${shelf.year} · ", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+                Text("${shelf.songs.size} שירים", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+            }
+        }
+        IconButton(onClick = onPlay) {
+            Icon(Icons.Filled.PlayArrow, contentDescription = localized("נגן"), tint = Accent)
         }
     }
 }

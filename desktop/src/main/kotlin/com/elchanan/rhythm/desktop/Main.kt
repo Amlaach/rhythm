@@ -1950,7 +1950,19 @@ private fun RhythmApp() {
                             onTag = { tagArtist(info, it) },
                             onLike = { like(it) },
                             onDislike = { dislike(it) },
-                            onMore = { options = it }
+                            onMore = { options = it },
+                            onOpenAlbum = { id ->
+                                library.albums.firstOrNull { it.albumId == id }?.let { album ->
+                                    stack = stack + Route.Detail(
+                                        DetailList(
+                                            title = album.name,
+                                            subtitle = album.artistName,
+                                            songs = album.songs,
+                                            gradientKey = "album:${album.albumId}"
+                                        )
+                                    )
+                                }
+                            }
                         )
                     }
                 }
