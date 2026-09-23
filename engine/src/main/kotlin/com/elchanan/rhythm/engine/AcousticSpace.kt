@@ -68,6 +68,10 @@ class AcousticSpace(
          */
         const val PRINT_SHARE = 1.0
 
+        /** Pairs sampled to place each similarity measure on one scale; see [similarity]. */
+        private const val SCALE_PAIRS = 3000
+        private const val SCALE_SEED = 0x5CA1EL
+
         /** The print folded to this many dimensions, to keep a library of them small in memory. */
         const val PRINT_DIMS = 128
 
@@ -163,6 +167,9 @@ class AcousticSpace(
 
     val bpmById: Map<Long, Float> = features.associate { it.songId to it.bpm }
 
+    /** How sure the tempo detector was, per song. */
+    private val bpmConfidenceById: Map<Long, Float> = features.associate { it.songId to it.bpmConfidence }
+
     val size: Int get() = vectors.size
 
     init {
@@ -228,12 +235,64 @@ class AcousticSpace(
     fun similarity(a: Long, b: Long): Double {
         val ma = music[a]
         val mb = music[b]
-        if (ma != null && mb != null) return printSimilarity(ma, mb)
-        val pa = prints[a] ?: return featureSimilarity(a, b)
-        val pb = prints[b] ?: return featureSimilarity(a, b)
-        val print = printSimilarity(pa, pb)
+        if (ma != null && mb != null) return onScale(printSimilarity(ma, mb), musicScale)
+        val pa = prints[a] ?: return onScale(featureSimilarity(a, b), featureScale)
+        val pb = prints[b] ?: return onScale(featureSimilarity(a, b), featureScale)
+        val print = onScale(printSimilarity(pa, pb), soundScale)
         if (PRINT_SHARE >= 1.0) return print
-        return (1.0 - PRINT_SHARE) * featureSimilarity(a, b) + PRINT_SHARE * print
+        return (1.0 - PRINT_SHARE) * onScale(featureSimilarity(a, b), featureScale) + PRINT_SHARE * print
+    }
+
+    /**
+     * Where a measure's similarities sit, across pairs of this library's songs.
+     *
+     * A pair is compared by the music prints when both songs have one, by
+     * YAMNet's when not, by the features when neither - three measures whose
+     * numbers are not on one scale. Where every song has a music print that
+     * does not matter. Where some do not - an update whose analysis is still
+     * running, a file the model could not read - "the nearest songs" came
+     * down partly to which measure a pair happened to fall to, and a song
+     * measured one way could outrank one measured another only because that
+     * measure runs higher. So each is put on the scale of the best one
+     * present: the same mean and spread across the library, the order within
+     * each untouched.
+     */
+    private class Scale(val mean: Double, val spread: Double)
+
+    private fun scaleOf(ids: Collection<Long>, measure: (Long, Long) -> Double): Scale? {
+        if (ids.size < 8) return null
+        val sorted = ids.sorted()
+        val random = java.util.Random(SCALE_SEED)
+        var sum = 0.0
+        var squares = 0.0
+        for (n in 0 until SCALE_PAIRS) {
+            val i = random.nextInt(sorted.size)
+            var j = random.nextInt(sorted.size - 1)
+            if (j >= i) j++
+            val v = measure(sorted[i], sorted[j])
+            sum += v
+            squares += v * v
+        }
+        val mean = sum / SCALE_PAIRS
+        val spread = sqrt(max(0.0, squares / SCALE_PAIRS - mean * mean))
+        return if (spread < 1e-6) null else Scale(mean, spread)
+    }
+
+    private val musicScale: Scale? by lazy {
+        scaleOf(music.keys) { a, b -> printSimilarity(music.getValue(a), music.getValue(b)) }
+    }
+    private val soundScale: Scale? by lazy {
+        scaleOf(prints.keys) { a, b -> printSimilarity(prints.getValue(a), prints.getValue(b)) }
+    }
+    private val featureScale: Scale? by lazy { scaleOf(vectors.keys) { a, b -> featureSimilarity(a, b) } }
+
+    /** The scale everything is put on: the first measure present, best first. */
+    private val reference: Scale? by lazy { musicScale ?: soundScale ?: featureScale }
+
+    private fun onScale(value: Double, own: Scale?): Double {
+        val to = reference ?: return value
+        if (own == null || own === to) return value
+        return (to.mean + to.spread * (value - own.mean) / own.spread).coerceIn(0.0, 1.0)
     }
 
     private fun printSimilarity(pa: DoubleArray, pb: DoubleArray): Double {
@@ -260,6 +319,9 @@ class AcousticSpace(
      * these are already here. Read only.
      */
     val musicPrints: Map<Long, DoubleArray> get() = music
+
+    /** YAMNet's prints, likewise folded, centred and unit length. Read only. */
+    val soundPrints: Map<Long, DoubleArray> get() = prints
 
     /** The hand-made features alone: tempo, loudness, timbre, harmony, shape. */
     fun featureSimilarity(a: Long, b: Long): Double {
@@ -307,13 +369,28 @@ class AcousticSpace(
         return if (count == 0) 0.0 else sum / count
     }
 
-    /** 0 when the tempos match, 1 when they are a factor of two apart. */
+    /**
+     * 0 when the tempos match, 1 when they are a factor of two apart - as
+     * far as the detector can be believed.
+     *
+     * The commonest thing a tempo detector gets wrong is the octave: a pulse
+     * at 70 read as 140, or the other way round. Taken at its word, that
+     * pair was the furthest apart two songs could be, and a radio pushed
+     * away exactly the song whose beat matched. So the distance is also
+     * measured with the octave folded away - 70 and 140 the same, 100 and
+     * 141 still as far apart as it gets at a half - and the two are blended
+     * by how sure the detector was of both: sure, and a factor of two is a
+     * real difference; unsure, and it is most likely the octave.
+     */
     fun tempoDistance(a: Long, b: Long): Double {
         val ba = bpmById[a] ?: return 0.0
         val bb = bpmById[b] ?: return 0.0
         if (ba < 20f || bb < 20f) return 0.0
-        val ratio = ln(ba.toDouble() / bb.toDouble())
-        return (kotlin.math.abs(ratio) / ln(2.0)).coerceIn(0.0, 1.0)
+        val octaves = kotlin.math.abs(ln(ba.toDouble() / bb.toDouble()) / ln(2.0))
+        val plain = octaves.coerceIn(0.0, 1.0)
+        val folded = kotlin.math.abs(octaves - kotlin.math.round(octaves))
+        val sure = minOf(bpmConfidenceById[a] ?: 0f, bpmConfidenceById[b] ?: 0f).toDouble().coerceIn(0.0, 1.0)
+        return sure * plain + (1.0 - sure) * folded
     }
 
     fun has(songId: Long): Boolean = vectors.containsKey(songId)

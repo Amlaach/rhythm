@@ -15,6 +15,7 @@ import com.elchanan.rhythm.engine.Recommender
 import com.elchanan.rhythm.data.PlayCountImport
 import com.elchanan.rhythm.engine.BulkTagging
 import com.elchanan.rhythm.engine.Styles
+import com.elchanan.rhythm.engine.EdgeDecay
 import com.elchanan.rhythm.engine.TransitionEdge
 import java.io.File
 import java.sql.Connection
@@ -721,18 +722,29 @@ class Store private constructor(private val conn: Connection) {
     @Synchronized
     fun bumpAffinity(a: Long, b: Long, weight: Double) {
         if (a == b || a <= 0L || b <= 0L) return
+        // Faded to now before anything is added, as the phone does - see EdgeDecay.
+        val now = System.currentTimeMillis()
+        val (had, then) = edge("SELECT weight, 0.0 AS penalty, updatedAt FROM affinity WHERE a = ? AND b = ?", a, b)
         conn.prepareStatement(
             "INSERT INTO affinity (a, b, weight, updatedAt) VALUES (?,?,?,?) " +
-                "ON CONFLICT(a, b) DO UPDATE SET weight = affinity.weight + excluded.weight, " +
-                "updatedAt = excluded.updatedAt"
+                "ON CONFLICT(a, b) DO UPDATE SET weight = excluded.weight, updatedAt = excluded.updatedAt"
         ).use { ps ->
             ps.setLong(1, a)
             ps.setLong(2, b)
-            ps.setDouble(3, weight)
-            ps.setLong(4, System.currentTimeMillis())
+            ps.setDouble(3, EdgeDecay.bump(had.first, then, now, weight))
+            ps.setLong(4, now)
             ps.executeUpdate()
         }
     }
+
+    /** One edge's weight and penalty as stored, and when; zeros when there is none. */
+    private fun edge(sql: String, a: Long, b: Long): Pair<Pair<Double, Double>, Long> =
+        conn.prepareStatement(sql).use { ps ->
+            ps.setLong(1, a)
+            ps.setLong(2, b)
+            val rs = ps.executeQuery()
+            if (rs.next()) (rs.getDouble(1) to rs.getDouble(2)) to rs.getLong(3) else (0.0 to 0.0) to 0L
+        }
 
     /**
      * Records that [to] followed [from], and how that went.
@@ -745,18 +757,18 @@ class Store private constructor(private val conn: Connection) {
     @Synchronized
     fun noteTransition(from: Long, to: Long, skipped: Boolean) {
         if (from == to || from <= 0L || to <= 0L) return
+        val now = System.currentTimeMillis()
+        val (had, then) = edge("SELECT weight, penalty, updatedAt FROM transitions WHERE a = ? AND b = ?", from, to)
         conn.prepareStatement(
             "INSERT INTO transitions (a, b, weight, penalty, updatedAt) VALUES (?,?,?,?,?) " +
                 "ON CONFLICT(a, b) DO UPDATE SET " +
-                "weight = transitions.weight + excluded.weight, " +
-                "penalty = transitions.penalty + excluded.penalty, " +
-                "updatedAt = excluded.updatedAt"
+                "weight = excluded.weight, penalty = excluded.penalty, updatedAt = excluded.updatedAt"
         ).use { ps ->
             ps.setLong(1, from)
             ps.setLong(2, to)
-            ps.setDouble(3, if (skipped) 0.0 else 1.0)
-            ps.setDouble(4, if (skipped) 1.0 else 0.0)
-            ps.setLong(5, System.currentTimeMillis())
+            ps.setDouble(3, EdgeDecay.bump(had.first, then, now, if (skipped) 0.0 else 1.0))
+            ps.setDouble(4, EdgeDecay.bump(had.second, then, now, if (skipped) 1.0 else 0.0))
+            ps.setLong(5, now)
             ps.executeUpdate()
         }
     }
@@ -766,10 +778,11 @@ class Store private constructor(private val conn: Connection) {
     fun affinityMap(): Map<Long, Map<Long, Double>> {
         val out = HashMap<Long, MutableMap<Long, Double>>()
         conn.createStatement().use { st ->
-            val rs = st.executeQuery("SELECT a, b, weight FROM affinity")
+            val now = System.currentTimeMillis()
+            val rs = st.executeQuery("SELECT a, b, weight, updatedAt FROM affinity")
             while (rs.next()) {
                 out.getOrPut(rs.getLong("a")) { HashMap() }[rs.getLong("b")] =
-                    rs.getDouble("weight")
+                    EdgeDecay.at(rs.getDouble("weight"), rs.getLong("updatedAt"), now)
             }
         }
         return out
@@ -779,10 +792,14 @@ class Store private constructor(private val conn: Connection) {
     fun transitionMap(): Map<Long, Map<Long, TransitionEdge>> {
         val out = HashMap<Long, MutableMap<Long, TransitionEdge>>()
         conn.createStatement().use { st ->
-            val rs = st.executeQuery("SELECT a, b, weight, penalty FROM transitions")
+            val now = System.currentTimeMillis()
+            val rs = st.executeQuery("SELECT a, b, weight, penalty, updatedAt FROM transitions")
             while (rs.next()) {
-                out.getOrPut(rs.getLong("a")) { HashMap() }[rs.getLong("b")] =
-                    TransitionEdge(rs.getDouble("weight"), rs.getDouble("penalty"))
+                val then = rs.getLong("updatedAt")
+                out.getOrPut(rs.getLong("a")) { HashMap() }[rs.getLong("b")] = TransitionEdge(
+                    EdgeDecay.at(rs.getDouble("weight"), then, now),
+                    EdgeDecay.at(rs.getDouble("penalty"), then, now)
+                )
             }
         }
         return out

@@ -303,6 +303,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _feed = MutableStateFlow<List<FeedSection>>(emptyList())
     val feed: StateFlow<List<FeedSection>> = _feed.asStateFlow()
 
+
     private val _report = MutableStateFlow<TasteReport?>(null)
     val report: StateFlow<TasteReport?> = _report.asStateFlow()
 
@@ -314,6 +315,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _detail = MutableStateFlow<DetailList?>(null)
     val detail: StateFlow<DetailList?> = _detail.asStateFlow()
+
+    init {
+        // An open list is a picture taken when it was opened. A playlist
+        // follows its playlist - a song added or removed shows at once - and
+        // any list loses a song whose file is gone, rather than offering a
+        // song that no longer exists until the screen is left and reopened.
+        viewModelScope.launch {
+            combine(playlists, repo.songs) { lists, songs -> lists to songs.mapTo(HashSet()) { it.id } }
+                .collect { (lists, present) ->
+                    val shown = _detail.value ?: return@collect
+                    val id = shown.playlistId
+                    val next = if (id != null) {
+                        lists.firstOrNull { it.playlist.id == id }?.songs ?: shown.songs
+                    } else {
+                        shown.songs.filter { it.id in present }
+                    }
+                    if (next != shown.songs) _detail.value = shown.copy(songs = next)
+                }
+        }
+    }
 
     private val _artistDetail = MutableStateFlow<ArtistInfo?>(null)
     val artistDetail: StateFlow<ArtistInfo?> = _artistDetail.asStateFlow()
@@ -766,7 +787,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val deleteRequest: StateFlow<android.content.IntentSender?> = _deleteRequest.asStateFlow()
 
     /** Remembered so the library can be refreshed once the dialog comes back. */
-    private var deletePending: List<Long> = emptyList()
+    private var deletePending: List<SongEntity> = emptyList()
 
     fun shareSongs(songs: List<SongEntity>) {
         val intent = FileActions.shareIntent(songs) ?: return
@@ -786,7 +807,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun deleteSongs(songs: List<SongEntity>) {
         if (songs.isEmpty()) return
-        deletePending = songs.map { it.id }
+        deletePending = songs
         when (val outcome = FileActions.delete(getApplication(), songs)) {
             is FileActions.DeleteOutcome.Done -> {
                 _message.value = "נמחקו ${outcome.count} קבצים"
@@ -808,14 +829,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun finishDelete(confirmed: Boolean) {
-        val ids = deletePending
+        val songs = deletePending
         deletePending = emptyList()
-        if (!confirmed || ids.isEmpty()) return
+        if (!confirmed || songs.isEmpty()) return
         viewModelScope.launch {
-            // The rows have to go too, or the songs stay in the library
-            // pointing at files that are no longer there.
-            repo.forgetSongs(ids)
+            // What is actually gone. Android 10 asks about one file at a
+            // time, and a yes there only allows the delete - it does not do
+            // it - so the rest are asked for again below.
+            val (gone, still) = withContext(Dispatchers.IO) {
+                songs.partition { song ->
+                    song.path.isEmpty() || !runCatching { java.io.File(song.path).exists() }.getOrDefault(false)
+                }
+            }
+            // The rows have to go too, or the songs stay in the library and
+            // its playlists, pointing at files that are no longer there.
+            if (gone.isNotEmpty()) repo.forgetSongs(gone.map { it.id })
             engine = null
+            if (still.isNotEmpty() && gone.isNotEmpty() &&
+                android.os.Build.VERSION.SDK_INT == android.os.Build.VERSION_CODES.Q
+            ) {
+                deleteSongs(still)
+                return@launch
+            }
             rescan(showMessage = false)
         }
     }
@@ -1603,6 +1638,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun removeFromPlaylist(playlistId: Long, songId: Long) {
         viewModelScope.launch { repo.removeFromPlaylist(playlistId, songId) }
+        // The open list is a picture taken when it was opened, so the song
+        // stayed on screen after it had left the playlist - which read as
+        // "it cannot be removed". It leaves the picture too.
+        val shown = _detail.value
+        if (shown != null && shown.playlistId == playlistId) {
+            _detail.value = shown.copy(songs = shown.songs.filter { it.id != songId })
+        }
     }
 
     fun deletePlaylist(playlistId: Long) {

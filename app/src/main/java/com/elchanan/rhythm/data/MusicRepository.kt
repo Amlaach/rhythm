@@ -22,6 +22,7 @@ import com.elchanan.rhythm.data.PlayCountImport
 import com.elchanan.rhythm.engine.ArtistStyles
 import com.elchanan.rhythm.engine.AudioTags
 import com.elchanan.rhythm.engine.BulkTagging
+import com.elchanan.rhythm.engine.EdgeDecay
 import com.elchanan.rhythm.engine.Spoken
 import com.elchanan.rhythm.engine.AcousticSpace
 import com.elchanan.rhythm.engine.Loudness
@@ -99,7 +100,16 @@ class MusicRepository(
     private val _scans = MutableStateFlow(0L)
     val scans: StateFlow<Long> = _scans.asStateFlow()
 
-    suspend fun rescan(): Int = withContext(Dispatchers.IO) {
+    /**
+     * One scan at a time. A scan asked for while another runs - after a
+     * delete, during the first analysis - waits for it rather than racing it
+     * over the same rows.
+     */
+    private val scanLock = kotlinx.coroutines.sync.Mutex()
+
+    suspend fun rescan(): Int = withContext(Dispatchers.IO) { scanLock.withLock { rescanLocked() } }
+
+    private suspend fun rescanLocked(): Int {
         val excluded = prefs.excludedFolders.map { it.lowercase() }
         // The folders the library is made of, when the listener chose some.
         val roots = prefs.musicFolders.map { it.trimEnd('/').lowercase() + "/" }
@@ -128,6 +138,23 @@ class MusicRepository(
             MediaScanner.indexNow(context, MediaScanner.unindexedFiles(context, known))
         }.getOrDefault(0)
         if (indexed > 0) onDevice = MediaScanner.scan(context)
+        // And the other way round: MediaStore keeps listing a file that was
+        // deleted or moved by something that did not tell it - a file
+        // manager, a computer over USB - and the scan believed it. The song
+        // stayed in the library and in its playlists, pointing at nothing,
+        // and no rescan could remove it. So a row whose file is not there is
+        // not taken as found, and the system is asked to look again, which
+        // drops its stale row. Not when nearly all of them are missing: that
+        // is the check being unable to see the files, not a library deleted,
+        // and forgetting a library on that evidence cannot be undone.
+        val stale = onDevice.filter { song ->
+            song.path.isNotEmpty() && !runCatching { java.io.File(song.path).exists() }.getOrDefault(true)
+        }
+        if (stale.isNotEmpty() && stale.size * 10 < onDevice.size * STALE_OF_TEN) {
+            val stalePaths = stale.mapTo(HashSet()) { it.path }
+            onDevice = onDevice.filter { it.path !in stalePaths }
+            runCatching { MediaScanner.indexNow(context, stalePaths.toList()) }
+        }
         var tooShort = 0
         var inExcluded = 0
         var recordings = 0
@@ -189,15 +216,36 @@ class MusicRepository(
                 song.path !in foundPaths && Volumes.rootOf(song.path) in mounted
             }
         }
-        val goneIds = gone.mapTo(HashSet()) { it.id }
-        val kept = existing.filter { song ->
-            song.path !in foundPaths && song.id !in goneIds
-        }
         // Where the same file came back under a different number.
-        val moved = found.mapNotNull { song ->
+        val renumbered = found.mapNotNull { song ->
             val old = byPath[song.path] ?: return@mapNotNull null
             if (old.id == song.id) null else old.id to song.id
         }
+        // And where a file went to another folder. A move is a delete and a
+        // new file as far as MediaStore is concerned, so the song lost its
+        // plays, its likes and its place in every playlist, and the old one
+        // stayed behind. The same name and the same size, on one gone song
+        // and one new one, is the same file.
+        val existingIds = existing.mapTo(HashSet()) { it.id }
+        fun fileKey(song: SongEntity) =
+            song.path.substringAfterLast('/').lowercase() + "|" + song.sizeBytes
+        val arrivedByKey = found
+            .filter { it.id !in existingIds && byPath[it.path] == null && it.sizeBytes > 0L }
+            .groupBy(::fileKey).filterValues { it.size == 1 }.mapValues { it.value[0] }
+        val relocated = gone
+            .filter { it.sizeBytes > 0L }
+            .groupBy(::fileKey).filterValues { it.size == 1 }
+            .mapNotNull { (key, list) -> arrivedByKey[key]?.let { list[0].id to it.id } }
+        val moved = renumbered + relocated
+        val relocatedIds = relocated.mapTo(HashSet()) { it.first }
+        val goneIds = gone.mapTo(HashSet()) { it.id } - relocatedIds
+        val kept = existing.filter { song ->
+            song.path !in foundPaths && song.id !in goneIds && song.id !in relocatedIds
+        }
+        // The old number's row goes once everything on it has moved: it was
+        // left behind as a second copy of the song that nothing could play.
+        val foundIds = found.mapTo(HashSet()) { it.id }
+        val leftBehind = moved.map { it.first }.filter { it !in foundIds }
 
         // In one transaction, so the observers never see the moment between
         // the old library being cleared and the new one arriving. Without it
@@ -223,10 +271,16 @@ class MusicRepository(
                 dao.moveTransitionB(from, to)
             }
             // Only what is provably gone, and never the whole table. Songs on
-            // a volume that is not attached stay exactly as they were.
-            if (gone.isNotEmpty()) {
-                gone.map { it.id }.chunked(400).forEach { dao.deleteSongsById(it) }
+            // a volume that is not attached stay exactly as they were. A song
+            // that is gone leaves its playlists too, where it could be seen
+            // and not played.
+            if (goneIds.isNotEmpty()) {
+                goneIds.toList().chunked(400).forEach {
+                    dao.deleteSongsById(it)
+                    dao.removeFromAllPlaylists(it)
+                }
             }
+            leftBehind.chunked(400).forEach { dao.deleteSongsById(it) }
             found.chunked(400).forEach { dao.insertSongs(it) }
         }
         _lastScan.value = ScanReport(
@@ -258,7 +312,7 @@ class MusicRepository(
         // The songs still filed under storage that is not attached count as
         // part of the library, because they are: they come back the moment
         // the card does, with everything that was learned about them intact.
-        found.size + kept.size
+        return found.size + kept.size
     }
 
     // -----------------------------------------------------------------------
@@ -266,14 +320,16 @@ class MusicRepository(
     // -----------------------------------------------------------------------
 
     suspend fun setLike(songId: Long, value: Int) = withContext(Dispatchers.IO) {
-        val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
-        val next = if (current.liked == value) 0 else value
-        dao.putStats(
-            current.copy(
-                liked = next,
-                likedAt = if (next != 0) System.currentTimeMillis() else 0L
+        statsLock.withLock {
+            val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
+            val next = if (current.liked == value) 0 else value
+            dao.putStats(
+                current.copy(
+                    liked = next,
+                    likedAt = if (next != 0) System.currentTimeMillis() else 0L
+                )
             )
-        )
+        }
     }
 
     /** What this song is marked: 1 liked, -1 disliked, 0 neither. */
@@ -281,8 +337,10 @@ class MusicRepository(
         withContext(Dispatchers.IO) { dao.stats(songId)?.liked ?: 0 }
 
     suspend fun setSongRating(songId: Long, rating: Int) = withContext(Dispatchers.IO) {
-        val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
-        dao.putStats(current.copy(rating = if (current.rating == rating) 0 else rating))
+        statsLock.withLock {
+            val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
+            dao.putStats(current.copy(rating = if (current.rating == rating) 0 else rating))
+        }
     }
 
     /**
@@ -292,8 +350,10 @@ class MusicRepository(
      */
     suspend fun setSongStyles(songId: Long, styles: String, auto: Boolean = false) =
         withContext(Dispatchers.IO) {
-            val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
-            dao.putStats(current.copy(styles = styles, stylesAuto = if (auto) 1 else 0))
+            statsLock.withLock {
+                val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
+                dao.putStats(current.copy(styles = styles, stylesAuto = if (auto) 1 else 0))
+            }
         }
 
     /**
@@ -307,7 +367,7 @@ class MusicRepository(
      * @return how many songs were changed.
      */
     suspend fun applyImportedPlays(matches: List<PlayCountImport.Match>): Int =
-        withContext(Dispatchers.IO) {
+        withContext(Dispatchers.IO) { statsLock.withLock {
             var changed = 0
             for (match in matches) {
                 val current = dao.stats(match.songId) ?: SongStatsEntity(songId = match.songId)
@@ -318,7 +378,7 @@ class MusicRepository(
                 changed++
             }
             changed
-        }
+        } }
 
     /**
      * Puts one set of style tags on many songs at once.
@@ -333,7 +393,7 @@ class MusicRepository(
         songIds: List<Long>,
         styles: List<String>,
         replace: Boolean
-    ): Int = withContext(Dispatchers.IO) {
+    ): Int = withContext(Dispatchers.IO) { statsLock.withLock {
         var changed = 0
         for (id in songIds) {
             val current = dao.stats(id)
@@ -344,7 +404,7 @@ class MusicRepository(
             changed++
         }
         changed
-    }
+    } }
 
     /**
      * Forgets every style tag the app guessed, keeping every one that was typed.
@@ -425,8 +485,10 @@ class MusicRepository(
 
     /** Sets a genre on many songs at once, creating stats rows as needed. */
     suspend fun setGenre(songIds: List<Long>, genre: String) = withContext(Dispatchers.IO) {
-        for (id in songIds) dao.ensureStats(id)
-        songIds.chunked(400).forEach { dao.setGenre(it, genre.trim()) }
+        statsLock.withLock {
+            for (id in songIds) dao.ensureStats(id)
+            songIds.chunked(400).forEach { dao.setGenre(it, genre.trim()) }
+        }
     }
 
     /**
@@ -443,7 +505,15 @@ class MusicRepository(
             dao.deleteBookmarksFor(id)
             dao.clearHistoryFor(id)
         }
-        ids.chunked(400).forEach { dao.deleteStats(it) }
+        ids.chunked(400).forEach {
+            statsLock.withLock { dao.deleteStats(it) }
+            // The song itself and its playlist places too, now. Those were
+            // left to the scan that followed - and a scan asked for during
+            // an analysis pass never ran, so a song deleted from inside the
+            // app stayed in the library and in every playlist it was in.
+            dao.removeFromAllPlaylists(it)
+            dao.deleteSongsById(it)
+        }
     }
 
     /** The user saying a song is, or is not, in a mood - or (null) handing it back to the audio. */
@@ -451,25 +521,38 @@ class MusicRepository(
         withContext(Dispatchers.IO) {
             // Read, change, write: two chips tapped quickly must not both read
             // the old marks and have the second write erase the first.
-            moodMarkLock.withLock {
+            statsLock.withLock {
                 dao.ensureStats(songId)
                 val current = dao.stats(songId)?.moods.orEmpty()
                 dao.setMoods(songId, com.elchanan.rhythm.engine.MoodMarks.with(current, mood, value))
             }
         }
 
-    private val moodMarkLock = kotlinx.coroutines.sync.Mutex()
+    /**
+     * Every read, change and write of a song's stats, one at a time.
+     *
+     * Each of them reads the row, changes one field and writes the whole row
+     * back. Two at once - a like pressed as a play is being counted, a mood
+     * chip tapped as the song ends - both read the old row, and whichever
+     * wrote second erased the other: a like that did not stay, a play that
+     * was never counted.
+     */
+    private val statsLock = kotlinx.coroutines.sync.Mutex()
 
     /** The user saying a song is vocal-only (true), is not (false), or handing it back (null). */
     suspend fun setVocal(songId: Long, vocal: Boolean?) = withContext(Dispatchers.IO) {
-        dao.ensureStats(songId)
-        dao.setVocal(songId, when (vocal) { true -> 1; false -> 0; null -> -1 })
+        statsLock.withLock {
+            dao.ensureStats(songId)
+            dao.setVocal(songId, when (vocal) { true -> 1; false -> 0; null -> -1 })
+        }
     }
 
     /** The user overruling the speech detector, either way. */
     suspend fun setSpoken(songId: Long, spoken: Boolean) = withContext(Dispatchers.IO) {
-        dao.ensureStats(songId)
-        dao.setSpoken(songId, if (spoken) 1 else 0)
+        statsLock.withLock {
+            dao.ensureStats(songId)
+            dao.setSpoken(songId, if (spoken) 1 else 0)
+        }
     }
 
     /**
@@ -482,7 +565,7 @@ class MusicRepository(
      * those were said on purpose.
      */
     suspend fun resetPlayCount(songId: Long) = withContext(Dispatchers.IO) {
-        dao.resetPlayCount(songId)
+        statsLock.withLock { dao.resetPlayCount(songId) }
         dao.clearHistoryFor(songId)
     }
 
@@ -496,7 +579,7 @@ class MusicRepository(
         // SQLite caps how many values one statement may bind, and a prolific
         // artist in a large library goes past it.
         ids.chunked(400).forEach { chunk ->
-            dao.resetPlayCounts(chunk)
+            statsLock.withLock { dao.resetPlayCounts(chunk) }
             dao.clearHistoryFor(chunk)
         }
         ids.size
@@ -527,26 +610,28 @@ class MusicRepository(
         sessionTail: List<Long>
     ) = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
         val bucket = Recommender.bucketOf(now)
         val today = localDay(now)
-        val newDay = today != current.lastPlayDay
-        dao.putStats(
-            current.copy(
-                playDays = current.playDays + if (newDay) 1 else 0,
-                lastPlayDay = today,
-                playCount = current.playCount + 1,
-                completeCount = current.completeCount + if (completed) 1 else 0,
-                listenedMs = current.listenedMs + listenedMs,
-                lastPlayedAt = now,
-                b0 = current.b0 + if (bucket == 0) 1 else 0,
-                b1 = current.b1 + if (bucket == 1) 1 else 0,
-                b2 = current.b2 + if (bucket == 2) 1 else 0,
-                b3 = current.b3 + if (bucket == 3) 1 else 0,
-                dWeekend = current.dWeekend + if (Recommender.isWeekend(now)) 1 else 0,
-                dWeekday = current.dWeekday + if (Recommender.isWeekend(now)) 0 else 1
+        statsLock.withLock {
+            val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
+            val newDay = today != current.lastPlayDay
+            dao.putStats(
+                current.copy(
+                    playDays = current.playDays + if (newDay) 1 else 0,
+                    lastPlayDay = today,
+                    playCount = current.playCount + 1,
+                    completeCount = current.completeCount + if (completed) 1 else 0,
+                    listenedMs = current.listenedMs + listenedMs,
+                    lastPlayedAt = now,
+                    b0 = current.b0 + if (bucket == 0) 1 else 0,
+                    b1 = current.b1 + if (bucket == 1) 1 else 0,
+                    b2 = current.b2 + if (bucket == 2) 1 else 0,
+                    b3 = current.b3 + if (bucket == 3) 1 else 0,
+                    dWeekend = current.dWeekend + if (Recommender.isWeekend(now)) 1 else 0,
+                    dWeekday = current.dWeekday + if (Recommender.isWeekend(now)) 0 else 1
+                )
             )
-        )
+        }
         dao.insertHistory(HistoryEntity(songId = songId, playedAt = now, completed = completed, listenedMs = listenedMs))
         dao.trimHistory(HISTORY_FOR_RECENCY)
 
@@ -585,11 +670,13 @@ class MusicRepository(
     }
 
     private suspend fun bump(a: Long, b: Long, w: Double, now: Long) {
-        val current = dao.affinityWeight(a, b) ?: 0.0
-        dao.putAffinity(AffinityEntity(a = a, b = b, weight = current + w, updatedAt = now))
+        // Faded to now before anything is added - see EdgeDecay.
+        val current = dao.affinityEdge(a, b)
+        val weight = if (current == null) w else EdgeDecay.bump(current.weight, current.updatedAt, now, w)
+        dao.putAffinity(AffinityEntity(a = a, b = b, weight = weight, updatedAt = now))
     }
 
-    suspend fun recordSkip(songId: Long, listenedMs: Long) = withContext(Dispatchers.IO) {
+    suspend fun recordSkip(songId: Long, listenedMs: Long) = withContext(Dispatchers.IO) { statsLock.withLock {
         val current = dao.stats(songId) ?: SongStatsEntity(songId = songId)
         val now = System.currentTimeMillis()
         val burst = synchronized(recentSkips) {
@@ -607,19 +694,20 @@ class MusicRepository(
                 lastPlayedAt = System.currentTimeMillis()
             )
         )
-    }
+    } }
 
     /** Records that [to] followed [from]; [skipped] flips it into a penalty. */
     suspend fun recordTransition(from: Long, to: Long, skipped: Boolean) = withContext(Dispatchers.IO) {
         if (from == to || from <= 0L || to <= 0L) return@withContext
         val now = System.currentTimeMillis()
         val current = dao.transition(from, to)
+        val then = current?.updatedAt ?: 0L
         dao.putTransition(
             TransitionEntity(
                 a = from,
                 b = to,
-                weight = (current?.weight ?: 0.0) + if (skipped) 0.0 else 1.0,
-                penalty = (current?.penalty ?: 0.0) + if (skipped) 1.0 else 0.0,
+                weight = EdgeDecay.bump(current?.weight ?: 0.0, then, now, if (skipped) 0.0 else 1.0),
+                penalty = EdgeDecay.bump(current?.penalty ?: 0.0, then, now, if (skipped) 1.0 else 0.0),
                 updatedAt = now
             )
         )
@@ -627,8 +715,12 @@ class MusicRepository(
 
     suspend fun transitionMap(): Map<Long, Map<Long, TransitionEdge>> = withContext(Dispatchers.IO) {
         val out = HashMap<Long, MutableMap<Long, TransitionEdge>>()
+        val now = System.currentTimeMillis()
         for (row in dao.allTransitions()) {
-            out.getOrPut(row.a) { HashMap() }[row.b] = TransitionEdge(row.weight, row.penalty)
+            out.getOrPut(row.a) { HashMap() }[row.b] = TransitionEdge(
+                EdgeDecay.at(row.weight, row.updatedAt, now),
+                EdgeDecay.at(row.penalty, row.updatedAt, now)
+            )
         }
         out
     }
@@ -793,8 +885,9 @@ class MusicRepository(
     suspend fun affinityMap(): Map<Long, Map<Long, Double>> = withContext(Dispatchers.IO) {
         val rows: List<AffinityEntity> = dao.allAffinity()
         val out = HashMap<Long, MutableMap<Long, Double>>()
+        val now = System.currentTimeMillis()
         for (r in rows) {
-            out.getOrPut(r.a) { HashMap() }[r.b] = r.weight
+            out.getOrPut(r.a) { HashMap() }[r.b] = EdgeDecay.at(r.weight, r.updatedAt, now)
         }
         out
     }
@@ -936,19 +1029,23 @@ class MusicRepository(
     suspend fun bulkSetRating(songIds: List<Long>, rating: Int) = withContext(Dispatchers.IO) {
         // One transaction: a folder can hold a thousand songs, and a commit
         // per song made rating one take seconds.
-        RhythmDatabase.get(context).withTransaction {
-            for (id in songIds) {
-                val current = dao.stats(id) ?: SongStatsEntity(songId = id)
-                dao.putStats(current.copy(rating = rating))
+        statsLock.withLock {
+            RhythmDatabase.get(context).withTransaction {
+                for (id in songIds) {
+                    val current = dao.stats(id) ?: SongStatsEntity(songId = id)
+                    dao.putStats(current.copy(rating = rating))
+                }
             }
         }
     }
 
     suspend fun bulkSetLike(songIds: List<Long>, value: Int) = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        for (id in songIds) {
-            val current = dao.stats(id) ?: SongStatsEntity(songId = id)
-            dao.putStats(current.copy(liked = value, likedAt = if (value != 0) now else 0L))
+        statsLock.withLock {
+            for (id in songIds) {
+                val current = dao.stats(id) ?: SongStatsEntity(songId = id)
+                dao.putStats(current.copy(liked = value, likedAt = if (value != 0) now else 0L))
+            }
         }
     }
 
@@ -1136,6 +1233,12 @@ class MusicRepository(
          * enough never to lose anything that matters.
          */
         private const val EDGE_LIMIT = 20_000
+
+        /**
+         * Listed files missing from the disk are dropped unless more than
+         * nine in ten are, which is the check failing rather than a delete.
+         */
+        private const val STALE_OF_TEN = 9
 
         /**
          * How much history the engine reads recency from. The whole of it:

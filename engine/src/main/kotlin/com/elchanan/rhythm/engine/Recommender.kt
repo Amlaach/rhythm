@@ -282,6 +282,18 @@ class Recommender(
     }
 
     /**
+     * [playable] as a set, for the questions asked of it per song.
+     *
+     * Everything that reads the listening to learn a taste reads it through
+     * this: the taste vector did, and the sound model's seeds, the session's
+     * centre, the familiarity scale and the restlessness did not - so a shiur
+     * played daily, kept out of every shelf, still set what "sounds like what
+     * you love" meant, what was "playing now", and how well known every song
+     * looked beside it.
+     */
+    private val playableIds: Set<Long> = playable.mapTo(HashSet()) { it.id }
+
+    /**
      * When a song was last heard - played, not skipped - or 0 when unknown.
      *
      * The history is capped, so a song can be missing from it. When it has
@@ -364,7 +376,7 @@ class Recommender(
 
     private val hourBucket: Int = bucketOf(now)
     private val weekendNow: Boolean = isWeekend(now)
-    private val maxPlays: Int = stats.values.maxOfOrNull { it.playCount } ?: 0
+    private val maxPlays: Int = playable.maxOfOrNull { stats[it.id]?.playCount ?: 0 } ?: 0
 
     /** The styles the user has said must not be mixed, ready to consult. */
     private val separations: Styles.Separations =
@@ -427,15 +439,52 @@ class Recommender(
      * the ratio to mean anything.
      */
     private val restlessness: Double = run {
-        val plays = stats.values.sumOf { it.playCount }
-        val skips = stats.values.sumOf { it.skipCount }
+        var plays = 0
+        var skips = 0
+        for (song in playable) {
+            val st = stats[song.id] ?: continue
+            plays += st.playCount
+            skips += st.skipCount
+        }
         val attempts = plays + skips
         if (attempts < 10) 0.0 else (skips.toDouble() / attempts).coerceIn(0.0, 1.0)
     }
 
+    /**
+     * The same question asked of the last weeks only: of the songs touched
+     * lately, how many were last turned off rather than heard.
+     *
+     * [restlessness] is every skip since the app was installed, so a month
+     * of skipping a year ago widened the feed for good, and a listener whose
+     * feed stopped landing this week was drowned out by years of it
+     * landing. Still what the skip prior leans on - how often this listener
+     * skips anything at all is a lifetime question - but the discovery dial
+     * answers to now. Thirty days, then ninety if too little was touched,
+     * then the lifetime figure.
+     */
+    private val recentRestlessness: Double = run {
+        for (days in RESTLESS_WINDOWS_DAYS) {
+            val since = now - days * 86_400_000L
+            var touched = 0
+            var skipped = 0
+            for (song in playable) {
+                val st = stats[song.id] ?: continue
+                if (st.lastPlayedAt < since) continue
+                touched++
+                // The last touch was a skip when the skip is that touch and no
+                // play came after it.
+                if (st.lastSkipAt > 0L && st.lastSkipAt + SAME_EVENT_MS >= st.lastPlayedAt &&
+                    heardAt(song.id) < st.lastSkipAt
+                ) skipped++
+            }
+            if (touched >= RESTLESS_MIN_SONGS) return@run skipped.toDouble() / touched
+        }
+        restlessness
+    }
+
     /** The user's dial, widened when the recent picks are being skipped. */
     private val effectiveDiscovery: Double =
-        (tuning.discovery + 0.5 * restlessness).coerceIn(0.0, 1.0)
+        (tuning.discovery + 0.5 * recentRestlessness).coerceIn(0.0, 1.0)
 
     /**
      * The acoustic centre of the last three quarters of an hour, or null when too
@@ -451,8 +500,8 @@ class Recommender(
         // touched. Skips count as touches, so five skips in a row used to set
         // the session's centre to the sound being skipped, and the feed leaned
         // towards exactly what was being rejected.
-        val recent = stats.values
-            .map { it.songId to heardAt(it.songId) }
+        val recent = playable
+            .map { it.id to heardAt(it.id) }
             .filter { it.second >= cutoff }
             .sortedByDescending { it.second }
             .take(5)
@@ -787,12 +836,12 @@ class Recommender(
     init {
         val space = acoustic
         val listenedFor = behaviour.entries
-            .filter { it.value > 0.35 && space?.has(it.key) == true }
+            .filter { it.value > 0.35 && it.key in playableIds && space?.has(it.key) == true }
             .sortedByDescending { it.value }
             .take(60)
             .map { it.key }
         val listenedAgainst = behaviour.entries
-            .filter { it.value < -0.35 && space?.has(it.key) == true }
+            .filter { it.value < -0.35 && it.key in playableIds && space?.has(it.key) == true }
             .sortedBy { it.value }
             .take(30)
             .map { it.key }
@@ -866,7 +915,7 @@ class Recommender(
         val out = ArrayList<String>(8)
         out.addAll(stylesOf(song))
 
-        song.genre?.takeIf { it.isNotBlank() }?.let { out.add(it.trim()) }
+        genreOf(song)?.let { out.add(it) }
         if (song.year in 1900..2100) out.add("decade:${song.year / 10 * 10}")
         val minutes = song.durationMs / 60000
         out.add(if (minutes < 3) "len:short" else if (minutes < 6) "len:mid" else "len:long")
@@ -886,6 +935,38 @@ class Recommender(
             if (f.mode >= 0) out.add(if (f.mode == 1) "mode:major" else "mode:minor")
         }
         return out.map { it.lowercase(Locale.ROOT) }.distinct()
+    }
+
+    /**
+     * The genre a song counts under: the one the user set, else the file's -
+     * and neither when it is a placeholder.
+     *
+     * The one the user set was stored, described as replacing the file's,
+     * and never read: only the file's genre reached the recommendations. And
+     * a file's genre is whoever tagged it's opinion - "Other", "Unknown",
+     * an ID3 number, the site it came from - which went into the taste like
+     * a style the user had typed, and could name a mix: "מיקס other".
+     */
+    private fun genreOf(song: SongEntity): String? {
+        val own = stats[song.id]?.genre?.trim().orEmpty()
+        val genre = own.ifEmpty { song.genre?.trim().orEmpty() }
+        if (genre.isEmpty()) return null
+        val key = genre.lowercase(Locale.ROOT)
+        if (key in PLACEHOLDER_GENRES || NUMBERED_GENRE.matches(key)) return null
+        return genre
+    }
+
+    /**
+     * Genre words that came only from files, never from a style, and sit on
+     * more than half the library: "Jewish" on a Jewish library says nothing
+     * about a kind of music within it, and is not a name for a mix.
+     */
+    private val broadGenres: Set<String> by lazy {
+        val styleWords = songs.flatMapTo(HashSet()) { s -> stylesOf(s).map { it.lowercase(Locale.ROOT) } }
+        songs.mapNotNull { genreOf(it)?.lowercase(Locale.ROOT) }
+            .groupingBy { it }.eachCount()
+            .filter { (word, count) -> word !in styleWords && count * 2 > songs.size }
+            .keys
     }
 
     /**
@@ -1117,8 +1198,6 @@ class Recommender(
         for ((k, value) in v) dot += value * ((adjusted[k] ?: 0.0) / norm)
         return dot.coerceIn(-1.0, 1.0)
     }
-
-    private val playableIds: Set<Long> = playable.mapTo(HashSet()) { it.id }
 
     /**
      * Tracks the model heard as more talking than music, kept out of the
@@ -1598,6 +1677,15 @@ class Recommender(
         return out
     }
 
+    /** The first [cap] songs of each artist, order kept. */
+    private fun capPerArtist(list: List<SongEntity>, cap: Int): List<SongEntity> {
+        val count = HashMap<String, Int>()
+        return list.filter { song ->
+            val n = count.getOrDefault(song.artistKey, 0)
+            if (n >= cap) false else { count[song.artistKey] = n + 1; true }
+        }
+    }
+
     /**
      * Orders an already chosen set so consecutive tracks flow into each other:
      * learned transitions first, then acoustic and tempo continuity.
@@ -1797,24 +1885,35 @@ class Recommender(
             // their surroundings" half was picked on its own, so it could land
             // on the opposite side of a separation from the liked half it was
             // meant to surround.
+            // A share of them, a few per singer. All of them went in, and the
+            // list was cut at fifty afterwards - so past fifty likes the
+            // surroundings the title promises were cut off entirely, and one
+            // singer's fifteen liked songs could be most of the mix.
             val kept = offered(liked.shuffled(Random(feedSeed)))
+                .let { capPerArtist(it, LIKED_PER_ARTIST) }
+                .take(LIKED_IN_MIX)
             val keptIds = kept.map { it.id }
             val keptSet = keptIds.toSet()
             val side = kept.flatMap { declaredStyles[it.id].orEmpty() }.distinct()
+            // The surroundings are what was not liked: the likes left out
+            // above would otherwise outscore everything and take their place.
+            val likedSet = liked.mapTo(HashSet()) { it.id }
             val pool = notDisliked.filter { c ->
-                c.id !in keptSet &&
+                c.id !in keptSet && c.id !in likedSet &&
                     kept.none { samePiece(it.id, c.id) } &&
                     !separations.clash(side, declaredStyles[c.id].orEmpty())
             }
-            val expanded = pick(pool, 30, salt = 41L, maxPerArtist = 3) { c ->
+            val expanded = pick(pool, LIKED_MIX_SIZE - kept.size, salt = 41L, maxPerArtist = 3) { c ->
                 1.9 * affinityTo(keptIds.take(12), c.id)
             }
+            // Woven together rather than the liked half and then the rest.
+            val together = kept + expanded
             mixes.add(
                 Mix(
                     id = "mix:liked",
                     title = "על בסיס האהובים",
                     subtitle = "מהשירים שסימנת בלייק והסביבה שלהם",
-                    songs = (kept + expanded).take(50)
+                    songs = if (together.isEmpty()) together else sequence(together.first(), together.drop(1))
                 )
             )
         }
@@ -1880,40 +1979,61 @@ class Recommender(
 
         // tempo based mixes, only meaningful once the analyser has run
         if (features.size >= 12) {
+            // By the mood model where there is one: קצבי and רגוע as the
+            // mood chips and lists read them, with the user's own marks.
+            //
+            // They were a tempo threshold - "above 112" - on the raw
+            // estimate, and the tempo detector answers even when it has
+            // nothing to go on: a sparse pulse aliases upward readily, and a
+            // niggun in free time comes back as a confident 120. The mood
+            // model weighs the tempo by how sure the detector was and falls
+            // back to counting onsets; the threshold did not, and it could
+            // not be taught - a song marked "not קצבי" stayed in the mix.
+            val byMood = moodModel.ready
+            fun inMood(mood: Mood, s: SongEntity) =
+                moodModel.matches(mood, features[s.id]) && s.id !in speechAhead
+            fun lean(mood: Mood): ((SongEntity) -> Double)? =
+                if (!byMood) null else { c -> MOOD_MIX_LEAN * moodModel.strength(mood, features[c.id]) }
             val fast = notDisliked.filter { s ->
-                val f = features[s.id] ?: return@filter false
-                f.bpm >= 112f && f.onsetRate >= 1.2f
+                if (byMood) inMood(Mood.ENERGETIC, s) else {
+                    val f = features[s.id] ?: return@filter false
+                    f.bpm >= 112f && f.onsetRate >= 1.2f
+                }
             }
             if (fast.size >= 8) {
                 mixes.add(
                     Mix(
                         id = "mix:tempo:fast",
                         title = "מיקס קצבי",
-                        subtitle = "מעל 112 פעימות בדקה",
-                        songs = pick(fast, 40, salt = 67L, maxPerArtist = 3)
+                        subtitle = if (byMood) Mood.ENERGETIC.subtitle else "מעל 112 פעימות בדקה",
+                        songs = pick(fast, 40, salt = 67L, maxPerArtist = 3, extra = lean(Mood.ENERGETIC))
                     )
                 )
             }
             val calm = notDisliked.filter { s ->
-                val f = features[s.id] ?: return@filter false
-                f.bpm in 1f..95f || (f.onsetRate < 0.8f && f.dynamics < 0.9f)
+                if (byMood) inMood(Mood.CALM, s) else {
+                    val f = features[s.id] ?: return@filter false
+                    f.bpm in 1f..95f || (f.onsetRate < 0.8f && f.dynamics < 0.9f)
+                }
             }
             if (calm.size >= 8) {
                 mixes.add(
                     Mix(
                         id = "mix:tempo:calm",
                         title = "מיקס רגוע",
-                        subtitle = "איטי, פחות הקשה",
-                        songs = pick(calm, 40, salt = 71L, maxPerArtist = 3)
+                        subtitle = Mood.CALM.subtitle,
+                        songs = pick(calm, 40, salt = 71L, maxPerArtist = 3, extra = lean(Mood.CALM))
                     )
                 )
             }
-            // acoustic neighbourhood of the single most endorsed song
-            val anchor = behaviour.entries
-                .filter { acoustic?.has(it.key) == true }
-                .maxByOrNull { it.value }
-                ?.key
-                ?.let { id -> songs.firstOrNull { it.id == id } }
+            // acoustic neighbourhood of the single most endorsed song - of the
+            // songs that may be offered: it opens the mix, and it was taken
+            // from the whole library, so a shiur played every day, a vocal
+            // song outside its weeks or a medley could open a mix of music
+            val anchor = notDisliked
+                .filter { acoustic?.has(it.id) == true }
+                .maxByOrNull { behaviour[it.id] ?: 0.0 }
+                ?.takeIf { (behaviour[it.id] ?: 0.0) > 0.0 }
             if (anchor != null && acousticPositives.isNotEmpty()) {
                 val neighbours = pick(
                     // Not the anchor's other copies: they are what it sounds
@@ -1941,7 +2061,7 @@ class Recommender(
 
         val topStyles = taste.entries
             .filter { it.value > 0 && !it.key.startsWith("decade:") && !it.key.startsWith("len:") &&
-                !it.key.startsWith("tempo:") && !it.key.startsWith("mode:") }
+                !it.key.startsWith("tempo:") && !it.key.startsWith("mode:") && it.key !in broadGenres }
             .sortedByDescending { it.value }
             .take(4)
         for ((style, _) in topStyles) {
@@ -1992,8 +2112,10 @@ class Recommender(
                     id = "mix:artist:${artist.artistKey}",
                     title = "רדיו ${artist.displayName}",
                     subtitle = "${artist.displayName} ודומים לו",
+                    // In the order a radio plays, not theirs and then the rest.
                     songs = (pick(own, 26, salt = 61L, maxPerArtist = 99, maxPerAlbum = 99) + neighbours)
                         .distinctBy { it.id }
+                        .let { if (it.isEmpty()) it else sequence(it.first(), it.drop(1)) }
                 )
             )
         }
@@ -2377,11 +2499,27 @@ class Recommender(
         val space = acoustic ?: return emptyList()
         // Medleys stay out, as they do of every other generated mix: landing on
         // one unasked sounds like a song that started halfway through.
-        val entries = playable.filter { space.has(it.id) && !medley(it) }
+        val analysed = playable.filter { space.has(it.id) && !medley(it) }
+        // What the clusters are made of: the music model's print where nearly
+        // every song has one, else YAMNet's, else the measured features.
+        //
+        // It was always the features - tempo, loudness, timbre, key - and
+        // those are the weakest thing the app measures: asked which songs
+        // share a style, a song's nearest neighbours by the features did so
+        // less often than a random pick (12% against 25%), where the prints
+        // did best. So the daily mixes were mostly tempo bands - "מיקס 131
+        // BPM" - rather than kinds of music. One measure for all of them, so
+        // no cluster is an artefact of which songs had which.
+        fun covered(prints: Map<Long, DoubleArray>): List<SongEntity>? {
+            val with = analysed.filter { it.id in prints }
+            return with.takeIf { it.size >= 40 && it.size * 10 >= analysed.size * DAILY_PRINT_COVER }
+        }
+        val (entries, points) = covered(space.musicPrints)?.let { it to it.map { s -> space.musicPrints.getValue(s.id) } }
+            ?: covered(space.soundPrints)?.let { it to it.map { s -> space.soundPrints.getValue(s.id) } }
+            ?: (analysed to analysed.map { space.vectors.getValue(it.id) })
         if (entries.size < 40) return emptyList()
 
-        val dims = AcousticSpace.DIMS
-        val points = entries.map { space.vectors[it.id]!! }
+        val dims = points.first().size
         val k = minOf(maxMixes, maxOf(2, entries.size / 60))
         // By the day, not by the refresh button. These are called the daily
         // mixes and they were changing only when the feed was reshuffled.
@@ -2475,7 +2613,7 @@ class Recommender(
         for (song in members) {
             for (token in tokensBySong[song.id].orEmpty()) {
                 if (token.startsWith("decade:") || token.startsWith("len:") ||
-                    token.startsWith("tempo:") || token.startsWith("mode:")
+                    token.startsWith("tempo:") || token.startsWith("mode:") || token in broadGenres
                 ) continue
                 styleCounts[token] = (styleCounts[token] ?: 0) + 1
             }
@@ -2775,6 +2913,33 @@ class Recommender(
 
         /** How far above the listener's average a mood must sit to count fully. */
         private const val MOOD_LIFT_SCALE = 0.8
+
+        /** Genres that are only a placeholder, lower case. */
+        private val PLACEHOLDER_GENRES = setOf(
+            "other", "others", "unknown", "<unknown>", "misc", "miscellaneous", "none", "genre",
+            "general", "default", "various", "various artists", "music", "audio", "mp3", "unclassifiable",
+            "אחר", "אחרים", "כללי", "שונות", "לא ידוע", "מוזיקה", "ללא", "ללא ז'אנר"
+        )
+
+        /** An ID3v1 genre number left unresolved: "12", "(12)". */
+        private val NUMBERED_GENRE = Regex("\\(?\\d{1,3}\\)?")
+
+        /** How far a clear example of a mood leads its mix, against the listener's score. */
+        private const val MOOD_MIX_LEAN = 0.8
+
+        /** In tenths: how much of the analysed library a print must cover to be what the daily mixes cluster on. */
+        private const val DAILY_PRINT_COVER = 8
+
+        /** How long the "based on your likes" mix is, how much of it the likes are, and how many per singer. */
+        private const val LIKED_MIX_SIZE = 50
+        private const val LIKED_IN_MIX = 30
+        private const val LIKED_PER_ARTIST = 3
+
+        /** The windows [recentRestlessness] tries, shortest first. */
+        private val RESTLESS_WINDOWS_DAYS = longArrayOf(30L, 90L)
+
+        /** Songs touched in a window before its skip share is believed. */
+        private const val RESTLESS_MIN_SONGS = 10
 
         /** How long a song must have been off before "listen again" offers it. */
         private const val AGAIN_AFTER_HOURS = 48.0

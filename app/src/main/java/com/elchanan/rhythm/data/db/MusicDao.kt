@@ -181,6 +181,9 @@ interface MusicDao {
     @Query("SELECT weight FROM affinity WHERE a = :a AND b = :b")
     suspend fun affinityWeight(a: Long, b: Long): Double?
 
+    @Query("SELECT * FROM affinity WHERE a = :a AND b = :b")
+    suspend fun affinityEdge(a: Long, b: Long): AffinityEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putAffinity(edge: AffinityEntity)
 
@@ -382,6 +385,10 @@ interface MusicDao {
 
     @Query("DELETE FROM playlist_items WHERE playlistId = :playlistId AND songId = :songId")
     suspend fun removeFromPlaylist(playlistId: Long, songId: Long)
+
+    /** A file that is gone leaves every playlist it was in. */
+    @Query("DELETE FROM playlist_items WHERE songId IN (:ids)")
+    suspend fun removeFromAllPlaylists(ids: List<Long>)
 
     // ---------- keeping what was learned when the id underneath it moves ----------
 
