@@ -161,8 +161,32 @@ jobs:
           SHA=$(sha256sum "$APK" | cut -d' ' -f1)
           SIZE=$(stat -c %s "$APK")
           URL="https://github.com/${{ github.repository }}/releases/download/v$VERSION/$APK"
-          printf '{"versionCode": %s, "versionName": "%s", "url": "%s", "sha256": "%s", "size": %s}\n' \
-            "${{ github.run_number }}" "$VERSION" "$URL" "$SHA" "$SIZE" > update.json
+          # The app offers it only from two days after now: the first two
+          # days of a version belong to the owner's own download page, where
+          # the downloads are counted. Hours, to change it here alone.
+          DELAY_HOURS=48
+          AVAILABLE_AT=$(( ( $(date +%s) + DELAY_HOURS * 3600 ) * 1000 ))
+          # The versions before this one ride along under "earlier", each with
+          # its own time: merged again within the two days, a phone still gets
+          # the last version whose two days are over instead of waiting on the
+          # newest for ever. Read from the release that is latest until now.
+          curl -sfL "https://github.com/${{ github.repository }}/releases/latest/download/update.json" -o previous.json || echo '{}' > previous.json
+          python3 - "$VERSION" "$URL" "$SHA" "$SIZE" "$AVAILABLE_AT" "${{ github.run_number }}" <<'PY'
+          import json, sys
+          version, url, sha, size, available, code = sys.argv[1:7]
+          try:
+              prev = json.load(open("previous.json"))
+          except Exception:
+              prev = {}
+          earlier = []
+          if prev.get("versionCode"):
+              top = {k: prev[k] for k in ("versionCode", "versionName", "url", "sha256", "size", "availableAt") if k in prev}
+              earlier = [top] + [e for e in prev.get("earlier", []) if isinstance(e, dict)]
+          earlier = [e for e in earlier if e.get("versionCode", 0) < int(code)][:5]
+          json.dump({"versionCode": int(code), "versionName": version, "url": url, "sha256": sha,
+                     "size": int(size), "availableAt": int(available), "earlier": earlier},
+                    open("update.json", "w"))
+          PY
           cat update.json
           git log -1 --format=%B > notes.txt
           gh release create "v$VERSION" "$APK" update.json \

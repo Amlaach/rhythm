@@ -2469,8 +2469,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _update = MutableStateFlow(
         UpdateState(
-            release = com.elchanan.rhythm.update.Updater.decode(repo.prefs.knownRelease)
-                ?.takeIf { com.elchanan.rhythm.update.Updater.isNewer(it) }
+            release = com.elchanan.rhythm.update.Updater.toOffer(
+                com.elchanan.rhythm.update.Updater.decodeAll(repo.prefs.knownRelease)
+            )
         )
     )
     val update: StateFlow<UpdateState> = _update.asStateFlow()
@@ -2505,11 +2506,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             repo.prefs.lastUpdateCheck = now
             repo.prefs.updatesReachable = true
             _updatesReachable.value = true
-            val newer = found.takeIf { com.elchanan.rhythm.update.Updater.isNewer(it) }
-            repo.prefs.knownRelease = newer?.let { com.elchanan.rhythm.update.Updater.encode(it) }.orEmpty()
+            val newer = found.filter { com.elchanan.rhythm.update.Updater.isNewer(it) }
+            // Kept even before their time, so the banner appears on the first
+            // launch after the two days rather than after the next check.
+            repo.prefs.knownRelease = com.elchanan.rhythm.update.Updater.encodeAll(newer)
+            // Offered only from the time CI set: the first two days of a
+            // version are the owner's own download page's.
+            val due = com.elchanan.rhythm.update.Updater.toOffer(newer)
             _update.value = UpdateState(
-                release = newer,
-                note = if (manual && newer == null) "יש לך את הגרסה האחרונה" else null
+                release = due,
+                note = if (manual && due == null) "יש לך את הגרסה האחרונה" else null
             )
         }
     }

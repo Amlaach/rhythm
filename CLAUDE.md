@@ -140,6 +140,13 @@ User reports that point to this issue:
 - `update/Updater.kt` reads `releases/latest/download/update.json`, only
   with a validated connection, downloads the APK into the cache, checks its
   SHA-256 and hands it to PackageInstaller (which refuses another key).
+- The app offers a version only from its `availableAt`, which CI sets 48
+  hours after publishing (`DELAY_HOURS` in build.yml): the owner's own
+  download page, where downloads are counted, gets the first two days.
+  update.json also lists the few versions before it under `earlier`, so a
+  merge inside the two days does not leave phones with nothing to take;
+  the app offers the newest version that is due. Builds 1.1.324-1.1.328
+  predate this and update at once.
 - The owner's rule: someone without the internet sees no trace of it. So
   nothing about updates shows until a check has once reached the server
   (`Prefs.updatesReachable`); every failure is silent. The only network use
