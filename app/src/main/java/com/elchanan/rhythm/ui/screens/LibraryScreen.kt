@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.components.DialogBody
+import com.elchanan.rhythm.ui.components.fitHeight
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.activity.compose.BackHandler
@@ -595,17 +597,19 @@ fun LibraryScreen(
             containerColor = Surface1,
             title = { Text("מיון") },
             text = {
-                Column {
-                    SongSort.entries.forEach { option ->
-                        Text(
-                            text = option.label,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (option == sort) Accent else MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { sort = option; sortOpen = false }
-                                .padding(vertical = 11.dp)
-                        )
+                DialogBody {
+                    Column {
+                        SongSort.entries.forEach { option ->
+                            Text(
+                                text = option.label,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (option == sort) Accent else MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { sort = option; sortOpen = false }
+                                    .padding(vertical = 11.dp)
+                            )
+                        }
                     }
                 }
             },
@@ -622,12 +626,14 @@ fun LibraryScreen(
             containerColor = Surface1,
             title = { Text("רשימה חדשה") },
             text = {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    singleLine = true,
-                    label = { Text("שם") }
-                )
+                DialogBody {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        singleLine = true,
+                        label = { Text("שם") }
+                    )
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -896,10 +902,12 @@ internal fun SelectionBar(vm: MainViewModel) {
             containerColor = Surface1,
             title = { Text("למחוק ${selection.size} קבצים?") },
             text = {
-                Text(
-                    "הקבצים יימחקו מהמכשיר עצמו, לא רק מהאפליקציה. אי אפשר לבטל את זה.",
-                    color = TextSecondary
-                )
+                DialogBody {
+                    Text(
+                        "הקבצים יימחקו מהמכשיר עצמו, לא רק מהאפליקציה. אי אפשר לבטל את זה.",
+                        color = TextSecondary
+                    )
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -923,8 +931,10 @@ internal fun SelectionBar(vm: MainViewModel) {
             containerColor = Surface1,
             title = { Text("דירוג ${selection.size} שירים") },
             text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    StarRow(rating = rating, onRate = { rating = if (it == 0) 1 else it }, size = 32)
+                DialogBody {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        StarRow(rating = rating, onRate = { rating = if (it == 0) 1 else it }, size = 32)
+                    }
                 }
             },
             confirmButton = {
@@ -946,23 +956,25 @@ internal fun SelectionBar(vm: MainViewModel) {
             containerColor = Surface1,
             title = { Text("הוספה לרשימה") },
             text = {
-                Column {
-                    if (playlists.isEmpty()) {
-                        Text("אין עדיין רשימות", color = TextSecondary)
-                    }
-                    playlists.forEach { info ->
-                        Text(
-                            text = info.playlist.name,
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    vm.bulkAddToPlaylist(info.playlist.id, ids)
-                                    playlistOpen = false
-                                    onClear()
-                                }
-                                .padding(vertical = 11.dp)
-                        )
+                DialogBody {
+                    Column {
+                        if (playlists.isEmpty()) {
+                            Text("אין עדיין רשימות", color = TextSecondary)
+                        }
+                        playlists.forEach { info ->
+                            Text(
+                                text = info.playlist.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        vm.bulkAddToPlaylist(info.playlist.id, ids)
+                                        playlistOpen = false
+                                        onClear()
+                                    }
+                                    .padding(vertical = 11.dp)
+                            )
+                        }
                     }
                 }
             },
@@ -1321,27 +1333,29 @@ private fun FolderRatingDialog(
         containerColor = Surface1,
         title = { Text("דירוג לתיקייה") },
         text = {
-            Column {
-                Text(
-                    "\"$folderName\" · ${songs.size} שירים, כולל תת־תיקיות",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-                Spacer(Modifier.height(14.dp))
-                StarRow(rating = stars, onRate = { stars = it }, size = 34)
-                if (rated > 0) {
-                    Spacer(Modifier.height(14.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Chip(label = "רק שירים בלי דירוג", selected = keepRated, onClick = { keepRated = true })
-                        Chip(label = "כל השירים", selected = !keepRated, onClick = { keepRated = false })
-                    }
-                    Spacer(Modifier.height(8.dp))
+            DialogBody {
+                Column {
                     Text(
-                        if (keepRated) "$rated שירים שכבר דירגת אחד אחד ישמרו את הדירוג שלהם."
-                        else "גם $rated השירים שכבר דירגת יקבלו את הדירוג הזה.",
+                        "\"$folderName\" · ${songs.size} שירים, כולל תת־תיקיות",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
+                    Spacer(Modifier.height(14.dp))
+                    StarRow(rating = stars, onRate = { stars = it }, size = 34)
+                    if (rated > 0) {
+                        Spacer(Modifier.height(14.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Chip(label = "רק שירים בלי דירוג", selected = keepRated, onClick = { keepRated = true })
+                            Chip(label = "כל השירים", selected = !keepRated, onClick = { keepRated = false })
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            if (keepRated) "$rated שירים שכבר דירגת אחד אחד ישמרו את הדירוג שלהם."
+                            else "גם $rated השירים שכבר דירגת יקבלו את הדירוג הזה.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
                 }
             }
         },
@@ -1408,7 +1422,7 @@ private fun BulkStyleDialog(
         text = {
             Column(
                 modifier = Modifier
-                    .heightIn(max = 360.dp)
+                    .heightIn(max = fitHeight(360.dp))
                     .verticalScroll(rememberScrollState())
             ) {
                 Text(

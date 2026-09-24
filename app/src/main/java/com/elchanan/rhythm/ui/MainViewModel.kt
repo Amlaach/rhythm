@@ -661,6 +661,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _message.value = null
     }
 
+    /** A short confirmation from a screen, shown the way every other one is. */
+    fun toast(text: String) {
+        _message.value = text
+    }
+
     // -----------------------------------------------------------------------
     // search
     // -----------------------------------------------------------------------

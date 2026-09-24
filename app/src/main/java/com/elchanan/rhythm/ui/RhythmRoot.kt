@@ -12,6 +12,16 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.Dp
+import com.elchanan.rhythm.ui.components.rememberMetrics
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -106,7 +116,9 @@ private val TABS = listOf(
     Tab(Routes.HOME, "בית", Icons.Filled.Home),
     Tab(Routes.SEARCH, "חיפוש", Icons.Filled.Search),
     Tab(Routes.LIBRARY, "ספרייה", Icons.Filled.LibraryMusic),
-    Tab(Routes.RATINGS, "אמנים", Icons.Filled.Star)
+    // "דירוגים", not "אמנים": the library already has an artists tab, and
+    // this one is where they are rated - which is what the star says.
+    Tab(Routes.RATINGS, "דירוגים", Icons.Filled.Star)
 )
 
 /** The folders' own tab, beside the library, for those who chose it. */
@@ -168,6 +180,7 @@ fun RhythmRoot(
         }.onFailure { vm.onDeleteResult(false) }
     }
 
+    val useRail = rememberMetrics().twoPane
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
     val currentSong = playerState.currentSongId?.let { library.songsById[it] }
@@ -296,7 +309,7 @@ fun RhythmRoot(
                     }
                     // Not under the open player: it is put away by a swipe down
                     // from anywhere, so the tabs would only take room from it.
-                    if (!playerOpen) RhythmBottomBar(
+                    if (!playerOpen && !useRail) RhythmBottomBar(
                         navController = navController,
                         currentRoute = currentRoute,
                         onNavigate = { route ->
@@ -314,141 +327,175 @@ fun RhythmRoot(
                     .fillMaxSize()
                     .padding(bottom = inner.calculateBottomPadding())
             ) {
-            // Navigation's own default is a 700 ms crossfade on every change of
-            // screen. Nothing here asked for it, and it was most of what a tap
-            // on a mix felt like: the tile answered at once, and then the page
-            // took the better part of a second to arrive - where the three dots,
-            // which open a sheet instead of a screen, answered straight away.
-            // A short fade keeps the change readable without the wait.
-            NavHost(
-                navController = navController,
-                startDestination = Routes.HOME,
-                modifier = Modifier.fillMaxSize(),
-                enterTransition = { fadeIn(tween(SCREEN_FADE_MS)) },
-                exitTransition = { fadeOut(tween(SCREEN_FADE_MS)) },
-                popEnterTransition = { fadeIn(tween(SCREEN_FADE_MS)) },
-                popExitTransition = { fadeOut(tween(SCREEN_FADE_MS)) }
-            ) {
-                composable(Routes.HOME) {
-                    HomeScreen(
-                        vm = vm,
-                        hasPermission = hasPermission,
-                        onRequestPermission = onRequestPermission,
-                        onOpenDetail = { navController.navigate(Routes.DETAIL) },
-                        onOpenSettings = { navController.navigate(Routes.SETTINGS) },
-                        onOpenRatings = { navController.navigate(Routes.RATINGS) },
-                        onOpenRecap = { navController.navigate(Routes.RECAP) }
+            Row(modifier = Modifier.fillMaxSize()) {
+                // On a wide, short window the tabs stand down the side: along
+                // the bottom they took height that a landscape screen has least
+                // of. Put away under the open player, as the bottom bar is.
+                if (useRail && !playerOpen) {
+                    RhythmNavRail(
+                        navController = navController,
+                        currentRoute = currentRoute,
+                        onNavigate = { route ->
+                            if (route == Routes.HOME && currentRoute == Routes.HOME) {
+                                vm.requestHomeTop()
+                            }
+                        }
                     )
                 }
-                composable(Routes.SEARCH) {
-                    SearchScreen(
-                        vm = vm,
-                        onOpenArtist = { navController.navigate(Routes.ARTIST) },
-                        onOpenDetail = { navController.navigate(Routes.DETAIL) }
-                    )
+                // Lists and settings keep a reading width on a wide screen,
+                // centred, instead of stretching a row of text across a whole
+                // tablet. The home feed and the equalizer use every bit of
+                // width they are given.
+                val fullWidth = currentRoute == null || currentRoute == Routes.HOME ||
+                    currentRoute == Routes.EQUALIZER
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                Box(
+                    modifier = Modifier
+                        .widthIn(max = if (fullWidth) Dp.Unspecified else READING_WIDTH)
+                        .fillMaxWidth()
+                        .fillMaxHeight()
+                ) {
+                    // Navigation's own default is a 700 ms crossfade on every change of
+                    // screen. Nothing here asked for it, and it was most of what a tap
+                    // on a mix felt like: the tile answered at once, and then the page
+                    // took the better part of a second to arrive - where the three dots,
+                    // which open a sheet instead of a screen, answered straight away.
+                    // A short fade keeps the change readable without the wait.
+                    NavHost(
+                        navController = navController,
+                        startDestination = Routes.HOME,
+                        modifier = Modifier.fillMaxSize(),
+                        enterTransition = { fadeIn(tween(SCREEN_FADE_MS)) },
+                        exitTransition = { fadeOut(tween(SCREEN_FADE_MS)) },
+                        popEnterTransition = { fadeIn(tween(SCREEN_FADE_MS)) },
+                        popExitTransition = { fadeOut(tween(SCREEN_FADE_MS)) }
+                    ) {
+                        composable(Routes.HOME) {
+                            HomeScreen(
+                                vm = vm,
+                                hasPermission = hasPermission,
+                                onRequestPermission = onRequestPermission,
+                                onOpenDetail = { navController.navigate(Routes.DETAIL) },
+                                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                                onOpenRatings = { navController.navigate(Routes.RATINGS) },
+                                onOpenRecap = { navController.navigate(Routes.RECAP) }
+                            )
+                        }
+                        composable(Routes.SEARCH) {
+                            SearchScreen(
+                                vm = vm,
+                                onOpenArtist = { navController.navigate(Routes.ARTIST) },
+                                onOpenDetail = { navController.navigate(Routes.DETAIL) }
+                            )
+                        }
+                        composable(Routes.LIBRARY) {
+                            LibraryScreen(
+                                vm = vm,
+                                onOpenDetail = { navController.navigate(Routes.DETAIL) },
+                                onOpenArtist = { navController.navigate(Routes.ARTIST) },
+                                onOpenAlbums = { navController.navigate(Routes.ALBUMS) }
+                            )
+                        }
+                        composable(Routes.FOLDERS) {
+                            LibraryScreen(
+                                vm = vm,
+                                onOpenDetail = { navController.navigate(Routes.DETAIL) },
+                                onOpenArtist = { navController.navigate(Routes.ARTIST) },
+                                onOpenAlbums = { navController.navigate(Routes.ALBUMS) },
+                                foldersOnly = true
+                            )
+                        }
+                        composable(Routes.RATINGS) {
+                            ArtistRatingsScreen(
+                                vm = vm,
+                                onOpenArtist = { navController.navigate(Routes.ARTIST) }
+                            )
+                        }
+                        composable(Routes.RECAP) {
+                            RecapScreen(
+                                vm = vm,
+                                onBack = { navController.popBackStack() },
+                                onOpenDetail = { navController.navigate(Routes.DETAIL) }
+                            )
+                        }
+                        composable(Routes.SETTINGS) {
+                            SettingsScreen(
+                                onBack = { navController.popBackStack() },
+                                language = com.elchanan.rhythm.ui.theme.UiLanguage.code,
+                                onLanguageChange = { choice ->
+                                    vm.prefs.language = choice
+                                    com.elchanan.rhythm.ui.theme.UiLanguage.code = choice
+                                },
+                                onOpenHomeSettings = { navController.navigate(Routes.HOME_SETTINGS) },
+                                onOpenPlayerSettings = { navController.navigate(Routes.PLAYER_SETTINGS) },
+                                onOpenAlgorithmSettings = { navController.navigate(Routes.ALGORITHM_SETTINGS) },
+                                onOpenLibrarySettings = { navController.navigate(Routes.LIBRARY_SETTINGS) },
+                                onOpenTagSettings = { navController.navigate(Routes.TAG_SETTINGS) },
+                                onOpenTransfer = { navController.navigate(Routes.TRANSFER) },
+                                onOpenAbout = { navController.navigate(Routes.ABOUT) }
+                            )
+                        }
+                        composable(Routes.LIBRARY_SETTINGS) {
+                            LibrarySettingsScreen(vm = vm, onBack = { navController.popBackStack() })
+                        }
+                        composable(Routes.TAG_SETTINGS) {
+                            TagSettingsScreen(
+                                vm = vm,
+                                onBack = { navController.popBackStack() },
+                                onOpenTagFix = { navController.navigate(Routes.TAGS) }
+                            )
+                        }
+                        composable(Routes.TRANSFER) {
+                            TransferScreen(vm = vm, onBack = { navController.popBackStack() })
+                        }
+                        composable(Routes.ABOUT) {
+                            AboutScreen(vm = vm, onBack = { navController.popBackStack() })
+                        }
+                        composable(Routes.ALGORITHM_SETTINGS) {
+                            AlgorithmSettingsScreen(
+                                vm = vm,
+                                onBack = { navController.popBackStack() },
+                                onOpenDetail = { navController.navigate(Routes.DETAIL) }
+                            )
+                        }
+                        composable(Routes.HOME_SETTINGS) {
+                            HomeSettingsScreen(vm = vm, onBack = { navController.popBackStack() })
+                        }
+                        composable(Routes.PLAYER_SETTINGS) {
+                            PlayerSettingsScreen(
+                                vm = vm,
+                                onBack = { navController.popBackStack() },
+                                onOpenEqualizer = { navController.navigate(Routes.EQUALIZER) }
+                            )
+                        }
+                        composable(Routes.TAGS) {
+                            TagFixScreen(vm = vm, onBack = { navController.popBackStack() })
+                        }
+                        composable(Routes.EQUALIZER) {
+                            EqualizerScreen(vm = vm, onBack = { navController.popBackStack() })
+                        }
+                        composable(Routes.DETAIL) {
+                            DetailListScreen(vm = vm, onBack = { navController.popBackStack() })
+                        }
+                        composable(Routes.ARTIST) {
+                            ArtistDetailScreen(
+                                vm = vm,
+                                onBack = { navController.popBackStack() },
+                                onOpenDetail = { navController.navigate(Routes.DETAIL) }
+                            )
+                        }
+                        composable(Routes.ALBUMS) {
+                            AlbumsScreen(
+                                vm = vm,
+                                onBack = { navController.popBackStack() },
+                                onOpenDetail = { navController.navigate(Routes.DETAIL) }
+                            )
+                        }
+                    }
                 }
-                composable(Routes.LIBRARY) {
-                    LibraryScreen(
-                        vm = vm,
-                        onOpenDetail = { navController.navigate(Routes.DETAIL) },
-                        onOpenArtist = { navController.navigate(Routes.ARTIST) },
-                        onOpenAlbums = { navController.navigate(Routes.ALBUMS) }
-                    )
-                }
-                composable(Routes.FOLDERS) {
-                    LibraryScreen(
-                        vm = vm,
-                        onOpenDetail = { navController.navigate(Routes.DETAIL) },
-                        onOpenArtist = { navController.navigate(Routes.ARTIST) },
-                        onOpenAlbums = { navController.navigate(Routes.ALBUMS) },
-                        foldersOnly = true
-                    )
-                }
-                composable(Routes.RATINGS) {
-                    ArtistRatingsScreen(
-                        vm = vm,
-                        onOpenArtist = { navController.navigate(Routes.ARTIST) }
-                    )
-                }
-                composable(Routes.RECAP) {
-                    RecapScreen(
-                        vm = vm,
-                        onBack = { navController.popBackStack() },
-                        onOpenDetail = { navController.navigate(Routes.DETAIL) }
-                    )
-                }
-                composable(Routes.SETTINGS) {
-                    SettingsScreen(
-                        onBack = { navController.popBackStack() },
-                        language = com.elchanan.rhythm.ui.theme.UiLanguage.code,
-                        onLanguageChange = { choice ->
-                            vm.prefs.language = choice
-                            com.elchanan.rhythm.ui.theme.UiLanguage.code = choice
-                        },
-                        onOpenHomeSettings = { navController.navigate(Routes.HOME_SETTINGS) },
-                        onOpenPlayerSettings = { navController.navigate(Routes.PLAYER_SETTINGS) },
-                        onOpenAlgorithmSettings = { navController.navigate(Routes.ALGORITHM_SETTINGS) },
-                        onOpenLibrarySettings = { navController.navigate(Routes.LIBRARY_SETTINGS) },
-                        onOpenTagSettings = { navController.navigate(Routes.TAG_SETTINGS) },
-                        onOpenTransfer = { navController.navigate(Routes.TRANSFER) },
-                        onOpenAbout = { navController.navigate(Routes.ABOUT) }
-                    )
-                }
-                composable(Routes.LIBRARY_SETTINGS) {
-                    LibrarySettingsScreen(vm = vm, onBack = { navController.popBackStack() })
-                }
-                composable(Routes.TAG_SETTINGS) {
-                    TagSettingsScreen(
-                        vm = vm,
-                        onBack = { navController.popBackStack() },
-                        onOpenTagFix = { navController.navigate(Routes.TAGS) }
-                    )
-                }
-                composable(Routes.TRANSFER) {
-                    TransferScreen(vm = vm, onBack = { navController.popBackStack() })
-                }
-                composable(Routes.ABOUT) {
-                    AboutScreen(vm = vm, onBack = { navController.popBackStack() })
-                }
-                composable(Routes.ALGORITHM_SETTINGS) {
-                    AlgorithmSettingsScreen(
-                        vm = vm,
-                        onBack = { navController.popBackStack() },
-                        onOpenDetail = { navController.navigate(Routes.DETAIL) }
-                    )
-                }
-                composable(Routes.HOME_SETTINGS) {
-                    HomeSettingsScreen(vm = vm, onBack = { navController.popBackStack() })
-                }
-                composable(Routes.PLAYER_SETTINGS) {
-                    PlayerSettingsScreen(
-                        vm = vm,
-                        onBack = { navController.popBackStack() },
-                        onOpenEqualizer = { navController.navigate(Routes.EQUALIZER) }
-                    )
-                }
-                composable(Routes.TAGS) {
-                    TagFixScreen(vm = vm, onBack = { navController.popBackStack() })
-                }
-                composable(Routes.EQUALIZER) {
-                    EqualizerScreen(vm = vm, onBack = { navController.popBackStack() })
-                }
-                composable(Routes.DETAIL) {
-                    DetailListScreen(vm = vm, onBack = { navController.popBackStack() })
-                }
-                composable(Routes.ARTIST) {
-                    ArtistDetailScreen(
-                        vm = vm,
-                        onBack = { navController.popBackStack() },
-                        onOpenDetail = { navController.navigate(Routes.DETAIL) }
-                    )
-                }
-                composable(Routes.ALBUMS) {
-                    AlbumsScreen(
-                        vm = vm,
-                        onBack = { navController.popBackStack() },
-                        onOpenDetail = { navController.navigate(Routes.DETAIL) }
-                    )
                 }
             }
 
@@ -527,6 +574,49 @@ private fun RhythmBottomBar(
                 )
             )
         }
+    }
+}
+
+/** Widest a list or settings page grows on a big screen. */
+private val READING_WIDTH = 900.dp
+
+/** The tabs down the side of a wide, short window; the same tabs as [RhythmBottomBar]. */
+@Composable
+private fun RhythmNavRail(
+    navController: NavHostController,
+    currentRoute: String?,
+    onNavigate: (String) -> Unit
+) {
+    NavigationRail(containerColor = BgElevated) {
+        Spacer(Modifier.weight(1f))
+        val tabs = if (Display.foldersTab) {
+            TABS.flatMap { if (it.route == Routes.LIBRARY) listOf(it, FOLDERS_TAB) else listOf(it) }
+        } else {
+            TABS
+        }
+        tabs.forEach { tab ->
+            NavigationRailItem(
+                selected = currentRoute == tab.route,
+                onClick = {
+                    onNavigate(tab.route)
+                    navController.navigate(tab.route) {
+                        popUpTo(Routes.HOME) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = tab.route != Routes.HOME
+                    }
+                },
+                icon = { Icon(tab.icon, contentDescription = tab.label) },
+                label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) },
+                colors = NavigationRailItemDefaults.colors(
+                    selectedIconColor = Accent,
+                    selectedTextColor = Accent,
+                    unselectedIconColor = TextSecondary,
+                    unselectedTextColor = TextSecondary,
+                    indicatorColor = Color.Transparent
+                )
+            )
+        }
+        Spacer(Modifier.weight(1f))
     }
 }
 

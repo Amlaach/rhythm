@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -64,10 +66,13 @@ fun WelcomeScreen(songCount: Int, onStart: () -> Unit) {
             ),
         contentAlignment = Alignment.Center
     ) {
+        // Scrolls when it has to: on a phone on its side the steps ran past
+        // the bottom of the screen and took the start button with them.
         Column(
             modifier = Modifier
                 .widthIn(max = 460.dp)
-                .padding(horizontal = gutter),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = gutter, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             RhythmMark(size = 64.dp)

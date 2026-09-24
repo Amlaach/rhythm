@@ -1,5 +1,9 @@
 package com.elchanan.rhythm.desktop
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ColumnScope
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.foundation.Image
@@ -127,6 +131,9 @@ internal fun Art(
             //
             // Only when fitting. A cropped cover already reaches every edge.
             if (fit) {
+                // Neutral ground under the dimmed backdrop, so the artist's
+                // tint does not show through as a purple or pink frame.
+                Box(modifier = Modifier.fillMaxSize().background(Bg))
                 Image(
                     bitmap = image,
                     contentDescription = null,
@@ -432,4 +439,24 @@ internal fun AlphabetIndex(
             )
         }
     }
+}
+
+/**
+ * A dialog's content, scrolling when the window is too short for it rather
+ * than cut off: at most about half the window's height, however the window
+ * has been sized.
+ */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+internal fun DialogBody(preferred: Dp = 480.dp, content: @Composable ColumnScope.() -> Unit) {
+    val window = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val windowHeight = with(density) { window.height.toDp() }
+    val cap = if (window.height > 0) minOf(preferred, windowHeight * 0.55f).coerceAtLeast(140.dp) else preferred
+    Column(
+        modifier = Modifier
+            .heightIn(max = cap)
+            .verticalScroll(rememberScrollState()),
+        content = content
+    )
 }

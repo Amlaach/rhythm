@@ -10,6 +10,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -178,8 +181,11 @@ import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface2
 import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
+import com.elchanan.rhythm.ui.theme.ActionPill
 import com.elchanan.rhythm.ui.theme.TextTertiary
 import com.elchanan.rhythm.ui.theme.gradientFor
+import com.elchanan.rhythm.ui.theme.keyText
+import com.elchanan.rhythm.ui.theme.tempoAndKey
 import java.awt.Toolkit
 import java.io.File
 import java.lang.Runtime
@@ -1952,7 +1958,20 @@ private fun RhythmApp() {
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+        // Lists and settings keep a reading width on a wide window, centred,
+        // instead of stretching a row of text across the whole screen. The
+        // home feed and the equalizer use every bit of width they are given.
+        val fullWidth = (stack.isEmpty() && tab == 0) || stack.lastOrNull() == Route.Equalizer
+        Box(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentAlignment = Alignment.TopCenter
+        ) {
+        Box(
+            modifier = Modifier
+                .widthIn(max = if (fullWidth) Dp.Unspecified else 900.dp)
+                .fillMaxWidth()
+                .fillMaxHeight()
+        ) {
             // A drilled-into screen covers the tabs but not the player or the
             // bar below it: what is playing should not disappear because an
             // album was opened, and the way back out should always be visible.
@@ -2465,6 +2484,7 @@ private fun RhythmApp() {
                 }
             }
         }
+        }
 
         MiniPlayer(
             song = current,
@@ -2506,7 +2526,7 @@ private fun RhythmApp() {
             NavTab(tab, 0, "בית", Icons.Filled.Home) { go(0) }
             NavTab(tab, 1, "חיפוש", Icons.Filled.Search) { go(1) }
             NavTab(tab, 2, "ספרייה", Icons.Filled.LibraryMusic) { go(2) }
-            NavTab(tab, 3, "אמנים", Icons.Filled.Star) { go(3) }
+            NavTab(tab, 3, "דירוגים", Icons.Filled.Star) { go(3) }
         }
     }
 
@@ -3018,307 +3038,336 @@ private fun PlayerScreen(
                 }
             }
         }
-        when {
-            showQueue -> QueuePanel(
-                queue = queue,
-                index = queueIndex,
-                modifier = Modifier.weight(1f),
-                onPlay = onJumpTo,
-                onRemove = onRemoveFromQueue
-            )
-            showLyrics -> LyricsPanel(
-                words = words,
-                positionMs = positionMs,
-                modifier = Modifier.weight(1f),
-                onEdit = { editingLyrics = true },
-                onSeek = onSeek
-            )
-            else -> Box(
-                modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.Center
-            ) {
-                Art(
-                    song = song,
-                    size = 300.dp,
-                    corner = 12.dp,
-                    // The one place the whole picture matters more than a
-                    // filled square: this is the cover being looked at, not a
-                    // tile identifying a row.
-                    fit = true,
-                    modifier = Modifier
-                        .pointerInput(song.id, tapArtwork) {
-                            if (!tapArtwork) return@pointerInput
-                            // The cover is the biggest thing on the screen and
-                            // the easiest thing to hit without looking, which
-                            // is most of why people want this.
-                            detectTapGestures(onTap = { onToggle() })
-                        }
-                        .pointerInput(song.id) {
-                            var drag = 0f
-                            detectHorizontalDragGestures(
-                                onDragEnd = {
-                                    // RTL: dragging right goes forward.
-                                    if (drag > 70f) onNext() else if (drag < -70f) onPrevious()
-                                    drag = 0f
+        // A wide, short window - which most desktop windows are - puts the
+        // cover beside the controls instead of above them, where it had to
+        // stay small to leave the transport room underneath.
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            val twoPane = maxWidth >= 700.dp && maxWidth > maxHeight * 1.3f
+            val artSize = if (twoPane) {
+                minOf(maxHeight - 24.dp, maxWidth * 0.44f - 32.dp).coerceIn(160.dp, 520.dp)
+            } else {
+                300.dp
+            }
+            val mediaArea: @Composable (Modifier) -> Unit = { area ->
+                when {
+                    showQueue -> QueuePanel(
+                        queue = queue,
+                        index = queueIndex,
+                        modifier = area,
+                        onPlay = onJumpTo,
+                        onRemove = onRemoveFromQueue
+                    )
+                    showLyrics -> LyricsPanel(
+                        words = words,
+                        positionMs = positionMs,
+                        modifier = area,
+                        onEdit = { editingLyrics = true },
+                        onSeek = onSeek
+                    )
+                    else -> Box(
+                        modifier = area,
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Art(
+                            song = song,
+                            size = artSize,
+                            corner = 12.dp,
+                            // The one place the whole picture matters more than a
+                            // filled square: this is the cover being looked at, not a
+                            // tile identifying a row.
+                            fit = true,
+                            modifier = Modifier
+                                .pointerInput(song.id, tapArtwork) {
+                                    if (!tapArtwork) return@pointerInput
+                                    // The cover is the biggest thing on the screen and
+                                    // the easiest thing to hit without looking, which
+                                    // is most of why people want this.
+                                    detectTapGestures(onTap = { onToggle() })
                                 }
-                            ) { _, amount -> drag += amount }
-                        }
-                )
-            }
-        }
-        if (!showQueue) {
-            Text(
-                song.title,
-                style = MaterialTheme.typography.headlineSmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 12.dp)
-            )
-            Text(
-                song.artistName.ifEmpty { "ללא אמן" },
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            // What you can do to the song that is playing, on one line. It
-            // scrolls sideways rather than wrapping, so a narrow window can
-            // still reach the last button.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(top = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                if (placement(PlayerAction.LIKE) == ActionPlacement.BUTTON) {
-                    IconButton(onClick = onDislike) {
-                        Icon(
-                            if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
-                            contentDescription = localized(if (liked == -1) "בטל דיסלייק" else "דיסלייק"),
-                            tint = if (liked == -1) Accent else TextSecondary
-                        )
-                    }
-                    IconButton(onClick = onLike) {
-                        Icon(
-                            if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
-                            contentDescription = localized(if (liked == 1) "בטל לייק" else "לייק"),
-                            tint = if (liked == 1) Accent else TextSecondary
-                        )
-                    }
-                }
-                if (placement(PlayerAction.RADIO) == ActionPlacement.BUTTON) {
-                    IconButton(onClick = onRadio) {
-                        Icon(
-                            Icons.Filled.Radio,
-                            contentDescription = localized("התחל רדיו מהשיר"),
-                            tint = TextSecondary
-                        )
-                    }
-                }
-                if (placement(PlayerAction.DETAILS) == ActionPlacement.BUTTON) {
-                    IconButton(onClick = { detailsOpen = true }) {
-                        Icon(
-                            Icons.Filled.Info,
-                            contentDescription = localized("פרטי השיר"),
-                            tint = TextSecondary
-                        )
-                    }
-                }
-                if (placement(PlayerAction.WHY) == ActionPlacement.BUTTON) {
-                    IconButton(onClick = { whyOpen = true }) {
-                        Icon(
-                            Icons.Filled.Insights,
-                            contentDescription = localized("למה זה הומלץ"),
-                            tint = TextSecondary
-                        )
-                    }
-                }
-                if (placement(PlayerAction.EQUALIZER) == ActionPlacement.BUTTON) {
-                    IconButton(onClick = onEqualizer) {
-                        Icon(
-                            Icons.Filled.GraphicEq,
-                            contentDescription = localized("אקולייזר"),
-                            tint = TextSecondary
-                        )
-                    }
-                }
-                if (placement(PlayerAction.BOOKMARK) == ActionPlacement.BUTTON) {
-                    IconButton(onClick = onBookmarks) {
-                        Icon(
-                            Icons.Filled.BookmarkBorder,
-                            contentDescription = localized("סימניות"),
-                            tint = TextSecondary
+                                .pointerInput(song.id) {
+                                    var drag = 0f
+                                    detectHorizontalDragGestures(
+                                        onDragEnd = {
+                                            // RTL: dragging right goes forward.
+                                            if (drag > 70f) onNext() else if (drag < -70f) onPrevious()
+                                            drag = 0f
+                                        }
+                                    ) { _, amount -> drag += amount }
+                                }
                         )
                     }
                 }
             }
-            if (placement(PlayerAction.RATING) == ActionPlacement.BUTTON) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Without this the stars sit directly under the artist
-                    // line and read as a rating of the artist, which is a
-                    // different thing the app also offers.
+            val controls: @Composable ColumnScope.() -> Unit = {
+                if (!showQueue) {
                     Text(
-                        "דירוג השיר",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = TextSecondary
+                        song.title,
+                        style = MaterialTheme.typography.headlineSmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 12.dp)
                     )
-                    Spacer(Modifier.width(8.dp))
-                    StarRow(rating = rating, onRate = onRate, size = 20)
-                    Spacer(Modifier.width(10.dp))
-                    feature?.let { f ->
-                        Text(
-                            // Key only. The modal estimate drives the engine
-                            // but reads as jargon on screen.
-                            "${f.bpm.toInt()} BPM · ${Features.keyLabel(f.musicalKey, f.mode)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary
-                        )
+                    Text(
+                        song.artistName.ifEmpty { "ללא אמן" },
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    // What you can do to the song that is playing, on one line. It
+                    // scrolls sideways rather than wrapping, so a narrow window can
+                    // still reach the last button.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(top = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        // Each action says what it is: a row of bare icons left people
+                        // guessing which one was which.
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                    ) {
+                        if (placement(PlayerAction.LIKE) == ActionPlacement.BUTTON) {
+                            IconButton(onClick = onDislike) {
+                                Icon(
+                                    if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
+                                    contentDescription = localized(if (liked == -1) "בטל דיסלייק" else "דיסלייק"),
+                                    tint = if (liked == -1) Accent else TextSecondary
+                                )
+                            }
+                            IconButton(onClick = onLike) {
+                                Icon(
+                                    if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                                    contentDescription = localized(if (liked == 1) "בטל לייק" else "לייק"),
+                                    tint = if (liked == 1) Accent else TextSecondary
+                                )
+                            }
+                        }
+                        if (placement(PlayerAction.RADIO) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.Radio,
+                                label = "רדיו",
+                                onClick = onRadio
+                            )
+                        }
+                        if (placement(PlayerAction.DETAILS) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.Info,
+                                label = "פרטים",
+                                onClick = { detailsOpen = true }
+                            )
+                        }
+                        if (placement(PlayerAction.WHY) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.Insights,
+                                label = "למה הומלץ",
+                                onClick = { whyOpen = true }
+                            )
+                        }
+                        if (placement(PlayerAction.EQUALIZER) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.GraphicEq,
+                                label = "אקולייזר",
+                                onClick = onEqualizer
+                            )
+                        }
+                        if (placement(PlayerAction.BOOKMARK) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.BookmarkBorder,
+                                label = "סימניות",
+                                onClick = onBookmarks
+                            )
+                        }
+                    }
+                    if (placement(PlayerAction.RATING) == ActionPlacement.BUTTON) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Without this the stars sit directly under the artist
+                            // line and read as a rating of the artist, which is a
+                            // different thing the app also offers.
+                            Text(
+                                "דירוג השיר",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = TextSecondary
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            StarRow(rating = rating, onRate = onRate, size = 20)
+                            Spacer(Modifier.width(10.dp))
+                            feature?.let { f ->
+                                Text(
+                                    // Key only. The modal estimate drives the engine
+                                    // but reads as jargon on screen.
+                                    tempoAndKey(f.bpm.toInt(), f.musicalKey, f.mode),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
                     }
                 }
-            }
-        }
-        // Time runs one way whatever the language, so the scrubber and the
-        // transport keep the left to right reading every media player uses:
-        // the head advances rightwards, elapsed sits under its start, and
-        // "previous" stays to the left of "next". Without this the whole row
-        // mirrors with the rest of the app and the skip arrows point at the
-        // wrong songs.
-        if (resumeVisible && resumeAt != null && !showQueue && !showLyrics) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Surface1)
-                    .clickable {
-                        onSeek(resumeAt)
-                        resumeVisible = false
-                    }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "המשך מ־${formatDuration(resumeAt)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Accent
-                )
-                Spacer(Modifier.weight(1f))
-                IconButton(
-                    onClick = { resumeVisible = false },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = localized("סגור"),
-                        tint = TextSecondary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-        }
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            if (!showQueue) {
-                Column(modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
-                    Slider(
-                        value = scrub ?: positionMs.toFloat(),
-                        valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
-                        onValueChange = { scrub = it },
-                        onValueChangeFinished = {
-                            scrub?.let { onSeek(it.toLong()) }
-                            scrub = null
-                        },
-                        colors = SliderDefaults.colors(
-                            thumbColor = Accent,
-                            activeTrackColor = Accent,
-                            inactiveTrackColor = Surface1
-                        )
-                    )
-                    Row(modifier = Modifier.fillMaxWidth()) {
+                // Time runs one way whatever the language, so the scrubber and the
+                // transport keep the left to right reading every media player uses:
+                // the head advances rightwards, elapsed sits under its start, and
+                // "previous" stays to the left of "next". Without this the whole row
+                // mirrors with the rest of the app and the skip arrows point at the
+                // wrong songs.
+                if (resumeVisible && resumeAt != null && !showQueue && !showLyrics) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Surface1)
+                            .clickable {
+                                onSeek(resumeAt)
+                                resumeVisible = false
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            clock(scrub?.toLong() ?: positionMs),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary
+                            text = "המשך מ־${formatDuration(resumeAt)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Accent
                         )
                         Spacer(Modifier.weight(1f))
-                        Text(
-                            clock(durationMs),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary
-                        )
+                        IconButton(
+                            onClick = { resumeVisible = false },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = localized("סגור"),
+                                tint = TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    if (!showQueue) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                            Slider(
+                                value = scrub ?: positionMs.toFloat(),
+                                valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
+                                onValueChange = { scrub = it },
+                                onValueChangeFinished = {
+                                    scrub?.let { onSeek(it.toLong()) }
+                                    scrub = null
+                                },
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Accent,
+                                    activeTrackColor = Accent,
+                                    inactiveTrackColor = Surface1
+                                )
+                            )
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    clock(scrub?.toLong() ?: positionMs),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondary
+                                )
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    clock(durationMs),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = onShuffle) {
+                            Icon(
+                                Icons.Filled.Shuffle,
+                                contentDescription = localized("ערבוב"),
+                                tint = if (shuffling) Accent else TextSecondary
+                            )
+                        }
+                        if (placement(PlayerAction.SEEK) == ActionPlacement.BUTTON) {
+                            IconButton(onClick = { onSeek((positionMs - 10_000L).coerceAtLeast(0L)) }) {
+                                Icon(
+                                    Icons.Filled.Replay10,
+                                    contentDescription = localized("אחורה 10 שניות"),
+                                    tint = TextSecondary
+                                )
+                            }
+                        }
+                        IconButton(onClick = onPrevious) {
+                            Icon(
+                                Icons.Filled.SkipPrevious,
+                                contentDescription = localized("הקודם"),
+                                // Without an explicit tint these two inherit a colour
+                                // near the background and read as missing.
+                                tint = TextPrimary,
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(66.dp)
+                                .clip(CircleShape)
+                                .background(Accent)
+                                .clickable(onClick = onToggle),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = localized(if (playing) "השהה" else "נגן"),
+                                tint = Color.White,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+                        IconButton(onClick = onNext) {
+                            Icon(
+                                Icons.Filled.SkipNext,
+                                contentDescription = localized("הבא"),
+                                tint = TextPrimary,
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                        if (placement(PlayerAction.SEEK) == ActionPlacement.BUTTON) {
+                            IconButton(onClick = { onSeek(positionMs + 10_000L) }) {
+                                Icon(
+                                    Icons.Filled.Forward10,
+                                    contentDescription = localized("קדימה 10 שניות"),
+                                    tint = TextSecondary
+                                )
+                            }
+                        }
+                        IconButton(onClick = onRepeat) {
+                            Icon(
+                                if (repeat == RepeatMode.ONE) Icons.Filled.RepeatOne
+                                else Icons.Filled.Repeat,
+                                contentDescription = localized("חזרה"),
+                                tint = if (repeat == RepeatMode.OFF) TextSecondary else Accent
+                            )
+                        }
                     }
                 }
             }
-            Spacer(Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onShuffle) {
-                    Icon(
-                        Icons.Filled.Shuffle,
-                        contentDescription = localized("ערבוב"),
-                        tint = if (shuffling) Accent else TextSecondary
-                    )
-                }
-                if (placement(PlayerAction.SEEK) == ActionPlacement.BUTTON) {
-                    IconButton(onClick = { onSeek((positionMs - 10_000L).coerceAtLeast(0L)) }) {
-                        Icon(
-                            Icons.Filled.Replay10,
-                            contentDescription = localized("אחורה 10 שניות"),
-                            tint = TextSecondary
+            if (twoPane) {
+                Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                    mediaArea(Modifier.weight(0.46f).fillMaxHeight())
+                    // Centred when it fits, scrolled when the window is too
+                    // short for every row.
+                    Box(
+                        modifier = Modifier.weight(0.54f).fillMaxHeight(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            modifier = Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            content = controls
                         )
                     }
                 }
-                IconButton(onClick = onPrevious) {
-                    Icon(
-                        Icons.Filled.SkipPrevious,
-                        contentDescription = localized("הקודם"),
-                        // Without an explicit tint these two inherit a colour
-                        // near the background and read as missing.
-                        tint = TextPrimary,
-                        modifier = Modifier.size(40.dp)
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .size(66.dp)
-                        .clip(CircleShape)
-                        .background(Accent)
-                        .clickable(onClick = onToggle),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = localized(if (playing) "השהה" else "נגן"),
-                        tint = Color.White,
-                        modifier = Modifier.size(34.dp)
-                    )
-                }
-                IconButton(onClick = onNext) {
-                    Icon(
-                        Icons.Filled.SkipNext,
-                        contentDescription = localized("הבא"),
-                        tint = TextPrimary,
-                        modifier = Modifier.size(40.dp)
-                    )
-                }
-                if (placement(PlayerAction.SEEK) == ActionPlacement.BUTTON) {
-                    IconButton(onClick = { onSeek(positionMs + 10_000L) }) {
-                        Icon(
-                            Icons.Filled.Forward10,
-                            contentDescription = localized("קדימה 10 שניות"),
-                            tint = TextSecondary
-                        )
-                    }
-                }
-                IconButton(onClick = onRepeat) {
-                    Icon(
-                        if (repeat == RepeatMode.ONE) Icons.Filled.RepeatOne
-                        else Icons.Filled.Repeat,
-                        contentDescription = localized("חזרה"),
-                        tint = if (repeat == RepeatMode.OFF) TextSecondary else Accent
-                    )
+            } else {
+                Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    mediaArea(Modifier.weight(1f))
+                    controls()
                 }
             }
         }
@@ -3387,66 +3436,68 @@ private fun LyricsEditorDialog(
         containerColor = Surface1,
         title = { Text(if (syncing) "סנכרון שורות" else "מילות השיר") },
         text = {
-            if (!syncing) {
-                Column(modifier = Modifier.heightIn(max = 380.dp)) {
-                    Text(
-                        "אפשר להדביק כאן טקסט רגיל, או קובץ LRC שלם עם חותמות זמן.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = text,
-                        onValueChange = { text = it },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 280.dp)
-                    )
-                }
-            } else {
-                Column(modifier = Modifier.heightIn(max = 380.dp)) {
-                    Text(
-                        "השיר מתנגן — לחיצה על \"סמן\" מצמידה את הזמן הנוכחי לשורה המסומנת.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        text = lines.getOrNull(stampIndex) ?: "הסתיים",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Accent,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Surface2)
-                            .padding(12.dp),
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "$stampIndex מתוך ${lines.size} שורות סומנו",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = TextSecondary
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = {
-                                val line = lines.getOrNull(stampIndex) ?: return@Button
-                                stamps = stamps + LyricLine(positionMs, line)
-                                stampIndex++
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                        ) { Text("סמן") }
-                        // A mistimed line is the normal case, not the
-                        // exception, so undo is a first class button rather
-                        // than a reason to start the song again.
-                        OutlinedButton(onClick = {
-                            if (stampIndex > 0) {
-                                stampIndex--
-                                stamps = stamps.dropLast(1)
+            DialogBody {
+                if (!syncing) {
+                    Column(modifier = Modifier.heightIn(max = 380.dp)) {
+                        Text(
+                            "אפשר להדביק כאן טקסט רגיל, או קובץ LRC שלם עם חותמות זמן.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = text,
+                            onValueChange = { text = it },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 280.dp)
+                        )
+                    }
+                } else {
+                    Column(modifier = Modifier.heightIn(max = 380.dp)) {
+                        Text(
+                            "השיר מתנגן — לחיצה על \"סמן\" מצמידה את הזמן הנוכחי לשורה המסומנת.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = lines.getOrNull(stampIndex) ?: "הסתיים",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Accent,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Surface2)
+                                .padding(12.dp),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "$stampIndex מתוך ${lines.size} שורות סומנו",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = TextSecondary
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    val line = lines.getOrNull(stampIndex) ?: return@Button
+                                    stamps = stamps + LyricLine(positionMs, line)
+                                    stampIndex++
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                            ) { Text("סמן") }
+                            // A mistimed line is the normal case, not the
+                            // exception, so undo is a first class button rather
+                            // than a reason to start the song again.
+                            OutlinedButton(onClick = {
+                                if (stampIndex > 0) {
+                                    stampIndex--
+                                    stamps = stamps.dropLast(1)
+                                }
+                            }) { Text("אחורה") }
+                            OutlinedButton(onClick = onTogglePlay) {
+                                Text(if (playing) "עצור" else "נגן")
                             }
-                        }) { Text("אחורה") }
-                        OutlinedButton(onClick = onTogglePlay) {
-                            Text(if (playing) "עצור" else "נגן")
                         }
                     }
                 }
@@ -3662,7 +3713,7 @@ private fun SongDetailsDialog(
                 if (feature != null) {
                     Spacer(Modifier.height(8.dp))
                     DetailLine("קצב", "${feature.bpm.toInt()} BPM")
-                    DetailLine("סולם", Features.modeLabel(feature))
+                    DetailLine("סולם", keyText(Features.modeLabel(feature)))
                 } else {
                     Spacer(Modifier.height(8.dp))
                     Text(

@@ -1727,6 +1727,19 @@ object UiStrings {
         "הלוגו והכפתורים שלמעלה מפנים מקום כשגוללים למטה, וחוזרים ברגע שגוללים למעלה" to "The logo and buttons at the top make room when you scroll down, and come back as soon as you scroll up",
         "סורק עכשיו…" to "Scanning now…",
         "עכשיו" to "Now",
-        "לפני העדכון האחרון" to "Before the last update"
+        "לפני העדכון האחרון" to "Before the last update",
+        "מיקס" to "Mix",
+        "פרטים" to "Details",
+        "מהירות" to "Speed",
+        "למה הומלץ" to "Why this",
+        "סיכום" to "Recap",
+        "הגיבוי הועתק" to "Backup copied",
+        "לחיצה ארוכה על אמן בוחרת כמה יחד" to "Long-press an artist to select several",
+        "דירוגים" to "Ratings",
+        "שירים שעוד לא שמעת" to "Songs you haven't heard yet",
+        "מאמנים שנתת להם 4 כוכבים ומעלה" to "From artists you gave 4 stars or more",
+        "שירים שנשמעים דומה" to "Songs that sound alike",
+        "הזנה" to "Import",
+        "גיבוי" to "Backup"
     )
 }

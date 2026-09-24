@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.components.DialogBody
+import com.elchanan.rhythm.ui.components.fitHeight
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -74,6 +76,7 @@ import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.BgElevated
+import com.elchanan.rhythm.ui.theme.CaptionedIconButton
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface3
 import com.elchanan.rhythm.ui.theme.TextPrimary
@@ -131,16 +134,18 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
                     color = TextSecondary
                 )
             }
-            IconButton(onClick = { bulkOpen = true }) {
-                Icon(Icons.Filled.PostAdd, contentDescription = localized("הזנה מרוכזת"), tint = Accent)
-            }
-            IconButton(onClick = {
+            // Named, not bare glyphs: a red note and two squares said
+            // nothing about typing in many ratings at once or copying them.
+            // One word each on a small phone, where the full names would push
+            // the screen's own title onto two lines.
+            val narrow = rememberMetrics().isNarrow
+            CaptionedIconButton(Icons.Filled.PostAdd, if (narrow) "הזנה" else "הזנה מרוכזת", { bulkOpen = true }, tint = Accent)
+            CaptionedIconButton(Icons.Filled.ContentCopy, if (narrow) "גיבוי" else "העתק גיבוי", {
                 scope.launch {
                     clipboard.setText(AnnotatedString(vm.exportArtistsJson()))
                 }
-            }) {
-                Icon(Icons.Filled.ContentCopy, contentDescription = localized("העתק גיבוי"), tint = TextSecondary)
-            }
+                vm.toast("הגיבוי הועתק")
+            })
         }
 
         TextField(
@@ -185,7 +190,8 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = gutter, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Chip(
                         label = "בחר הכל (${artists.size})",
@@ -195,10 +201,13 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
                             else artists.map { it.key }.toSet()
                         }
                     )
-                    Chip(
-                        label = "לחיצה ארוכה = בחירה",
-                        selected = false,
-                        onClick = { }
+                    // A hint, and drawn as one. It used to be a chip like the
+                    // button beside it, and pressing it did nothing.
+                    Text(
+                        "לחיצה ארוכה על אמן בוחרת כמה יחד",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextTertiary,
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -304,7 +313,13 @@ private fun RatingRow(
     onOpen: () -> Unit,
     onLongPress: () -> Unit
 ) {
-    val gutter = rememberMetrics().gutter
+    val metrics = rememberMetrics()
+    val gutter = metrics.gutter
+    // The stars beside the name, on one line, wherever there is room for
+    // them: stacked under it, every artist took a tall card of mostly empty
+    // space and a library of sixty was a long scroll. A narrow phone keeps
+    // them underneath, where the name still has the width to be read.
+    val inline = !metrics.isCompact
     val top = artist.songs.firstOrNull()
     Row(
         modifier = Modifier
@@ -316,7 +331,7 @@ private fun RatingRow(
             // screen looked emptier than the rest of the app.
             .background(if (selected) Accent.copy(alpha = 0.18f) else Surface1)
             .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = if (inline) 8.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (selectionMode) {
@@ -356,8 +371,14 @@ private fun RatingRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(6.dp))
-            StarRow(rating = artist.rating, onRate = onRate, size = 20)
+            if (!inline) {
+                Spacer(Modifier.height(6.dp))
+                StarRow(rating = artist.rating, onRate = onRate, size = 20)
+            }
+        }
+        if (inline) {
+            Spacer(Modifier.width(8.dp))
+            StarRow(rating = artist.rating, onRate = onRate, size = 22)
         }
     }
 }
@@ -379,37 +400,39 @@ private fun GroupEditDialog(
         containerColor = Surface1,
         title = { Text("$count אמנים") },
         text = {
-            Column(modifier = Modifier.heightIn(max = 400.dp)) {
-                Text("דירוג", style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.height(4.dp))
-                StarRow(rating = rating, onRate = { rating = it }, size = 28)
-                Text(
-                    text = if (rating == 0) "בלי כוכבים — הדירוג הקיים לא ישתנה"
-                    else "כל האמנים שנבחרו יקבלו $rating כוכבים",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-                Spacer(Modifier.height(14.dp))
-                Text("סגנונות", style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.height(6.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Styles.SUGGESTED.forEach { style ->
-                        val on = styles.any { it.equals(style, ignoreCase = true) }
-                        Chip(label = style, selected = on, onClick = {
-                            styles = if (on) styles.filterNot { it.equals(style, ignoreCase = true) }
-                            else styles + style
-                        })
+            DialogBody {
+                Column(modifier = Modifier.heightIn(max = fitHeight(400.dp))) {
+                    Text("דירוג", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(4.dp))
+                    StarRow(rating = rating, onRate = { rating = it }, size = 28)
+                    Text(
+                        text = if (rating == 0) "בלי כוכבים — הדירוג הקיים לא ישתנה"
+                        else "כל האמנים שנבחרו יקבלו $rating כוכבים",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Text("סגנונות", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Styles.SUGGESTED.forEach { style ->
+                            val on = styles.any { it.equals(style, ignoreCase = true) }
+                            Chip(label = style, selected = on, onClick = {
+                                styles = if (on) styles.filterNot { it.equals(style, ignoreCase = true) }
+                                else styles + style
+                            })
+                        }
                     }
+                    Spacer(Modifier.height(10.dp))
+                    Chip(
+                        label = if (replace) "מחליף את התגיות הקיימות" else "מוסיף לתגיות הקיימות",
+                        selected = replace,
+                        onClick = { replace = !replace }
+                    )
                 }
-                Spacer(Modifier.height(10.dp))
-                Chip(
-                    label = if (replace) "מחליף את התגיות הקיימות" else "מוסיף לתגיות הקיימות",
-                    selected = replace,
-                    onClick = { replace = !replace }
-                )
             }
         },
         confirmButton = {
@@ -435,20 +458,22 @@ private fun BulkImportDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) 
         containerColor = Surface1,
         title = { Text("הזנה מרוכזת של אמנים") },
         text = {
-            Column {
-                Text(
-                    "שורה לכל אמן, בפורמט:\nשם | דירוג 1-5 | סגנונות מופרדים בפסיק\n\nלמשל:\nאברהם פריד | 5 | חסידי, מרגש\nיונתן רזאל | 4 | רגוע, שירי נשמה",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 140.dp, max = 260.dp)
-                )
+            DialogBody {
+                Column {
+                    Text(
+                        "שורה לכל אמן, בפורמט:\nשם | דירוג 1-5 | סגנונות מופרדים בפסיק\n\nלמשל:\nאברהם פריד | 5 | חסידי, מרגש\nיונתן רזאל | 4 | רגוע, שירי נשמה",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 140.dp, max = 260.dp)
+                    )
+                }
             }
         },
         confirmButton = {
@@ -491,33 +516,35 @@ private fun MergeArtistsDialog(
         containerColor = Surface1,
         title = { Text("איחוד אמנים") },
         text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    "איזה שם יישאר? כל השירים של השני יעברו אליו.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
-                )
-                Spacer(Modifier.height(10.dp))
-                MergeChoice(first, keepFirst) { keepFirst = true }
-                MergeChoice(second, !keepFirst) { keepFirst = false }
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    "«${source.displayName}» יוחלף ב־«${target.displayName}» על " +
-                        "${source.songs.size} שירים. הדירוג והסגנונות של " +
-                        "${target.displayName} נשארים כפי שהם.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-                Spacer(Modifier.height(6.dp))
-                // Said plainly rather than left to be discovered: this is a
-                // rename inside the app, and the files keep the tags they
-                // came with.
-                Text(
-                    "השינוי נשמר באפליקציה. קובצי המוזיקה עצמם לא משתנים, " +
-                        "ואפשר לבטל את זה מ\"ניקוי התגיות שנוחשו\" בהגדרות.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextTertiary
-                )
+            DialogBody {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "איזה שם יישאר? כל השירים של השני יעברו אליו.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    MergeChoice(first, keepFirst) { keepFirst = true }
+                    MergeChoice(second, !keepFirst) { keepFirst = false }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "«${source.displayName}» יוחלף ב־«${target.displayName}» על " +
+                            "${source.songs.size} שירים. הדירוג והסגנונות של " +
+                            "${target.displayName} נשארים כפי שהם.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    // Said plainly rather than left to be discovered: this is a
+                    // rename inside the app, and the files keep the tags they
+                    // came with.
+                    Text(
+                        "השינוי נשמר באפליקציה. קובצי המוזיקה עצמם לא משתנים, " +
+                            "ואפשר לבטל את זה מ\"ניקוי התגיות שנוחשו\" בהגדרות.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextTertiary
+                    )
+                }
             }
         },
         confirmButton = {

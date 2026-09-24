@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.desktop
 
+import com.elchanan.rhythm.ui.theme.CaptionedIconButton
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.foundation.background
@@ -813,12 +814,14 @@ private fun NamePlaylistDialog(onDismiss: () -> Unit, onConfirm: (String) -> Uni
         containerColor = Surface1,
         title = { Text("רשימה חדשה") },
         text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("שם הרשימה") },
-                singleLine = true
-            )
+            DialogBody {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("שם הרשימה") },
+                    singleLine = true
+                )
+            }
         },
         confirmButton = {
             TextButton(
@@ -892,12 +895,14 @@ private fun SelectionBar(
             containerColor = Surface1,
             title = { Text("דירוג $count שירים") },
             text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    StarRow(
-                        rating = rating,
-                        onRate = { rating = if (it == 0) 1 else it },
-                        size = 32
-                    )
+                DialogBody {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        StarRow(
+                            rating = rating,
+                            onRate = { rating = if (it == 0) 1 else it },
+                            size = 32
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -1022,15 +1027,17 @@ private fun ArtistMergeSuggestions(
             containerColor = Surface1,
             title = { Text("לאחד את האמנים?") },
             text = {
-                Column(Modifier.fillMaxWidth()) {
-                    Text("בחר את השם שיישאר. שירי שני האמנים יוצגו יחד באפליקציה. קובצי המוזיקה לא ישתנו.")
-                    TextButton(onClick = { keepFirst = true }) {
-                        Text("${if (keepFirst) "✓ " else ""}${pair.first.displayName} (${pair.first.songs.size} שירים)")
+                DialogBody {
+                    Column(Modifier.fillMaxWidth()) {
+                        Text("בחר את השם שיישאר. שירי שני האמנים יוצגו יחד באפליקציה. קובצי המוזיקה לא ישתנו.")
+                        TextButton(onClick = { keepFirst = true }) {
+                            Text("${if (keepFirst) "✓ " else ""}${pair.first.displayName} (${pair.first.songs.size} שירים)")
+                        }
+                        TextButton(onClick = { keepFirst = false }) {
+                            Text("${if (!keepFirst) "✓ " else ""}${pair.second.displayName} (${pair.second.songs.size} שירים)")
+                        }
+                        Text("הדירוג והסגנונות של ${target.displayName} יישארו כפי שהם.", color = TextSecondary)
                     }
-                    TextButton(onClick = { keepFirst = false }) {
-                        Text("${if (!keepFirst) "✓ " else ""}${pair.second.displayName} (${pair.second.songs.size} שירים)")
-                    }
-                    Text("הדירוג והסגנונות של ${target.displayName} יישארו כפי שהם.", color = TextSecondary)
                 }
             },
             confirmButton = {
@@ -1164,20 +1171,19 @@ internal fun ArtistsPane(
                 Text("דירוג אמנים וסגנונות", style = MaterialTheme.typography.headlineMedium)
                 Text(
                     text = "${artists.count { it.rating > 0 }} מתוך ${artists.size} דורגו · " +
-                        "לחיצה ארוכה = בחירה",
+                        "לחיצה ארוכה על אמן בוחרת כמה יחד",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
             }
             // The way in for a list written somewhere else. Rating a few
             // hundred artists one at a time is the job this avoids.
-            IconButton(onClick = { importOpen = true }) {
-                Icon(
-                    Icons.AutoMirrored.Filled.PlaylistAddCheck,
-                    contentDescription = localized("הזנה מרוכזת"),
-                    tint = Accent
-                )
-            }
+            CaptionedIconButton(
+                Icons.AutoMirrored.Filled.PlaylistAddCheck,
+                "הזנה מרוכזת",
+                { importOpen = true },
+                tint = Accent
+            )
         }
         OutlinedTextField(
             value = filter,
@@ -1385,21 +1391,23 @@ private fun BulkImportDialog(onDismiss: () -> Unit, onSubmit: (String) -> Unit) 
         containerColor = Surface1,
         title = { Text("הזנה מרוכזת של אמנים") },
         text = {
-            Column {
-                Text(
-                    "שורה לכל אמן, בפורמט:\nשם | דירוג 1-5 | סגנונות מופרדים בפסיק\n\n" +
-                        "למשל:\nאברהם פריד | 5 | חסידי, מרגש\nיונתן רזאל | 4 | רגוע, שירי נשמה",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 140.dp, max = 260.dp)
-                )
+            DialogBody {
+                Column {
+                    Text(
+                        "שורה לכל אמן, בפורמט:\nשם | דירוג 1-5 | סגנונות מופרדים בפסיק\n\n" +
+                            "למשל:\nאברהם פריד | 5 | חסידי, מרגש\nיונתן רזאל | 4 | רגוע, שירי נשמה",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 140.dp, max = 260.dp)
+                    )
+                }
             }
         },
         confirmButton = {
@@ -2354,21 +2362,23 @@ internal fun GenreDialog(initial: String, onDismiss: () -> Unit, onApply: (Strin
         containerColor = Surface1,
         title = { Text("ז'אנר") },
         text = {
-            Column {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    singleLine = true,
-                    label = { Text("למשל: חסידי") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(10.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    for (style in Styles.SUGGESTED) {
-                        Chip(label = style, selected = text == style) { text = style }
+            DialogBody {
+                Column {
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        singleLine = true,
+                        label = { Text("למשל: חסידי") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        for (style in Styles.SUGGESTED) {
+                            Chip(label = style, selected = text == style) { text = style }
+                        }
                     }
                 }
             }
@@ -2396,7 +2406,10 @@ internal fun ConfirmDialog(
         onDismissRequest = onDismiss,
         containerColor = Surface1,
         title = { Text(title) },
-        text = { Text(body, color = TextSecondary) },
+        text = {
+            DialogBody {     Text(body, color = TextSecondary)
+            }
+        },
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(confirm, color = if (danger) Color_Error else Accent)
@@ -2639,27 +2652,29 @@ private fun FolderRatingDialog(
         containerColor = Surface1,
         title = { Text("דירוג לתיקייה") },
         text = {
-            Column {
-                Text(
-                    "\"$folderName\" · ${songs.size} שירים, כולל תת־תיקיות",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-                Spacer(Modifier.height(14.dp))
-                StarRow(rating = stars, onRate = { stars = it }, size = 34)
-                if (rated > 0) {
-                    Spacer(Modifier.height(14.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Chip(label = "רק שירים בלי דירוג", selected = keepRated, onClick = { keepRated = true })
-                        Chip(label = "כל השירים", selected = !keepRated, onClick = { keepRated = false })
-                    }
-                    Spacer(Modifier.height(8.dp))
+            DialogBody {
+                Column {
                     Text(
-                        if (keepRated) "$rated שירים שכבר דירגת אחד אחד ישמרו את הדירוג שלהם."
-                        else "גם $rated השירים שכבר דירגת יקבלו את הדירוג הזה.",
+                        "\"$folderName\" · ${songs.size} שירים, כולל תת־תיקיות",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
+                    Spacer(Modifier.height(14.dp))
+                    StarRow(rating = stars, onRate = { stars = it }, size = 34)
+                    if (rated > 0) {
+                        Spacer(Modifier.height(14.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Chip(label = "רק שירים בלי דירוג", selected = keepRated, onClick = { keepRated = true })
+                            Chip(label = "כל השירים", selected = !keepRated, onClick = { keepRated = false })
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            if (keepRated) "$rated שירים שכבר דירגת אחד אחד ישמרו את הדירוג שלהם."
+                            else "גם $rated השירים שכבר דירגת יקבלו את הדירוג הזה.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
                 }
             }
         },

@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.components.DialogBody
+import com.elchanan.rhythm.ui.components.fitHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -104,7 +106,7 @@ fun ArtistMergeSuggestions(vm: MainViewModel, artists: List<ArtistInfo>, gutter:
             onDismissRequest = { show = false },
             title = { Text("ייתכן שזה אותו אמן") },
             text = {
-                LazyColumn(Modifier.heightIn(max = 400.dp)) {
+                LazyColumn(Modifier.heightIn(max = fitHeight(400.dp))) {
                     items(pairs) { pair ->
                         TextButton(onClick = { selected = pair; keepFirst = true }, enabled = !busy) {
                             Text("${pair.first.displayName} / ${pair.second.displayName}")
@@ -123,15 +125,17 @@ fun ArtistMergeSuggestions(vm: MainViewModel, artists: List<ArtistInfo>, gutter:
             onDismissRequest = { selected = null },
             title = { Text("לאחד את האמנים?") },
             text = {
-                Column(Modifier.fillMaxWidth()) {
-                    Text("בחר את השם שיישאר. שירי שני האמנים יוצגו יחד באפליקציה. קובצי המוזיקה לא ישתנו.")
-                    TextButton(onClick = { keepFirst = true }) {
-                        Text("${if (keepFirst) "✓ " else ""}${pair.first.displayName} (${pair.first.songs.size} שירים)")
+                DialogBody {
+                    Column(Modifier.fillMaxWidth()) {
+                        Text("בחר את השם שיישאר. שירי שני האמנים יוצגו יחד באפליקציה. קובצי המוזיקה לא ישתנו.")
+                        TextButton(onClick = { keepFirst = true }) {
+                            Text("${if (keepFirst) "✓ " else ""}${pair.first.displayName} (${pair.first.songs.size} שירים)")
+                        }
+                        TextButton(onClick = { keepFirst = false }) {
+                            Text("${if (!keepFirst) "✓ " else ""}${pair.second.displayName} (${pair.second.songs.size} שירים)")
+                        }
+                        Text("הדירוג והסגנונות של ${target.displayName} יישארו כפי שהם.")
                     }
-                    TextButton(onClick = { keepFirst = false }) {
-                        Text("${if (!keepFirst) "✓ " else ""}${pair.second.displayName} (${pair.second.songs.size} שירים)")
-                    }
-                    Text("הדירוג והסגנונות של ${target.displayName} יישארו כפי שהם.")
                 }
             },
             confirmButton = {

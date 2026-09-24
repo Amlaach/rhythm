@@ -1,5 +1,8 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.layout.ColumnScope
+import com.elchanan.rhythm.ui.components.DialogBody
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -126,23 +129,27 @@ fun DetailListScreen(vm: MainViewModel, onBack: () -> Unit) {
         LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
             item {
                 val (c1, c2) = gradientFor(data.gradientKey)
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(150.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Brush.linearGradient(listOf(c1, c2))),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = data.title,
-                            style = MaterialTheme.typography.titleLarge,
-                            color = Color.White,
-                            modifier = Modifier.padding(12.dp),
-                            maxLines = 4
-                        )
+                AdaptiveHeader(
+                    stackedSize = 150.dp,
+                    centred = false,
+                    cover = { side ->
+                        Box(
+                            modifier = Modifier
+                                .size(side)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Brush.linearGradient(listOf(c1, c2))),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = data.title,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = Color.White,
+                                modifier = Modifier.padding(12.dp),
+                                maxLines = 4
+                            )
+                        }
                     }
-                    Spacer(Modifier.height(12.dp))
+                ) {
                     Text(data.title, style = MaterialTheme.typography.headlineSmall)
                     if (data.subtitle != null) {
                         Text(
@@ -262,24 +269,25 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
         LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
             item {
                 val (c1, c2) = gradientFor(live.key)
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(120.dp)
-                            .clip(CircleShape)
-                            .background(Brush.linearGradient(listOf(c1, c2))),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            live.displayName.take(2),
-                            style = MaterialTheme.typography.displaySmall,
-                            color = Color.White
-                        )
+                AdaptiveHeader(
+                    stackedSize = 120.dp,
+                    centred = true,
+                    cover = { side ->
+                        Box(
+                            modifier = Modifier
+                                .size(side)
+                                .clip(CircleShape)
+                                .background(Brush.linearGradient(listOf(c1, c2))),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                live.displayName.take(2),
+                                style = MaterialTheme.typography.displaySmall,
+                                color = Color.White
+                            )
+                        }
                     }
-                    Spacer(Modifier.height(12.dp))
+                ) {
                     Text(live.displayName, style = MaterialTheme.typography.headlineSmall)
                     Text(
                         "${live.songs.size} שירים",
@@ -432,11 +440,13 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
             containerColor = Surface1,
             title = { Text("לאפס את ההשמעות?") },
             text = {
-                Text(
-                    "כל ההשמעות של ${info.displayName} יתאפסו, והשירים ייעלמו מ\"הושמעו לאחרונה\". " +
-                        "הדירוג, הסגנונות והלייקים נשארים.",
-                    color = TextSecondary
-                )
+                DialogBody {
+                    Text(
+                        "כל ההשמעות של ${info.displayName} יתאפסו, והשירים ייעלמו מ\"הושמעו לאחרונה\". " +
+                            "הדירוג, הסגנונות והלייקים נשארים.",
+                        color = TextSecondary
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
@@ -581,6 +591,42 @@ fun AlbumsScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -> Unit
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * The top of a list page: its cover and what it is, with the buttons.
+ *
+ * Stacked on a phone held upright. Side by side wherever there is width to
+ * spare or little height: stacked, on a phone on its side, the header alone
+ * filled the screen and the list began below the fold.
+ */
+@Composable
+private fun AdaptiveHeader(
+    stackedSize: Dp,
+    centred: Boolean,
+    cover: @Composable (Dp) -> Unit,
+    info: @Composable ColumnScope.() -> Unit
+) {
+    val metrics = rememberMetrics()
+    if (metrics.isShort || !metrics.isCompact) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            cover(if (metrics.isShort) minOf(stackedSize, 112.dp) else stackedSize)
+            Spacer(Modifier.width(18.dp))
+            Column(modifier = Modifier.weight(1f), content = info)
+        }
+    } else {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            horizontalAlignment = if (centred) Alignment.CenterHorizontally else Alignment.Start
+        ) {
+            cover(stackedSize)
+            Spacer(Modifier.height(12.dp))
+            info()
         }
     }
 }

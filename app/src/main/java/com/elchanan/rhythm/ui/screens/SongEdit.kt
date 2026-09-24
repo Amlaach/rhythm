@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.components.fitHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -137,7 +138,7 @@ internal fun SongEditDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 460.dp)
+                    .heightIn(max = fitHeight(460.dp))
                     .verticalScroll(rememberScrollState())
             ) {
                 if (single != null) Field("שם השיר", title) { title = it }

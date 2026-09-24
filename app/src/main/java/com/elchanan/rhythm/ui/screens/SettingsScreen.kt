@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.components.DialogBody
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -148,23 +149,25 @@ internal fun SeparationDialog(
         containerColor = Surface1,
         title = { Text("סגנונות שלא יתערבבו") },
         text = {
-            Column {
-                Text(
-                    "שורה לכל כלל, והסגנונות בתוך השורה מופרדים בפסיק. " +
-                        "סגנונות שנמצאים באותה שורה לא יופיעו יחד באותו מיקס, רדיו או המשך תור.\n\n" +
-                        "שורה עם סגנון אחד בלבד פירושה שהסגנון הזה מתערבב רק עם עצמו — " +
-                        "לא עם סגנון אחר ולא עם שירים בלי תגיות.\n\n" +
-                        "למשל:\nחסידי, ישראלי\nילדים, חזנות\nרק אנגלית\n\n" +
-                        "הכלל חל על התגיות שאתה נתת — לשיר עצמו או לאמן שלו.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 200.dp)
-                )
+            DialogBody {
+                Column {
+                    Text(
+                        "שורה לכל כלל, והסגנונות בתוך השורה מופרדים בפסיק. " +
+                            "סגנונות שנמצאים באותה שורה לא יופיעו יחד באותו מיקס, רדיו או המשך תור.\n\n" +
+                            "שורה עם סגנון אחד בלבד פירושה שהסגנון הזה מתערבב רק עם עצמו — " +
+                            "לא עם סגנון אחר ולא עם שירים בלי תגיות.\n\n" +
+                            "למשל:\nחסידי, ישראלי\nילדים, חזנות\nרק אנגלית\n\n" +
+                            "הכלל חל על התגיות שאתה נתת — לשיר עצמו או לאמן שלו.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp, max = 200.dp)
+                    )
+                }
             }
         },
         confirmButton = {
@@ -191,18 +194,20 @@ internal fun FolderDialog(
         containerColor = Surface1,
         title = { Text("תיקיות שלא ייסרקו") },
         text = {
-            Column {
-                Text(
-                    "חלק משם הנתיב, שורה לכל תיקייה. כל קובץ שהנתיב שלו מכיל את הטקסט הזה לא ייכנס לספרייה.\n\nלמשל:\nWhatsApp\nRecordings\nRingtones",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 220.dp)
-                )
+            DialogBody {
+                Column {
+                    Text(
+                        "חלק משם הנתיב, שורה לכל תיקייה. כל קובץ שהנתיב שלו מכיל את הטקסט הזה לא ייכנס לספרייה.\n\nלמשל:\nWhatsApp\nRecordings\nRingtones",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 220.dp)
+                    )
+                }
             }
         },
         confirmButton = {

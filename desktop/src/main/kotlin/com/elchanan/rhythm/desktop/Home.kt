@@ -65,6 +65,8 @@ import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.HeaderMid
+import com.elchanan.rhythm.ui.theme.collageSongs
+import com.elchanan.rhythm.ui.theme.isFolderNamedAlbum
 import com.elchanan.rhythm.ui.theme.HeaderWarm
 import com.elchanan.rhythm.ui.theme.RhythmMark
 import com.elchanan.rhythm.ui.theme.Surface2
@@ -260,12 +262,14 @@ internal fun HomeScreen(
             // Only worth a shelf once there is something to browse. A library
             // of singles collapses into one folder-named album, and a lone
             // tile reads as a bug rather than a section.
-            if (albums.size >= 3) {
+            // Folders filed as albums - "Download", "Music" - stay off it.
+            val shelfAlbums = albums.filterNot { isFolderNamedAlbum(it.name, it.songs) }
+            if (shelfAlbums.size >= 3) {
                 item {
                     Column {
                         SectionHeader("אלבומים בשבילך", "מתוך הספרייה שלך")
                         LazyRow(contentPadding = PaddingValues(horizontal = GUTTER)) {
-                            items(albums.take(20), key = { it.albumId }) { album ->
+                            items(shelfAlbums.take(20), key = { it.albumId }) { album ->
                                 Column(
                                     modifier = Modifier
                                         .width(CARD)
@@ -519,7 +523,12 @@ private fun FeedSectionView(
                     onMore = onMore
                 )
             } else {
-                LazyRow(contentPadding = PaddingValues(horizontal = GUTTER)) {
+                // A gap between the columns, so each row's menu is not read
+                // as belonging to the next column's song.
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = GUTTER),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
                     items(section.songs.chunked(4)) { column ->
                         Column(modifier = Modifier.width(360.dp)) {
                             for (song in column) {
@@ -697,7 +706,7 @@ private fun SongCard(song: SongEntity, onClick: () -> Unit, onMore: () -> Unit) 
 @Composable
 private fun MixCard(mix: Mix, onOpen: () -> Unit, onPlay: () -> Unit) {
     val (c1, c2) = gradientFor(mix.id)
-    val covers = mix.songs.take(4)
+    val covers = collageSongs(mix.songs)
     Column(
         modifier = Modifier
             .width(MIX_CARD)
@@ -739,7 +748,10 @@ private fun MixCard(mix: Mix, onOpen: () -> Unit, onPlay: () -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(0.38f)
-                        .background(Color.Black.copy(alpha = 0.55f))
+                        // Graphite, not a dark wash over the mix's colour: over the
+                        // gradient it came out a heavy purple or green block
+                        // under every collage. The covers bring the colour.
+                        .background(Surface2)
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     Text(
@@ -763,7 +775,9 @@ private fun MixCard(mix: Mix, onOpen: () -> Unit, onPlay: () -> Unit) {
                     .padding(10.dp)
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.35f))
+                    // In the accent, like the big play button: plainly the
+                    // thing to press, not a shadow on the picture.
+                    .background(Accent)
                     .clickable(onClick = onPlay),
                 contentAlignment = Alignment.Center
             ) {

@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.components.DialogBody
+import com.elchanan.rhythm.ui.components.fitHeight
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.foundation.clickable
@@ -112,7 +114,7 @@ fun BookmarksSheet(
                         "ואפשר לחזור אליו בלחיצה אחת."
                 )
             } else {
-                LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                LazyColumn(modifier = Modifier.heightIn(max = fitHeight(320.dp))) {
                     items(bookmarks, key = { it.id }) { mark ->
                         Row(
                             modifier = Modifier
@@ -166,19 +168,21 @@ fun BookmarksSheet(
             containerColor = Surface1,
             title = { Text("סימנייה ב-${formatClock(currentPositionMs)}") },
             text = {
-                Column {
-                    Text(
-                        "אפשר לתת שם, ואפשר להשאיר ריק.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = label,
-                        onValueChange = { label = it },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                DialogBody {
+                    Column {
+                        Text(
+                            "אפשר לתת שם, ואפשר להשאיר ריק.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = label,
+                            onValueChange = { label = it },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             },
             confirmButton = {

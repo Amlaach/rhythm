@@ -44,6 +44,8 @@ import androidx.compose.material3.SliderDefaults
 import com.elchanan.rhythm.ui.theme.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -134,6 +136,14 @@ fun Artwork(
         // and the mark stay exactly as they were. Coil serves the second
         // request from memory, so the file is decoded once.
         if (contentScale != ContentScale.Crop) {
+            // The dimmed backdrop lets what is under it show through, and under
+            // it is the artist's tint - so a dark cover came out framed in
+            // purple or pink. Once the cover is really there, the tint is
+            // covered with the neutral ground first and the bands carry the
+            // cover's own colours only. Songs with no cover never load and keep
+            // the tint and the mark.
+            var loaded by remember(songId, albumId) { mutableStateOf(false) }
+            if (loaded) Box(modifier = Modifier.fillMaxSize().background(Bg))
             AsyncImage(
                 model = SongArt(songId, albumId),
                 contentDescription = null,
@@ -142,6 +152,7 @@ fun Artwork(
                 // this stays a scaled up still of the same artwork - softer
                 // than a hard edge either way, and never a frame.
                 alpha = BACKDROP_ALPHA,
+                onSuccess = { loaded = true },
                 modifier = Modifier.fillMaxSize().blur(BACKDROP_BLUR)
             )
         }
@@ -493,7 +504,10 @@ fun MixCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(0.38f)
-                        .background(Color.Black.copy(alpha = 0.55f))
+                        // Graphite, not a dark wash over the mix's colour: over the
+                        // gradient it came out a heavy purple or green block
+                        // under every collage. The covers bring the colour.
+                        .background(Surface2)
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     Text(
@@ -517,7 +531,9 @@ fun MixCard(
                     .padding(10.dp)
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.35f))
+                    // In the accent, like the big play button: plainly the
+                    // thing to press, not a shadow on the picture.
+                    .background(Accent)
                     .clickable(onClick = onPlay),
                 contentAlignment = Alignment.Center
             ) {
