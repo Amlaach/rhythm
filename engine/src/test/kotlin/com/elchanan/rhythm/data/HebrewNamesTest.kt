@@ -66,4 +66,21 @@ class HebrewNamesTest {
         )
         assertTrue(moves.isEmpty())
     }
+
+    @Test fun aHebrewDuetBelongsToBothSingers() {
+        val names = listOf("ישי ריבו", "מוטי שטיינמץ", "ישי ריבו ומוטי שטיינמץ", "שלמה ובניו", "שלמה")
+        val known = Names.soloArtists(names)
+        assertEquals(listOf("ישי ריבו", "מוטי שטיינמץ"), Names.credits("ישי ריבו ומוטי שטיינמץ", known))
+        // files under the first singer, not as an artist of its own
+        assertEquals(Names.normalizeKey("ישי ריבו"), Names.primaryKey("ישי ריבו ומוטי שטיינמץ", known))
+        // a name that only starts a word with ו stays whole
+        assertEquals(listOf("שלמה ובניו"), Names.credits("שלמה ובניו", known))
+        assertEquals(Names.normalizeKey("שלמה ובניו"), Names.primaryKey("שלמה ובניו", known))
+    }
+
+    @Test fun hebrewGuestCreditsSplit() {
+        assertEquals(listOf("ישי ריבו", "מוטי שטיינמץ"), Names.credits("ישי ריבו בהשתתפות מוטי שטיינמץ"))
+        assertEquals("ישי ריבו", Names.primaryArtist("ישי ריבו מארח את מוטי שטיינמץ"))
+        assertEquals(listOf("ישי ריבו", "מוטי שטיינמץ"), Names.credits("ישי ריבו ו-מוטי שטיינמץ"))
+    }
 }

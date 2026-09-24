@@ -188,6 +188,15 @@ class MusicRepository(
                 keep
             }
             .map { song -> applyOverride(song, overrides[song.id]) }
+            .let { list ->
+                // A duet written the Hebrew way files under its first singer
+                // rather than as an artist of its own - see Names.duet.
+                val known = Names.soloArtists(list.map { it.artistName })
+                list.map { song ->
+                    val key = Names.primaryKey(song.artistName, known)
+                    if (key == song.artistKey) song else song.copy(artistKey = key)
+                }
+            }
 
         // What is already known, by path. The path is the only thing about a
         // song that survives a card being pulled out and put back: MediaStore
@@ -814,9 +823,10 @@ class MusicRepository(
     private suspend fun rehomeArtistProfiles(rawToNow: List<Pair<String, String>>) {
         val songs = dao.allSongs()
         val present = HashSet<String>()
+        val known = Names.soloArtists(songs.map { it.artistName })
         for (song in songs) {
             present.add(song.artistKey)
-            for (credit in Names.credits(song.artistName)) present.add(Names.normalizeKey(credit))
+            for (credit in Names.credits(song.artistName, known)) present.add(Names.normalizeKey(credit))
         }
         val orphans = dao.allArtists().filter { a ->
             a.artistKey !in present && (a.rating != 0 || a.styles.isNotBlank() || a.note.isNotBlank())

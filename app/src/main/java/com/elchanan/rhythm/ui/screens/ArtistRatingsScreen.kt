@@ -179,7 +179,7 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
             // What the app spotted by itself, above what you can do by hand.
             // The whole list is searched, not the filtered view: a pair is
             // still a pair when one of the two is hidden by the filter.
-            item { ArtistMergeSuggestions(vm, library.artists) }
+            item { ArtistMergeSuggestions(vm, library.artists, gutter) }
             item {
                 Row(
                     modifier = Modifier

@@ -147,7 +147,9 @@ object Names {
 
     private val collabSeparators = listOf(
         " feat. ", " feat ", " ft. ", " ft ", " featuring ",
-        " & ", " / ", " x ", " vs. ", " vs ", ";", " עם "
+        " & ", " / ", " x ", " vs. ", " vs ", ";", " עם ",
+        // How Hebrew credits a guest.
+        " בהשתתפות ", " מארח את ", " מארחת את ", " מארחים את ", " ו-", " + "
     )
 
     /**
@@ -250,5 +252,47 @@ object Names {
         if (out.isEmpty()) return listOf(text)
         out.add(text.substring(from))
         return out
+    }
+
+    /**
+     * Artists the library knows by themselves: every name that is the whole
+     * of some song's artist field. What [duet] may split a name into.
+     */
+    fun soloArtists(artistNames: Collection<String>): Set<String> =
+        artistNames.mapNotNullTo(HashSet()) { name -> credits(name).singleOrNull()?.let { normalizeKey(it) } }
+
+    /**
+     * The two singers of a duet written the Hebrew way, "ישי ריבו ומוטי
+     * שטיינמץ", or null when [raw] is not one.
+     *
+     * The joining ו is not a separator on its own - it is the first letter
+     * of countless names and words, and splitting on it would cut "שלמה
+     * ובניו" in two. So a name is split at a ו only where both sides are
+     * artists the library has by themselves ([known]); otherwise the duet
+     * became a third artist of its own, with one song, and neither singer's
+     * page had it.
+     */
+    fun duet(raw: String, known: Set<String>): List<String>? {
+        val value = raw.trim()
+        var at = value.indexOf(" ו")
+        while (at > 0) {
+            val left = value.substring(0, at).trim()
+            val right = value.substring(at + 2).trim()
+            if (left.isNotEmpty() && right.isNotEmpty() &&
+                normalizeKey(left) in known && normalizeKey(right) in known
+            ) return listOf(left, right)
+            at = value.indexOf(" ו", at + 1)
+        }
+        return null
+    }
+
+    /** [credits], with a Hebrew duet of two [known] artists read as both of them. */
+    fun credits(raw: String, known: Set<String>): List<String> =
+        credits(raw).flatMap { part -> duet(part, known) ?: listOf(part) }.distinctBy { normalizeKey(it) }
+
+    /** The key a song files under: its first artist, a Hebrew duet included. */
+    fun primaryKey(raw: String, known: Set<String>): String {
+        val primary = primaryArtist(raw)
+        return normalizeKey(duet(primary, known)?.first() ?: primary)
     }
 }

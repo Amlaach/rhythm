@@ -42,6 +42,7 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -974,9 +975,26 @@ private fun ArtistMergeSuggestions(
     var show by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Pair<ArtistInfo, ArtistInfo>?>(null) }
     var keepFirst by remember { mutableStateOf(true) }
+    // A card with a button, as on the phone: a line of text read as the app
+    // remarking on something rather than offering to do it.
     if (pairs.isNotEmpty()) {
-        TextButton(onClick = { show = true }, enabled = !busy, modifier = Modifier.padding(horizontal = GUTTER)) {
-            Text("נמצאו ${pairs.size} זוגות אמנים עם שמות דומים — בדוק איחוד", color = Accent)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = GUTTER, vertical = 6.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Surface1)
+                .clickable(enabled = !busy) { show = true }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.People, contentDescription = null, tint = Accent)
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(if (pairs.size == 1) "אמן אחד שנראה כפול" else "${pairs.size} אמנים שנראים כפולים")
+                Text("אותו אמן בשני איותים. אפשר לאחד אותם לאמן אחד", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+            }
+            Button(onClick = { show = true }, enabled = !busy) { Text("בדיקה") }
         }
     }
     if (show && selected == null) {

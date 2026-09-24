@@ -293,6 +293,8 @@ fun LibraryScreen(
                 // tap away on the bar at the bottom - a row here that only
                 // opened it was a second door onto the same room.
                 LibraryTab.ARTISTS -> LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
+                    // Where duplicates are seen, so where joining them is offered.
+                    item(key = "merge-suggestions") { ArtistMergeSuggestions(vm, library.artists, gutter) }
                     items(library.artists, key = { it.key }) { artist ->
                         ArtistRow(
                             artist = artist,
