@@ -91,7 +91,15 @@ Source: "licenses\APACHE-2.0.txt"; DestDir: "{app}\licenses"; Flags: ignoreversi
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+; The desktop shortcut is made in [Code] below rather than here. A desktop
+; inside OneDrive is often closed to installers - Windows Security's
+; controlled folder access, or OneDrive itself - and an [Icons] entry that
+; cannot be written stops the install on "IPersistFile::Save failed ...
+; Access is denied" for the sake of a shortcut. The one in the Start menu is
+; enough to find the app by; the desktop one is made when it can be.
+
+[UninstallDelete]
+Type: files; Name: "{autodesktop}\{#AppName}.lnk"
 
 [Run]
 ; The thing this whole change was for: a ticked box on the last page that
@@ -100,3 +108,59 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 ; unattended.
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; \
     Flags: nowait postinstall skipifsilent
+
+[Code]
+{ Rhythm has to be closed before its files can be replaced.
+
+  CloseApplications above asks Windows' Restart Manager to do it, and for a
+  Java program that does not always work: the launcher and the runtime's DLLs
+  stay loaded, and the copy then fails on "MoveFile failed; code 5. Access is
+  denied" for runtime\bin\ucrtbase.dll - which reads as a broken installer.
+  So the running copy is closed here first: asked to close its window, and
+  ended if it has not gone a few seconds later. Only a Rhythm.exe running from
+  the folder being installed into; another program of the same name is left
+  alone. The library, ratings and settings are in %LOCALAPPDATA%\Rhythm and
+  are written as they change, so nothing is lost by closing it. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Dir, Script, PowerShell: String;
+  ResultCode: Integer;
+begin
+  Result := '';
+  Dir := ExpandConstant('{app}');
+  { A single quote in the path - a user name like O'Brien - is doubled for
+    PowerShell's single-quoted string. }
+  StringChangeEx(Dir, '''', '''''', True);
+  Script :=
+    '$d = ''' + Dir + '''; ' +
+    'Get-Process -Name Rhythm -ErrorAction SilentlyContinue | ' +
+    'Where-Object { $_.Path -and $_.Path.StartsWith($d, [System.StringComparison]::OrdinalIgnoreCase) } | ' +
+    'ForEach-Object { [void]$_.CloseMainWindow(); ' +
+    'if (-not $_.WaitForExit(5000)) { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue } }';
+  { The 64-bit PowerShell where there is one: the installer itself is a
+    32-bit program, and a 32-bit PowerShell cannot read the path of the
+    64-bit Rhythm.exe, so it would never find the copy to close. }
+  if IsWin64 then
+    PowerShell := ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe')
+  else
+    PowerShell := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  Exec(PowerShell,
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' + Script + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  { A moment for Windows to let go of the files the process had open. }
+  Sleep(1000);
+end;
+
+{ The desktop shortcut, when the desktop can be written to; see [Icons]. }
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssPostInstall) and WizardIsTaskSelected('desktopicon') then
+  begin
+    try
+      CreateShellLink(ExpandConstant('{autodesktop}\{#AppName}.lnk'), '{#AppName}',
+        ExpandConstant('{app}\{#AppExe}'), '', ExpandConstant('{app}'), '', 0, SW_SHOWNORMAL);
+    except
+      Log('Desktop shortcut not created: ' + GetExceptionMessage);
+    end;
+  end;
+end;
