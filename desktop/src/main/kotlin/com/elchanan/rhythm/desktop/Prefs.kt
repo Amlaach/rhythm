@@ -34,6 +34,14 @@ class Prefs(private val store: Store) {
     private fun number(key: String, fallback: Int): Int =
         store.get(key)?.toIntOrNull() ?: fallback
 
+    /**
+     * The one-time pointer at the magnifier on the home screen, telling that
+     * search moved there from the tabs.
+     */
+    var searchHintSeen: Boolean
+        get() = flag("searchHintSeen", false)
+        set(value) = set("searchHintSeen", value)
+
     /** Shown once, before anything has been scanned. */
     var welcomeSeen: Boolean
         get() = flag("welcomeSeen", false)

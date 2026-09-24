@@ -2123,6 +2123,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _tagFixDismissedAt.value = _tagFixPending.value
     }
 
+    /** "Search is here now", pointing at the magnifier, until it is closed. */
+    private val _searchHintVisible = MutableStateFlow(!repo.prefs.searchHintSeen)
+    val searchHintVisible: StateFlow<Boolean> = _searchHintVisible.asStateFlow()
+
+    fun dismissSearchHint() {
+        if (!_searchHintVisible.value) return
+        prefs.searchHintSeen = true
+        _searchHintVisible.value = false
+    }
+
     fun dismissTagTip() {
         prefs.tagTipSeen = true
         _tagTipVisible.value = false

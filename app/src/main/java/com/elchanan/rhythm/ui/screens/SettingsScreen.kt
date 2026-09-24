@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.material.icons.filled.BarChart
 import com.elchanan.rhythm.ui.components.DialogBody
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -67,7 +68,8 @@ fun SettingsScreen(
     onOpenLibrarySettings: () -> Unit = {},
     onOpenTagSettings: () -> Unit = {},
     onOpenTransfer: () -> Unit = {},
-    onOpenAbout: () -> Unit = {}
+    onOpenAbout: () -> Unit = {},
+    onOpenRecap: () -> Unit = {}
 ) {
     SettingsScaffold(title = "הגדרות", onBack = onBack) {
         item {
@@ -84,6 +86,16 @@ fun SettingsScreen(
                 title = "דף הבית ותצוגה",
                 subtitle = "אילו מדפים מופיעים, מה נפתח ראשון, איך מוצגות התיקיות",
                 onClick = onOpenHomeSettings
+            )
+        }
+        // What you have been listening to - once a chart at the top of the
+        // home screen, here now so that bar stays short on a narrow phone.
+        item {
+            SettingsDoor(
+                icon = Icons.Filled.BarChart,
+                title = "הסיכום שלך",
+                subtitle = "מה שמעת, כמה ומתי, והאמנים שחזרת אליהם",
+                onClick = onOpenRecap
             )
         }
         item {

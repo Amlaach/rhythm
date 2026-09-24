@@ -154,6 +154,11 @@ class Prefs(context: Context) {
         get() = sp.getInt("hook_misses", 0)
         set(value) = sp.edit { putInt("hook_misses", value) }
 
+    /** Whether "search is here now" has been shown and closed. */
+    var searchHintSeen: Boolean
+        get() = sp.getBoolean("search_hint_seen", false)
+        set(value) = sp.edit { putBoolean("search_hint_seen", value) }
+
     var tagFixBannerDismissedAt: Int
         get() = sp.getInt(KEY_TAG_FIX_BANNER, 0)
         set(value) = sp.edit { putInt(KEY_TAG_FIX_BANNER, value) }

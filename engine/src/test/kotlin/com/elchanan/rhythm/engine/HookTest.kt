@@ -58,6 +58,31 @@ class HookTest {
         assertTrue("taste at $at, choruses at $chorusStarts", chorusStarts.any { abs(it - at!!) <= 3.0 })
     }
 
+    /**
+     * A chorus longer than the taste, with its verse repeating too: every
+     * stretch inside the chorus matches as well as its start does, and the
+     * taste should still begin where the chorus begins, not midway.
+     */
+    @Test fun aLongChorusIsTastedFromItsStart() {
+        for (seed in 1..6) {
+            val r = Random(seed * 17)
+            val verse = listOf(listOf(57, 60, 64), listOf(62, 65, 69), listOf(55, 59, 62), listOf(60, 64, 67))
+            val chorus = listOf(listOf(65, 69, 72), listOf(67, 71, 74), listOf(64, 67, 71), listOf(69, 72, 76))
+            val v = { part(verse, 2.0, 16.0, 0.3, r) }
+            val c = { part(chorus, 2.0, 32.0, 0.55, r) }
+            // intro 0-8, verse 8-24, chorus 24-56, verse 56-72, chorus 72-104,
+            // bridge 104-118, chorus 118-150, outro
+            val song = listOf(
+                part(listOf(listOf(57, 64)), 4.0, 8.0, 0.2, r), v(), c(), v(), c(),
+                part(listOf(listOf(58, 62, 65), listOf(63, 67, 70)), 2.0, 14.0, 0.35, r), c(),
+                part(verse, 2.0, 10.0, 0.2, r)
+            )
+            val at = Hook.find(framesOf(song))!!
+            val chorusStarts = listOf(24.0, 72.0, 118.0)
+            assertTrue("seed $seed: taste at $at, choruses at $chorusStarts", chorusStarts.any { abs(it - at) <= 2.0 })
+        }
+    }
+
     @Test fun withNothingRepeatingTheLoudestMiddleStandsIn() {
         val r = Random(2)
         // Every section different, the fourth one loud.

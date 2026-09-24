@@ -95,6 +95,29 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             Text("דף הבית ותצוגה", style = MaterialTheme.typography.titleLarge)
         }
 
+        // The refresh that was a button on the home screen: also a pull down
+        // on the feed itself.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { vm.refreshFeed(reshuffle = true); vm.toast("ההמלצות רועננו") }
+                .padding(horizontal = gutter, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("רענון ההמלצות", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "בונה את מסך הבית מחדש. אפשר גם למשוך את מסך הבית למטה",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+            Button(
+                onClick = { vm.refreshFeed(reshuffle = true); vm.toast("ההמלצות רועננו") },
+                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+            ) { Text("רענן") }
+        }
+
         SettingSwitch(
             title = "מצב מסך קטן",
             subtitle = "כל האפליקציה בגודל אחד קטן יותר — טקסט, מרווחים, תמונות והטאבים " +

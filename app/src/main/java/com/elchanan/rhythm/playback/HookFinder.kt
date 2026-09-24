@@ -33,7 +33,8 @@ import java.nio.ByteOrder
 object HookFinder {
 
     /** Raised when the way hooks are found changes, so old answers are found again. */
-    private const val VERSION = 1
+    // 2: the start is brought back to where the chorus begins.
+    private const val VERSION = 2
 
     private val lock = Any()
     private var known: MutableMap<Long, Long>? = null
@@ -43,6 +44,10 @@ object HookFinder {
     private fun load(context: Context): MutableMap<Long, Long> {
         known?.let { return it }
         val map = HashMap<Long, Long>()
+        // Answers from an earlier way of finding them are only in the way.
+        runCatching {
+            for (old in 1 until VERSION) File(context.filesDir, "hooks-v$old.txt").delete()
+        }
         runCatching {
             file(context).takeIf { it.isFile }?.forEachLine { line ->
                 val eq = line.indexOf('=')

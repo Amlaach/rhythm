@@ -1,5 +1,9 @@
 package com.elchanan.rhythm.desktop
 
+import com.elchanan.rhythm.ui.theme.PointingHint
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.filled.Search
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.foundation.Image
@@ -110,6 +114,9 @@ internal fun HomeScreen(
     onRefresh: () -> Unit,
     onRecap: () -> Unit,
     onSettings: () -> Unit,
+    onSearch: () -> Unit = {},
+    searchHint: Boolean = false,
+    onSearchHintDone: () -> Unit = {},
     onPickFolder: () -> Unit,
     onRescan: () -> Unit,
     onAnalyze: () -> Unit,
@@ -138,8 +145,9 @@ internal fun HomeScreen(
                 )
         ) {
             HomeTopBar(
-                onRefresh = onRefresh,
-                onRecap = onRecap,
+                onSearch = onSearch,
+                searchHint = searchHint,
+                onSearchHintDone = onSearchHintDone,
                 onSettings = onSettings
             )
             if (scanning || analysing) {
@@ -351,8 +359,9 @@ internal fun HomeScreen(
  */
 @Composable
 private fun HomeTopBar(
-    onRefresh: () -> Unit,
-    onRecap: () -> Unit,
+    onSearch: () -> Unit,
+    searchHint: Boolean,
+    onSearchHintDone: () -> Unit,
     onSettings: () -> Unit
 ) {
     Row(
@@ -366,11 +375,19 @@ private fun HomeTopBar(
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.weight(1f)
         )
-        IconButton(onClick = onRefresh) {
-            Icon(Icons.Filled.Autorenew, contentDescription = localized("רענון"), tint = TextSecondary)
-        }
-        IconButton(onClick = onRecap) {
-            Icon(Icons.Filled.BarChart, contentDescription = localized("הסיכום שלך"), tint = TextSecondary)
+        // Search and settings, as on the phone: the refresh and the recap
+        // are in the settings now.
+        Box {
+            IconButton(onClick = { onSearchHintDone(); onSearch() }) {
+                Icon(Icons.Filled.Search, contentDescription = localized("חיפוש"), tint = TextPrimary)
+            }
+            if (searchHint) {
+                PointingHint(
+                    title = "החיפוש עבר לכאן",
+                    body = "הלשונית למטה פינתה מקום",
+                    onDone = onSearchHintDone
+                )
+            }
         }
         IconButton(onClick = onSettings) {
             Icon(Icons.Filled.Settings, contentDescription = localized("הגדרות"), tint = TextSecondary)

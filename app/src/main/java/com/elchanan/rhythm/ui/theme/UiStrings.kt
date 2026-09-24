@@ -1781,6 +1781,16 @@ object UiStrings {
         "מחפש את הפזמון…" to "Finding the chorus…",
         "השיר המלא" to "Whole song",
         "נרשם, תודה" to "Noted, thanks",
-        "זה לא הפזמון" to "Not the chorus"
+        "זה לא הפזמון" to "Not the chorus",
+        "החיפוש עבר לכאן" to "Search is here now",
+        "ובמקומו למטה: טעימות משירי הספרייה" to "In its place below: tastes of your library's songs",
+        "הלשונית למטה פינתה מקום" to "Its tab below made room",
+        "הבנתי" to "Got it",
+        "רענון ההמלצות" to "Refresh recommendations",
+        "בונה את מסך הבית מחדש. אפשר גם למשוך את מסך הבית למטה" to "Rebuilds the home screen. You can also pull the home screen down",
+        "בונה את מסך הבית מחדש" to "Rebuilds the home screen",
+        "רענן" to "Refresh",
+        "ההמלצות רועננו" to "Recommendations refreshed",
+        "מה שמעת, כמה ומתי, והאמנים שחזרת אליהם" to "What you heard, how much and when, and the artists you came back to"
     )
 }

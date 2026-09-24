@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Search
@@ -118,7 +119,10 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 
 private val TABS = listOf(
     Tab(Routes.HOME, "בית", Icons.Filled.Home),
-    Tab(Routes.SEARCH, "חיפוש", Icons.Filled.Search),
+    // Tastes where search was: search moved to the top of the home screen,
+    // which is where it is looked for, and the bar stays four wide on a
+    // narrow phone.
+    Tab(Routes.SAMPLES, "טעימות", Icons.Filled.AutoAwesome),
     Tab(Routes.LIBRARY, "ספרייה", Icons.Filled.LibraryMusic),
     // "דירוגים", not "אמנים": the library already has an artists tab, and
     // this one is where they are rated - which is what the star says.
@@ -302,10 +306,11 @@ fun RhythmRoot(
                     // list it acts on.
                     // The tastes take the whole screen, with a player of their
                     // own: the app's bars would only sit paused under them.
-                    val fullScreen = playerOpen || currentRoute == Routes.SAMPLES
-                    if (!fullScreen) SelectionBar(vm)
+                    val tasting = currentRoute == Routes.SAMPLES
+                    val fullScreen = playerOpen
+                    if (!fullScreen && !tasting) SelectionBar(vm)
                     // Hidden while the full player is up - it is the same controls.
-                    if (currentSong != null && !fullScreen) {
+                    if (currentSong != null && !fullScreen && !tasting) {
                         val miniState by vm.player.state.collectAsStateWithLifecycle()
                         MiniPlayer(
                             song = currentSong,
@@ -344,7 +349,7 @@ fun RhythmRoot(
                 // On a wide, short window the tabs stand down the side: along
                 // the bottom they took height that a landscape screen has least
                 // of. Put away under the open player, as the bottom bar is.
-                if (useRail && !playerOpen && currentRoute != Routes.SAMPLES) {
+                if (useRail && !playerOpen) {
                     RhythmNavRail(
                         navController = navController,
                         currentRoute = currentRoute,
@@ -396,14 +401,17 @@ fun RhythmRoot(
                                 onOpenRatings = { navController.navigate(Routes.RATINGS) },
                                 onOpenRecap = { navController.navigate(Routes.RECAP) },
                                 onOpenTagFix = { navController.navigate(Routes.TAGS) },
-                                onOpenSamples = { navController.navigate(Routes.SAMPLES) }
+                                onOpenSearch = {
+                                    navController.navigate(Routes.SEARCH) { launchSingleTop = true }
+                                }
                             )
                         }
                         composable(Routes.SEARCH) {
                             SearchScreen(
                                 vm = vm,
                                 onOpenArtist = { navController.navigate(Routes.ARTIST) },
-                                onOpenDetail = { navController.navigate(Routes.DETAIL) }
+                                onOpenDetail = { navController.navigate(Routes.DETAIL) },
+                                onBack = { navController.popBackStack() }
                             )
                         }
                         composable(Routes.LIBRARY) {
@@ -450,7 +458,8 @@ fun RhythmRoot(
                                 onOpenLibrarySettings = { navController.navigate(Routes.LIBRARY_SETTINGS) },
                                 onOpenTagSettings = { navController.navigate(Routes.TAG_SETTINGS) },
                                 onOpenTransfer = { navController.navigate(Routes.TRANSFER) },
-                                onOpenAbout = { navController.navigate(Routes.ABOUT) }
+                                onOpenAbout = { navController.navigate(Routes.ABOUT) },
+                                onOpenRecap = { navController.navigate(Routes.RECAP) }
                             )
                         }
                         composable(Routes.LIBRARY_SETTINGS) {
@@ -495,7 +504,17 @@ fun RhythmRoot(
                             )
                         }
                         composable(Routes.SAMPLES) {
-                            SamplesScreen(vm = vm, onBack = { navController.popBackStack() })
+                            SamplesScreen(
+                                vm = vm,
+                                // The whole song goes to the app's player, on the
+                                // home screen with the mini player under it.
+                                onLeave = {
+                                    navController.navigate(Routes.HOME) {
+                                        popUpTo(Routes.HOME) { inclusive = false }
+                                        launchSingleTop = true
+                                    }
+                                }
+                            )
                         }
                         composable(Routes.HEBREW_NAMES) {
                             HebrewNamesScreen(vm = vm, onBack = { navController.popBackStack() })

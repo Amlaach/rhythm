@@ -120,6 +120,9 @@ internal fun SettingsScreen(
     onExportPlaylists: () -> Unit,
     onExportAnalysis: () -> Unit,
     onExportCatalog: () -> Unit,
+    /** The recap and the feed refresh, which were buttons on the home screen. */
+    onOpenRecap: () -> Unit = {},
+    onRefreshFeed: () -> Unit = {},
     /** Whether the AI models loaded, in a sentence. */
     modelStatus: String,
     busy: Boolean,
@@ -167,6 +170,12 @@ internal fun SettingsScreen(
                         "דף הבית ותצוגה",
                         "אילו מדפים מופיעים, מה נפתח ראשון, איך מוצגות התיקיות"
                     ) { onOpenPage(SettingsPage.HOME) }
+                    // Once a chart on the home screen, here now, as on the phone.
+                    LinkRow(
+                        "הסיכום שלך",
+                        "מה שמעת, כמה ומתי, והאמנים שחזרת אליהם",
+                        onOpenRecap
+                    )
                     LinkRow(
                         "ספרייה וסריקה",
                         "אילו קבצים נכנסים לספרייה, וניתוח האודיו"
@@ -209,6 +218,15 @@ internal fun SettingsScreen(
             // The phone's page, in its order: shelves, what opens first,
             // folders in folders, duplicates, the mood row.
             if (page == SettingsPage.HOME) item {
+                // The refresh that was a button on the home screen.
+                ActionRow(
+                    title = "רענון ההמלצות",
+                    subtitle = "בונה את מסך הבית מחדש",
+                    action = "רענן",
+                    enabled = true,
+                    primary = true,
+                    onClick = onRefreshFeed
+                )
                 ActionRow(
                     title = "מדפים במסך הבית",
                     subtitle = "כיבוי מדף לא מוחק כלום — הוא פשוט מפסיק להופיע, " +

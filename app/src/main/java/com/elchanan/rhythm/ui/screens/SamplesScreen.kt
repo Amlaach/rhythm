@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -27,7 +26,6 @@ import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.ThumbDown
@@ -35,7 +33,6 @@ import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
@@ -97,7 +94,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun SamplesScreen(vm: MainViewModel, onBack: () -> Unit) {
+fun SamplesScreen(vm: MainViewModel, onLeave: () -> Unit) {
     val context = LocalContext.current
     val songs by vm.samples.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
@@ -126,7 +123,6 @@ fun SamplesScreen(vm: MainViewModel, onBack: () -> Unit) {
 
     val list = songs
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val bottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     Box(modifier = Modifier.fillMaxSize().background(Bg)) {
         when {
             list == null -> Text(
@@ -208,7 +204,6 @@ fun SamplesScreen(vm: MainViewModel, onBack: () -> Unit) {
                         finding = finding && page == pager.settledPage,
                         progress = if (page == pager.settledPage) progress.floatValue else 0f,
                         topPad = topPad,
-                        bottomPad = bottomPad,
                         onToggle = {
                             playing = !playing
                             if (playing) exo.play() else exo.pause()
@@ -223,7 +218,7 @@ fun SamplesScreen(vm: MainViewModel, onBack: () -> Unit) {
                         onPlayWhole = {
                             resumeOnExit = false
                             vm.playList(listOf(song))
-                            onBack()
+                            onLeave()
                         },
                         onNotTheChorus = { vm.noteNotTheChorus() }
                     )
@@ -231,17 +226,15 @@ fun SamplesScreen(vm: MainViewModel, onBack: () -> Unit) {
             }
         }
 
-        // Over the pages: the way back, and how well the chorus is being found.
+        // Over the pages: the name of the tab, and how well the chorus is
+        // being found. A tab needs no way back; the tabs are right there.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = topPad)
-                .padding(horizontal = 6.dp, vertical = 4.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = localized("חזור"), tint = Color.White)
-            }
             Text("טעימות", style = MaterialTheme.typography.titleLarge, color = Color.White, modifier = Modifier.weight(1f))
             val (heard, missed) = accuracy
             if (heard >= 10) {
@@ -256,7 +249,12 @@ fun SamplesScreen(vm: MainViewModel, onBack: () -> Unit) {
     }
 }
 
-/** One song, filling the screen. */
+/**
+ * One song, filling the screen, in the shape the screen has: stacked on a
+ * phone held upright, the cover beside the rest on a wide, short one - a
+ * tablet, a phone on its side - where stacked, the buttons ran off the
+ * bottom.
+ */
 @Composable
 private fun TastePage(
     song: SongEntity,
@@ -266,7 +264,6 @@ private fun TastePage(
     finding: Boolean,
     progress: Float,
     topPad: androidx.compose.ui.unit.Dp,
-    bottomPad: androidx.compose.ui.unit.Dp,
     onToggle: () -> Unit,
     onLike: () -> Unit,
     onDislike: () -> Unit,
@@ -281,16 +278,12 @@ private fun TastePage(
             .fillMaxSize()
             .background(Brush.verticalGradient(listOf(c1.copy(alpha = 0.55f), c2.copy(alpha = 0.35f), Bg)))
     ) {
-        // The cover as large as the screen allows, whatever its shape: the
-        // width on a phone held upright, the height on one on its side.
-        val side = minOf(maxWidth * 0.82f, maxHeight * 0.46f)
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = topPad + 56.dp, bottom = bottomPad + 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
+        val top = topPad + 56.dp
+        val height = maxHeight - top - 12.dp
+        val wide = maxWidth >= 560.dp && maxWidth > height * 1.2f
+        val narrow = maxWidth < 360.dp
+
+        val cover: @Composable (androidx.compose.ui.unit.Dp) -> Unit = { side ->
             Box(contentAlignment = Alignment.Center) {
                 Artwork(
                     songId = song.id,
@@ -315,15 +308,17 @@ private fun TastePage(
                     }
                 }
             }
-            Spacer(Modifier.height(18.dp))
-            Column(modifier = Modifier.widthIn(max = side + 40.dp).padding(horizontal = 16.dp)) {
+        }
+        val details: @Composable (Alignment.Horizontal) -> Unit = { align ->
+            Column(horizontalAlignment = align) {
+                val textAlign = if (align == Alignment.CenterHorizontally) TextAlign.Center else TextAlign.Start
                 Text(
                     song.title,
                     style = MaterialTheme.typography.headlineSmall,
                     color = TextPrimary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
+                    textAlign = textAlign,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(
@@ -332,7 +327,7 @@ private fun TastePage(
                     color = TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
+                    textAlign = textAlign,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(Modifier.height(12.dp))
@@ -342,46 +337,77 @@ private fun TastePage(
                     trackColor = Surface1,
                     modifier = Modifier.fillMaxWidth().height(3.dp).clip(CircleShape)
                 )
-                if (finding) {
+                Text(
+                    if (finding) "מחפש את הפזמון…" else " ",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary,
+                    textAlign = textAlign,
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                )
+                Spacer(Modifier.height(10.dp))
+                val button = if (narrow) 44.dp else 48.dp
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(if (narrow) 8.dp else 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RoundAction(if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp, "לייק", liked == 1, button, onLike)
+                    RoundAction(if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown, "דיסלייק", liked == -1, button, onDislike)
+                    RoundAction(Icons.AutoMirrored.Filled.PlaylistAdd, "הוסף לתור", false, button, onQueue)
+                    // The one that leaves: the whole song, from the top, in
+                    // the app's own player.
+                    Box(
+                        modifier = Modifier
+                            .height(button)
+                            .clip(CircleShape)
+                            .background(Accent)
+                            .clickable(onClick = onPlayWhole)
+                            .padding(horizontal = if (narrow) 12.dp else 18.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("השיר המלא", style = MaterialTheme.typography.labelLarge, color = Color.White, maxLines = 1)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                // Tells the chorus finder how it is doing; nothing else changes.
+                TextButton(enabled = !marked, onClick = { marked = true; onNotTheChorus() }) {
                     Text(
-                        "מחפש את הפזמון…",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        if (marked) "נרשם, תודה" else "זה לא הפזמון",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondary
                     )
                 }
             }
-            Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                RoundAction(if (liked == 1) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp, "לייק", liked == 1, onLike)
-                RoundAction(if (liked == -1) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown, "דיסלייק", liked == -1, onDislike)
-                RoundAction(Icons.AutoMirrored.Filled.PlaylistAdd, "הוסף לתור", false, onQueue)
-                // The one that leaves: the whole song, from the top, in the
-                // app's own player.
-                Box(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(Accent)
-                        .clickable(onClick = onPlayWhole)
-                        .padding(horizontal = 18.dp, vertical = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("השיר המלא", style = MaterialTheme.typography.labelLarge, color = Color.White)
-                    }
-                }
+        }
+
+        if (wide) {
+            val side = minOf(height * 0.9f, maxWidth * 0.42f)
+            Row(
+                modifier = Modifier.fillMaxSize().padding(top = top, bottom = 12.dp, start = 24.dp, end = 24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                cover(side)
+                Spacer(Modifier.width(28.dp))
+                Box(modifier = Modifier.widthIn(max = 440.dp)) { details(Alignment.Start) }
             }
-            Spacer(Modifier.height(4.dp))
-            // Tells the chorus finder how it is doing; nothing else changes.
-            TextButton(enabled = !marked, onClick = { marked = true; onNotTheChorus() }) {
-                Text(
-                    if (marked) "נרשם, תודה" else "זה לא הפזמון",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = TextSecondary
-                )
+        } else {
+            // The cover as large as the rest leaves room for: the width on a
+            // phone held upright, less on a short one.
+            val side = minOf(maxWidth * 0.82f, height - 250.dp).coerceAtLeast(120.dp)
+            Column(
+                modifier = Modifier.fillMaxSize().padding(top = top, bottom = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                cover(side)
+                Spacer(Modifier.height(18.dp))
+                Box(modifier = Modifier.widthIn(max = maxOf(side + 40.dp, 320.dp)).padding(horizontal = 16.dp)) {
+                    details(Alignment.CenterHorizontally)
+                }
             }
         }
     }
@@ -392,11 +418,12 @@ private fun RoundAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
     active: Boolean,
+    size: androidx.compose.ui.unit.Dp,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(size)
             .clip(CircleShape)
             .background(if (active) Accent.copy(alpha = 0.22f) else Surface1)
             .clickable(onClick = onClick),

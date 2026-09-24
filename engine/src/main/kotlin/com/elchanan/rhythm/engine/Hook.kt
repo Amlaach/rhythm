@@ -163,8 +163,41 @@ object Hook {
             if (score > best) { best = score; bestAt = t; bestRepeat = repeat }
         }
         if (bestAt < 0) return null
+        // Every stretch of a chorus longer than a taste matches as well as its
+        // start does, and so does every stretch of a verse and chorus that
+        // come back together, so the one picked can be well inside the part.
+        // Its start is looked for a little around it: the moment the song
+        // opens up - which is how a chorus arrives - from where the taste
+        // still comes back elsewhere and is no quieter. Not the moment the
+        // harmony changes most: inside a chorus every change of chord is a
+        // bigger change than the one into it. Where the song never gets
+        // clearly louder, the stretch picked stays.
+        fun startOf(at: Int): Int {
+            val k = (EDGE_SECONDS / HOP_SECONDS).toInt()
+            fun rise(s: Int): Double {
+                var before = 0.0
+                var after = 0.0
+                for (i in s - k until s) before += loud[i]
+                for (i in s until s + k) after += loud[i]
+                return ln((after + 1e-9) / (before + 1e-9))
+            }
+            fun repeats(s: Int): Boolean {
+                for (u in 0..n - w) if (kotlin.math.abs(u - s) >= w && alike(s, u) >= REPEATS) return true
+                return false
+            }
+            val from = maxOf(first, k, at - (BACK_SECONDS / HOP_SECONDS).toInt())
+            val to = minOf(last, n - k, at + (AHEAD_SECONDS / HOP_SECONDS).toInt())
+            val floor = loudness(at) * 0.95
+            var best = at
+            var bestRise = RISE
+            for (s in from..to) {
+                val r = rise(s)
+                if (r > bestRise && loudness(s) >= floor && repeats(s)) { bestRise = r; best = s }
+            }
+            return best
+        }
         val at = if (bestRepeat >= REPEATS) {
-            bestAt
+            startOf(bestAt)
         } else {
             // Nothing comes back clearly: the loudest stretch of the middle.
             (first..last).maxByOrNull { loudness(it) } ?: bestAt
@@ -172,6 +205,17 @@ object Hook {
         // A beat early, so the taste does not start on the chorus's first word.
         return maxOf(0.0, at * HOP_SECONDS - 0.5)
     }
+
+    /** Seconds on each side of a moment that tell whether the song opens up there. */
+    private const val EDGE_SECONDS = 4.0
+
+    /** How far back from the stretch picked the start of its part can be. */
+    private const val BACK_SECONDS = 10.0
+
+    private const val AHEAD_SECONDS = 3.0
+
+    /** How much louder, as a log of the ratio, the song has to get for a part to be taken to start there. */
+    private const val RISE = 0.15
 
     /** How alike two stretches have to be, on average, to count as the same music coming back. */
     private const val REPEATS = 0.8

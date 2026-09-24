@@ -1,5 +1,8 @@
 package com.elchanan.rhythm.desktop
 
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
 import com.elchanan.rhythm.engine.HebrewSpelling
 import com.elchanan.rhythm.ui.theme.localized
 
@@ -319,6 +322,7 @@ private fun RhythmApp() {
     // Read once: a nudge that has been turned down stays down, and the flag
     // only ever changes from this screen.
     var tagTipVisible by remember { mutableStateOf(!prefs.tagTipSeen) }
+    var searchHintVisible by remember { mutableStateOf(!prefs.searchHintSeen) }
     var ratingTipVisible by remember { mutableStateOf(!prefs.ratingTipSeen) }
     var tagFixDismissedAt by remember { mutableStateOf(prefs.tagFixBannerDismissedAt) }
     var welcomeDone by remember { mutableStateOf(prefs.welcomeSeen) }
@@ -2141,6 +2145,16 @@ private fun RhythmApp() {
                     analysing = analysing,
                     onBack = { stack = stack.dropLast(1) },
                     onOpenPlayerSettings = { stack = stack + Route.PlayerSettings },
+                    onOpenRecap = {
+                        loadRecap()
+                        stack = stack + Route.Recap
+                    },
+                    onRefreshFeed = {
+                        scope.launch {
+                            withContext(Dispatchers.IO) { store.feedSeed = store.feedSeed + 1 }
+                            reload()
+                        }
+                    },
                     onOpenAlgorithm = { stack = stack + Route.Algorithm },
                     onOpenTags = {
                         buildProposals()
@@ -2371,6 +2385,12 @@ private fun RhythmApp() {
                             stack = stack + Route.Recap
                         },
                         onSettings = { openSettings() },
+                        onSearch = { go(1) },
+                        searchHint = searchHintVisible,
+                        onSearchHintDone = {
+                            searchHintVisible = false
+                            scope.launch(Dispatchers.IO) { prefs.searchHintSeen = true }
+                        },
                         onPickFolder = { chooseFolder()?.let { scan(listOf(it)) } },
                         onRescan = { scan(folders) },
                         onAnalyze = { analyze() },
@@ -2431,7 +2451,8 @@ private fun RhythmApp() {
                         onLike = { like(it) },
                         onDislike = { dislike(it) },
                         onMore = { options = it },
-                        onOpenList = { stack = stack + Route.Detail(it) }
+                        onOpenList = { stack = stack + Route.Detail(it) },
+                        onBack = { go(0) }
                     )
                     2 -> LibraryPane(
                         library = library,
@@ -2603,7 +2624,8 @@ private fun RhythmApp() {
         // bar away from the four that are the app.
         NavigationBar(containerColor = Color.Transparent) {
             NavTab(tab, 0, "בית", Icons.Filled.Home) { go(0) }
-            NavTab(tab, 1, "חיפוש", Icons.Filled.Search) { go(1) }
+            // Search is the magnifier at the top of the home screen now; it
+            // keeps its index, so the panes below need no renumbering.
             NavTab(tab, 2, "ספרייה", Icons.Filled.LibraryMusic) { go(2) }
             NavTab(tab, 3, "דירוגים", Icons.Filled.Star) { go(3) }
         }
@@ -2878,9 +2900,21 @@ private fun SearchPane(
     onLike: (SongEntity) -> Unit,
     onDislike: (SongEntity) -> Unit,
     onMore: (SongEntity) -> Unit,
-    onOpenList: (DetailList) -> Unit
+    onOpenList: (DetailList) -> Unit,
+    onBack: () -> Unit
 ) {
+    // Opened from the magnifier on the home screen, so it is there to be
+    // typed into - but not when coming back to results already typed.
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { if (query.isBlank()) runCatching { focus.requestFocus() } }
     Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = GUTTER, top = GUTTER, bottom = GUTTER),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+        IconButton(onClick = onBack) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = localized("חזור"), tint = TextSecondary)
+        }
         OutlinedTextField(
             value = query,
             onValueChange = onQuery,
@@ -2896,8 +2930,9 @@ private fun SearchPane(
                     }
                 }
             },
-            modifier = Modifier.fillMaxWidth().padding(GUTTER)
+            modifier = Modifier.weight(1f).focusRequester(focus)
         )
+        }
         if (query.isBlank()) {
             // Nothing typed yet, so the screen offers the ways in that do not
             // need a name remembered. The phone has the same three, and the
