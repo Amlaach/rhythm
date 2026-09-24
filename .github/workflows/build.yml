@@ -141,6 +141,7 @@ jobs:
           # and the version inside the APK is only readable once installed.
           name: rhythm-apk-${{ github.run_number }}
           path: out/*.apk
+          if-no-files-found: warn
 
       # The release the Android app updates itself from (update/Updater.kt):
       # every build of main, as a GitHub release holding the APK and an
@@ -167,7 +168,6 @@ jobs:
           gh release create "v$VERSION" "$APK" update.json \
             --title "Rhythm $VERSION" --notes-file notes.txt --latest
           echo "published release v$VERSION" >> "$GITHUB_STEP_SUMMARY"
-          if-no-files-found: warn
 
       - name: Report failure logs
         if: failure()
