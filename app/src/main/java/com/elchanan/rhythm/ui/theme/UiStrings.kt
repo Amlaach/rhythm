@@ -1742,6 +1742,9 @@ object UiStrings {
         "הזנה" to "Import",
         "גיבוי" to "Backup",
         "תקן" to "Fix",
-        "לתקן לאמן אחד?" to "Fix into one artist?"
+        "לתקן לאמן אחד?" to "Fix into one artist?",
+        "סגור אלבום" to "Close album",
+        "פתח אלבום" to "Open album",
+        "לעמוד האלבום" to "Album page"
     )
 }

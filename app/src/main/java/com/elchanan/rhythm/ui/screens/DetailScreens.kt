@@ -1,5 +1,15 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
+import com.elchanan.rhythm.ui.theme.Surface3
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.ColumnScope
 import com.elchanan.rhythm.ui.components.DialogBody
@@ -244,6 +254,13 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
         val live = library.artists.firstOrNull { it.key == info.key } ?: info
         val selectedStyles = Styles.parse(live.styles)
         val shelves = remember(live.songs) { ArtistShelves.of(live.songs, looseName = "שירים בודדים") }
+        // Closed to begin with, unless the artist has one album and nothing
+        // else, where closed would be one more tap for nothing.
+        var openAlbums by remember(live.key) {
+            mutableStateOf(shelves.singleOrNull()?.albumId?.let { setOf(it) } ?: emptySet())
+        }
+        val listState = rememberLazyListState()
+        val scope = rememberCoroutineScope()
         val displayedSongs = if (groupByAlbum) shelves.flatMap { it.songs } else live.songs
         val songRow: @Composable (SongEntity) -> Unit = { song ->
             SongRow(
@@ -266,7 +283,7 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
             )
         }
 
-        LazyColumn(contentPadding = PaddingValues(bottom = 40.dp)) {
+        LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 40.dp)) {
             item {
                 val (c1, c2) = gradientFor(live.key)
                 AdaptiveHeader(
@@ -395,11 +412,23 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
                 // One heading would only repeat the page's own title.
                 val headed = !(shelves.size == 1 && shelves[0].albumId == null)
                 shelves.forEach { shelf ->
+                    val albumId = shelf.albumId
+                    // An album is closed until it is opened, and its songs
+                    // then sit inside it: indented, with a line down their
+                    // side, and a button at the end that closes it again -
+                    // so a long album does not have to be scrolled back up
+                    // to put away. Loose songs are not an album and are
+                    // always shown as they are.
+                    val open = albumId == null || albumId in openAlbums
                     if (headed) {
-                        item(key = "shelf:${shelf.albumId ?: "loose"}") {
+                        item(key = "shelf:${albumId ?: "loose"}") {
                             ShelfHeading(
                                 shelf = shelf,
-                                onOpen = shelf.albumId?.let { id ->
+                                expanded = if (albumId == null) null else open,
+                                onToggle = albumId?.let { id ->
+                                    { openAlbums = if (id in openAlbums) openAlbums - id else openAlbums + id }
+                                },
+                                onOpen = albumId?.let { id ->
                                     {
                                         library.albums.firstOrNull { it.albumId == id }?.let {
                                             vm.openList(it.name, it.artistName, it.songs, "album:${it.albumId}")
@@ -411,7 +440,27 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
                             )
                         }
                     }
-                    items(shelf.songs, key = { it.id }) { song -> songRow(song) }
+                    if (open) {
+                        if (albumId == null || !headed) {
+                            items(shelf.songs, key = { it.id }) { song -> songRow(song) }
+                        } else {
+                            items(shelf.songs, key = { it.id }) { song -> InsideAlbum { songRow(song) } }
+                            item(key = "close:$albumId") {
+                                CloseAlbumRow(onClose = {
+                                    // Back to the album's own row, which may be
+                                    // far above by now; it keeps its place in
+                                    // the list, since only what follows it
+                                    // changes.
+                                    val here = listState.layoutInfo.visibleItemsInfo
+                                        .firstOrNull { it.key == "close:$albumId" }?.index
+                                    openAlbums = openAlbums - albumId
+                                    if (here != null) {
+                                        scope.launch { listState.scrollToItem(maxOf(0, here - shelf.songs.size - 1)) }
+                                    }
+                                })
+                            }
+                        }
+                    }
                 }
             } else {
                 items(live.songs, key = { it.id }) { song -> songRow(song) }
@@ -465,14 +514,31 @@ fun ArtistDetailScreen(vm: MainViewModel, onBack: () -> Unit, onOpenDetail: () -
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ShelfHeading(shelf: ArtistShelf, onOpen: (() -> Unit)?, onPlay: () -> Unit) {
+private fun ShelfHeading(
+    shelf: ArtistShelf,
+    /** Whether the album is open, or null for the loose songs, which do not fold. */
+    expanded: Boolean?,
+    onToggle: (() -> Unit)?,
+    onOpen: (() -> Unit)?,
+    onPlay: () -> Unit
+) {
     val gutter = rememberMetrics().gutter
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)
-            .padding(start = gutter, end = gutter - 8.dp, top = 18.dp, bottom = 4.dp),
+            .padding(top = 10.dp)
+            .then(
+                // A tap opens and closes the album where it is; a long press
+                // goes to the album's own page, as the tap used to.
+                if (onToggle != null) {
+                    Modifier.combinedClickable(onClick = onToggle, onLongClick = onOpen)
+                } else {
+                    Modifier
+                }
+            )
+            .padding(start = gutter, end = gutter - 8.dp, top = 8.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Read once: the shelf comes from :engine, where the compiler cannot
@@ -498,6 +564,62 @@ private fun ShelfHeading(shelf: ArtistShelf, onOpen: (() -> Unit)?, onPlay: () -
         }
         IconButton(onClick = onPlay) {
             Icon(Icons.Filled.PlayArrow, contentDescription = localized("נגן"), tint = Accent)
+        }
+        if (onOpen != null) {
+            IconButton(onClick = onOpen) {
+                Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = localized("לעמוד האלבום"), tint = TextSecondary)
+            }
+        }
+        if (expanded != null) {
+            Icon(
+                if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = localized(if (expanded) "סגור אלבום" else "פתח אלבום"),
+                tint = TextSecondary
+            )
+        }
+    }
+}
+
+/** A song inside an open album: set in, with a line down its side that ties it to the album above. */
+@Composable
+private fun InsideAlbum(content: @Composable () -> Unit) {
+    val gutter = rememberMetrics().gutter
+    val line = Surface3
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = gutter + 20.dp)
+            // Drawn rather than laid out, so the line is as tall as the row
+            // without measuring the row twice. At the start edge - the
+            // right, in Hebrew.
+            .drawBehind {
+                val x = if (layoutDirection == LayoutDirection.Rtl) size.width - 1.dp.toPx() else 1.dp.toPx()
+                drawLine(line, Offset(x, 0f), Offset(x, size.height), strokeWidth = 2.dp.toPx())
+            }
+    ) { content() }
+}
+
+/** The end of an open album, with the way to close it where the reading stopped. */
+@Composable
+private fun CloseAlbumRow(onClose: () -> Unit) {
+    val gutter = rememberMetrics().gutter
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = gutter + 20.dp, top = 2.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(Surface1)
+                .clickable(onClick = onClose)
+                .padding(start = 10.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("סגור אלבום", style = MaterialTheme.typography.labelLarge, color = TextSecondary)
         }
     }
 }
