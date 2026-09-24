@@ -433,6 +433,19 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * Which albums lend their picture, when the app's screens have not said.
+     *
+     * The screens work it out when the library loads. Radio from the
+     * notification and the queue's refill run here with no screen open, and
+     * until then every folder of singles lent one song's cover to the lock
+     * screen and the notification for all the others.
+     */
+    private suspend fun noteLibrary() {
+        if (MediaItems.noted) return
+        runCatching { MediaItems.noteLibrary(repo.allSongsForExport()) }
+    }
+
     /** "Start radio" straight from the notification, without opening the app. */
     private suspend fun startRadioFromCurrent(songId: Long) {
         val song = repo.songById(songId) ?: return
@@ -441,6 +454,7 @@ class PlaybackService : MediaSessionService() {
         if (list.isEmpty()) return
         QueueMeta.reset()
         QueueMeta.markAuto(list.drop(1).map { it.id })
+        noteLibrary()
         player.setMediaItems(list.map { MediaItems.toMediaItem(it) }, 0, 0L)
         player.prepare()
         player.play()
@@ -856,6 +870,7 @@ class PlaybackService : MediaSessionService() {
                 if (player.currentTimeline != timeline || player.currentMediaItem?.mediaId != seedId) return@launch
                 if (more.isNotEmpty()) {
                     QueueMeta.markAuto(more.map { it.id })
+                    noteLibrary()
                     player.addMediaItems(more.map { MediaItems.toMediaItem(it) })
                 }
             } catch (_: Throwable) {
