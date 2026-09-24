@@ -184,6 +184,19 @@ class PlayerConnection(
         }
     }
 
+    /** Whether the player is playing, for the screens that step it aside and back. */
+    val isPlaying: Boolean get() = controller?.isPlaying == true
+
+    fun pause() {
+        controller?.pause()
+    }
+
+    fun resume() {
+        val c = controller ?: return
+        if (c.playbackState == Player.STATE_IDLE) c.prepare()
+        c.play()
+    }
+
     fun togglePlayPause() {
         val c = controller ?: return
         if (c.isPlaying) c.pause() else {

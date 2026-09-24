@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.material.icons.filled.AutoAwesome
 import com.elchanan.rhythm.ui.components.DialogBody
 import com.elchanan.rhythm.ui.theme.localized
 
@@ -121,7 +122,8 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenRatings: () -> Unit = {},
     onOpenRecap: () -> Unit = {},
-    onOpenTagFix: () -> Unit = {}
+    onOpenTagFix: () -> Unit = {},
+    onOpenSamples: () -> Unit = {}
 ) {
     val library by vm.library.collectAsStateWithLifecycle()
     val feed by vm.feed.collectAsStateWithLifecycle()
@@ -221,7 +223,7 @@ fun HomeScreen(
             // tap away wherever you are in the list. Switched off, they go
             // into the feed below and scroll away with it.
             if (hasPermission && library.songs.isNotEmpty() && pinMoods) {
-                MoodChipRow(onPick = { mood -> vm.openMood(mood) { onOpenDetail() } })
+                MoodChipRow(onPick = { mood -> vm.openMood(mood) { onOpenDetail() } }, onSamples = onOpenSamples)
             }
             Spacer(Modifier.height(6.dp))
         }
@@ -256,7 +258,7 @@ fun HomeScreen(
             ) {
                 if (!pinMoods) {
                     item {
-                        MoodChipRow(onPick = { mood -> vm.openMood(mood) { onOpenDetail() } })
+                        MoodChipRow(onPick = { mood -> vm.openMood(mood) { onOpenDetail() } }, onSamples = onOpenSamples)
                     }
                 }
 
@@ -563,12 +565,29 @@ private fun AlbumPlaylistDialog(vm: MainViewModel, album: AlbumInfo, onDismiss: 
  * introduction to the feature than hiding it until some threshold is crossed.
  */
 @Composable
-private fun MoodChipRow(onPick: (Mood) -> Unit) {
+private fun MoodChipRow(onPick: (Mood) -> Unit, onSamples: () -> Unit = {}) {
     val gutter = rememberMetrics().gutter
     LazyRow(
         contentPadding = PaddingValues(horizontal = gutter, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // First, and in the accent: the way into the tastes, a song's chorus
+        // at a time - the quickest way through a library that has outgrown
+        // being listened to from start to end.
+        item {
+            Row(
+                modifier = Modifier
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(50))
+                    .background(Accent)
+                    .clickable(onClick = onSamples)
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("טעימות", style = MaterialTheme.typography.labelLarge, color = Color.White)
+            }
+        }
         items(Mood.entries.size) { index ->
             val mood = Mood.entries[index]
             Chip(

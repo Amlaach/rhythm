@@ -78,6 +78,7 @@ import com.elchanan.rhythm.ui.screens.SelectionBar
 import com.elchanan.rhythm.ui.screens.SettingsScreen
 import com.elchanan.rhythm.ui.screens.TagFixScreen
 import com.elchanan.rhythm.ui.screens.HebrewNamesScreen
+import com.elchanan.rhythm.ui.screens.SamplesScreen
 import com.elchanan.rhythm.ui.screens.TagSettingsScreen
 import com.elchanan.rhythm.ui.screens.TransferScreen
 import com.elchanan.rhythm.ui.screens.WelcomeScreen
@@ -109,6 +110,7 @@ object Routes {
     const val RECAP = "recap"
     const val TAGS = "tags"
     const val HEBREW_NAMES = "hebrewnames"
+    const val SAMPLES = "samples"
     const val EQUALIZER = "equalizer"
 }
 
@@ -292,9 +294,12 @@ fun RhythmRoot(
                     // row gave it its room above the system navigation; the
                     // selection itself stays, and the bar is back with the
                     // list it acts on.
-                    if (!playerOpen) SelectionBar(vm)
+                    // The tastes take the whole screen, with a player of their
+                    // own: the app's bars would only sit paused under them.
+                    val fullScreen = playerOpen || currentRoute == Routes.SAMPLES
+                    if (!fullScreen) SelectionBar(vm)
                     // Hidden while the full player is up - it is the same controls.
-                    if (currentSong != null && !playerOpen) {
+                    if (currentSong != null && !fullScreen) {
                         val miniState by vm.player.state.collectAsStateWithLifecycle()
                         MiniPlayer(
                             song = currentSong,
@@ -311,7 +316,7 @@ fun RhythmRoot(
                     }
                     // Not under the open player: it is put away by a swipe down
                     // from anywhere, so the tabs would only take room from it.
-                    if (!playerOpen && !useRail) RhythmBottomBar(
+                    if (!fullScreen && !useRail) RhythmBottomBar(
                         navController = navController,
                         currentRoute = currentRoute,
                         onNavigate = { route ->
@@ -333,7 +338,7 @@ fun RhythmRoot(
                 // On a wide, short window the tabs stand down the side: along
                 // the bottom they took height that a landscape screen has least
                 // of. Put away under the open player, as the bottom bar is.
-                if (useRail && !playerOpen) {
+                if (useRail && !playerOpen && currentRoute != Routes.SAMPLES) {
                     RhythmNavRail(
                         navController = navController,
                         currentRoute = currentRoute,
@@ -384,7 +389,8 @@ fun RhythmRoot(
                                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                                 onOpenRatings = { navController.navigate(Routes.RATINGS) },
                                 onOpenRecap = { navController.navigate(Routes.RECAP) },
-                                onOpenTagFix = { navController.navigate(Routes.TAGS) }
+                                onOpenTagFix = { navController.navigate(Routes.TAGS) },
+                                onOpenSamples = { navController.navigate(Routes.SAMPLES) }
                             )
                         }
                         composable(Routes.SEARCH) {
@@ -481,6 +487,9 @@ fun RhythmRoot(
                                 onBack = { navController.popBackStack() },
                                 onOpenHebrewNames = { navController.navigate(Routes.HEBREW_NAMES) }
                             )
+                        }
+                        composable(Routes.SAMPLES) {
+                            SamplesScreen(vm = vm, onBack = { navController.popBackStack() })
                         }
                         composable(Routes.HEBREW_NAMES) {
                             HebrewNamesScreen(vm = vm, onBack = { navController.popBackStack() })

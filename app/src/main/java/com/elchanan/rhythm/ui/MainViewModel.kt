@@ -55,6 +55,7 @@ import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.engine.SignalCalibration
 import com.elchanan.rhythm.engine.SignalWeights
 import com.elchanan.rhythm.engine.Spoken
+import com.elchanan.rhythm.engine.isMedley
 import com.elchanan.rhythm.engine.StyleLearner
 import com.elchanan.rhythm.engine.StyleLearning
 import com.elchanan.rhythm.engine.StyleTraining
@@ -1766,6 +1767,77 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // -----------------------------------------------------------------------
+    // samples: a taste of each song, from its chorus, one after another
+    // -----------------------------------------------------------------------
+
+    private val _samples = MutableStateFlow<List<SongEntity>?>(null)
+
+    /** The songs to taste, in order; null while they are being chosen. */
+    val samples: StateFlow<List<SongEntity>?> = _samples.asStateFlow()
+
+    /**
+     * What to taste, and in what order.
+     *
+     * For finding songs in the library, so the ones never played come first,
+     * each group in the order the engine likes them for this listener, with a
+     * little shuffle so the same few do not open every time. Left out: what
+     * was disliked, medleys and anything over six minutes - a taste of the
+     * fourth tune of a set is no taste of it - lectures, and vocal-only songs
+     * outside their season, as everywhere else.
+     */
+    fun buildSamples() {
+        _samples.value = null
+        viewModelScope.launch {
+            val lib = library.value
+            val stats = lib.stats
+            val features = runCatching { repo.featureMap() }.getOrDefault(emptyMap())
+            val e = engine ?: runCatching { repo.buildRecommender() }.getOrNull()?.also { engine = it }
+            val inSeason = season != null
+            _samples.value = withContext(Dispatchers.Default) {
+                val pool = lib.songs.filter { song ->
+                    val feature = features[song.id]
+                    song.durationMs in SAMPLE_MIN_MS..SAMPLE_MAX_MS &&
+                        !isMedley(song.title) &&
+                        (stats[song.id]?.liked ?: 0) != -1 &&
+                        (inSeason || !isVocal(song, feature)) &&
+                        !Spoken.isSpoken(
+                            song, feature,
+                            feature?.tags?.let { AudioTags.pick(it, AudioTags.SPEECH_INDICES) },
+                            stats[song.id]?.spoken ?: -1
+                        )
+                }
+                val scores = pool.associate { it.id to (e?.totalScore(it) ?: 0.0) }
+                val spread = scores.values.let { v ->
+                    val mean = v.average().takeIf { !it.isNaN() } ?: 0.0
+                    kotlin.math.sqrt(v.sumOf { (it - mean) * (it - mean) } / maxOf(1, v.size))
+                }
+                val random = kotlin.random.Random(System.nanoTime())
+                val jittered = pool.associate { it.id to (scores.getValue(it.id) + random.nextDouble() * 0.5 * spread) }
+                val (unheard, heard) = pool.partition { (stats[it.id]?.playCount ?: 0) == 0 }
+                (unheard.sortedByDescending { jittered.getValue(it.id) } +
+                    heard.sortedByDescending { jittered.getValue(it.id) }).take(SAMPLE_LIMIT)
+            }
+        }
+    }
+
+    /**
+     * How often the taste really started on the chorus, from the listener's
+     * "not the chorus": tastes heard, and how many of them were marked.
+     */
+    private val _hookMisses = MutableStateFlow(prefs.hookTastes to prefs.hookMisses)
+    val hookAccuracy: StateFlow<Pair<Int, Int>> = _hookMisses.asStateFlow()
+
+    fun noteTasteHeard() {
+        prefs.hookTastes = prefs.hookTastes + 1
+        _hookMisses.value = prefs.hookTastes to prefs.hookMisses
+    }
+
+    fun noteNotTheChorus() {
+        prefs.hookMisses = prefs.hookMisses + 1
+        _hookMisses.value = prefs.hookTastes to prefs.hookMisses
+    }
+
+    // -----------------------------------------------------------------------
     // Hebrew spellings for names written in English letters
     // -----------------------------------------------------------------------
 
@@ -2561,3 +2633,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             ArtistEntity(it.key, it.displayName, it.rating, it.styles, it.note, 0L)
         }
 }
+
+/** A taste is only for songs between these lengths: long files are medleys and sets. */
+private const val SAMPLE_MIN_MS = 45_000L
+private const val SAMPLE_MAX_MS = 6 * 60_000L
+
+/** Enough to scroll through for a long while; more is chosen again next time. */
+private const val SAMPLE_LIMIT = 300

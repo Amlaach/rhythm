@@ -1772,6 +1772,15 @@ object UiStrings {
         "שם האמן בתוך שם השיר, שם של אתר הורדות ועוד. כל שינוי מוצג לפני שמחילים אותו" to "The artist inside the song name, a download site's name and more. Every change is shown before it is applied",
         "לתיקון" to "Fix",
         "הצעות לאיות שמות של אמנים ושירים בעברית או באנגלית" to "Suggested spellings of artist and song names in Hebrew or English",
-        "כל הפסים במסך הזה יחזרו למקום שבו הם מגיעים בהתקנה חדשה: גילוי, משקלי האמנים, הסגנונות והסאונד, מניעת החזרתיות, ומתי שיר נספר כהשמעה. הלייקים, ההיסטוריה והסגנונות שלך לא משתנים." to "Every slider on this screen goes back to where it is on a new install: discovery, the artist weights, styles and sound, repetition avoidance, and when a song counts as played. Your likes, history and styles do not change."
+        "כל הפסים במסך הזה יחזרו למקום שבו הם מגיעים בהתקנה חדשה: גילוי, משקלי האמנים, הסגנונות והסאונד, מניעת החזרתיות, ומתי שיר נספר כהשמעה. הלייקים, ההיסטוריה והסגנונות שלך לא משתנים." to "Every slider on this screen goes back to where it is on a new install: discovery, the artist weights, styles and sound, repetition avoidance, and when a song counts as played. Your likes, history and styles do not change.",
+        "טעימות" to "Tastes",
+        "מכין טעימות…" to "Preparing tastes…",
+        "אין מה לטעום" to "Nothing to taste",
+        "טעימות הן לשירים של עד שש דקות שאינם מחרוזות או שיעורים." to "Tastes are for songs up to six minutes long that are not medleys or lectures.",
+        "פזמון: \${((heard - missed).coerceAtLeast(0) * 100 / heard)}%" to "Chorus: \${((heard - missed).coerceAtLeast(0) * 100 / heard)}%",
+        "מחפש את הפזמון…" to "Finding the chorus…",
+        "השיר המלא" to "Whole song",
+        "נרשם, תודה" to "Noted, thanks",
+        "זה לא הפזמון" to "Not the chorus"
     )
 }

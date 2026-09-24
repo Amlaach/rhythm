@@ -144,6 +144,16 @@ class Prefs(context: Context) {
      * was closed. It comes back only when there are more than that - new
      * downloads - and not for the same ones again.
      */
+    /** Tastes played to their end or scrolled past, for the chorus finder's hit rate. */
+    var hookTastes: Int
+        get() = sp.getInt("hook_tastes", 0)
+        set(value) = sp.edit { putInt("hook_tastes", value) }
+
+    /** Tastes the listener said did not start on the chorus. */
+    var hookMisses: Int
+        get() = sp.getInt("hook_misses", 0)
+        set(value) = sp.edit { putInt("hook_misses", value) }
+
     var tagFixBannerDismissedAt: Int
         get() = sp.getInt(KEY_TAG_FIX_BANNER, 0)
         set(value) = sp.edit { putInt(KEY_TAG_FIX_BANNER, value) }
