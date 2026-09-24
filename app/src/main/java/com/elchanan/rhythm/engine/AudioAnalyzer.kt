@@ -59,7 +59,8 @@ object AudioAnalyzer {
         // build that ships without it, still gets every measured feature - the
         // track is simply left without labels rather than left unanalysed.
         val heard = runCatching {
-            tagger(context)?.listen(Analysis.concat(forTagging))
+            val probes = Analysis.concat(forTagging)
+            synchronized(yamnetLock) { tagger(context)?.listen(probes) }
         }.getOrNull()
         val tags = heard?.let { runCatching { AudioTags.compress(it.scores) }.getOrNull() }.orEmpty()
         // Always something: a print, or the mark that one was attempted. An
@@ -77,7 +78,9 @@ object AudioAnalyzer {
         // so the songs wait for a build that has it instead of being written
         // off by one that does not.
         val available = musicAvailable(context)
-        val music = if (!available) null else runCatching { musicTagger(context)?.listen(forTagging) }.getOrNull()
+        val music = if (!available) null else runCatching {
+            synchronized(musicLock) { musicTagger(context)?.listen(forTagging) }
+        }.getOrNull()
         val musicPrint = when {
             !available -> ""
             else -> music?.let { runCatching { MusicPrint.pack(it.print) }.getOrNull() } ?: MusicPrint.TRIED
@@ -131,10 +134,24 @@ object AudioAnalyzer {
             runCatching { probes.add(Analysis.resampleMono(raw, sampleRate, MusicMel.SAMPLE_RATE)) }
         }
         if (probes.isEmpty()) return null
-        val music = runCatching { musicTagger(context)?.listen(probes) }.getOrNull()
+        val music = runCatching { synchronized(musicLock) { musicTagger(context)?.listen(probes) } }.getOrNull()
         val print = music?.let { runCatching { MusicPrint.pack(it.print) }.getOrNull() } ?: MusicPrint.TRIED
         return existing.copy(musicPrint = print, musicMoods = music?.let { MusicMoods.encode(it.moods) }.orEmpty())
     }
+
+    /**
+     * One song at a time through each model.
+     *
+     * The fast pass works on several songs at once: decoding and measuring
+     * share nothing, but an interpreter is not safe to call from two threads,
+     * so each model takes its songs in turn - while the next song is already
+     * being decoded. Closing a model takes its lock too, so it is never
+     * closed under a song still in it. Always taken in this order - the
+     * YAMNet lock, the music lock, then the object - so no two threads can
+     * each hold what the other waits for.
+     */
+    private val yamnetLock = Any()
+    private val musicLock = Any()
 
     @Volatile
     private var tagger: AudioTagger? = null
@@ -193,23 +210,53 @@ object AudioAnalyzer {
      * compute does not depend on how many there are.
      */
     fun useThreads(count: Int) {
-        synchronized(this) {
-            if (count == threads) return
-            threads = count
-            releaseTagger()
+        if (count == threads) return
+        synchronized(yamnetLock) {
+            synchronized(musicLock) {
+                synchronized(this) {
+                    if (count == threads) return
+                    threads = count
+                    closeModels()
+                }
+            }
+        }
+    }
+
+    /**
+     * Threads for the models in the fast pass: what [threadsFor] gives on
+     * the charger, charger or not.
+     */
+    fun fastThreads(): Int = threadsFor(charging = true)
+
+    /**
+     * How many songs the fast pass works on at once: one decoding while
+     * another is in a model, and a third on phones with the cores for it.
+     */
+    fun fastSongs(): Int {
+        val cores = Runtime.getRuntime().availableProcessors()
+        return when {
+            cores >= 8 -> 3
+            cores >= 4 -> 2
+            else -> 1
         }
     }
 
     /** Frees the model once a pass is over. */
     fun releaseTagger() {
-        synchronized(this) {
-            tagger?.close()
-            tagger = null
-            taggerAttempted = false
-            music?.close()
-            music = null
-            musicAttempted = false
+        synchronized(yamnetLock) {
+            synchronized(musicLock) {
+                synchronized(this) { closeModels() }
+            }
         }
+    }
+
+    private fun closeModels() {
+        tagger?.close()
+        tagger = null
+        taggerAttempted = false
+        music?.close()
+        music = null
+        musicAttempted = false
     }
 
     private class Samples {

@@ -58,6 +58,7 @@ fun LibrarySettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
 
     var minDuration by remember { mutableFloatStateOf(vm.prefs.minDurationSec.toFloat()) }
     var autoAnalyze by remember { mutableStateOf(vm.prefs.autoAnalyze) }
+    var fastAnalysis by remember { mutableStateOf(vm.prefs.fastAnalysis) }
     var skipRecordings by remember { mutableStateOf(vm.prefs.skipRecordings) }
     var resumeSpoken by remember { mutableStateOf(vm.prefs.resumeSpoken) }
     var foldersOpen by remember { mutableStateOf(false) }
@@ -319,6 +320,33 @@ fun LibrarySettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                     onCheckedChange = {
                         autoAnalyze = it
                         vm.updateTuning(autoAnalyze = it)
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Accent,
+                        checkedTrackColor = Accent.copy(alpha = 0.4f)
+                    )
+                )
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("ניתוח מהיר", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "לטלפונים חזקים: כמה שירים במקביל ובכל הכוח. אותן תוצאות, הרבה יותר מהר - אבל הטלפון מתחמם והסוללה יורדת מהר יותר בזמן הניתוח",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+                Switch(
+                    checked = fastAnalysis,
+                    onCheckedChange = {
+                        fastAnalysis = it
+                        vm.setFastAnalysis(it)
                     },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Accent,

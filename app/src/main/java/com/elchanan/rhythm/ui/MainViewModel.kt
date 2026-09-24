@@ -1198,6 +1198,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * The fast pass on or off. A pass already running is restarted at the
+     * new pace - it picks up where it was, since finished songs are not
+     * measured again.
+     */
+    fun setFastAnalysis(on: Boolean) {
+        if (repo.prefs.fastAnalysis == on) return
+        repo.prefs.fastAnalysis = on
+        if (!analysis.progress.value.running) return
+        viewModelScope.launch { analysis.restart() }
+    }
+
     fun stopAnalysis() = analysis.stop()
 
     fun resetAnalysis() {

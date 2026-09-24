@@ -52,7 +52,10 @@ Also: the analysis pass (`AnalysisManager`) now runs on its own thread at
 background priority (PR #32). TFLite uses 2 threads, 3-4 while the phone is
 plugged in (outputs are bit-identical across thread counts, checked with the
 phone's models under TFLite), and the wake lock is renewed for the whole
-pass (it used to lapse after one hour). There is still no charging-only option. Weak phones can take around 10-20 s per song for
+pass (it used to lapse after one hour). A "ניתוח מהיר" setting (`Prefs.fastAnalysis`, off by
+default) runs 2-3 songs at once at normal priority with the charger's thread
+count; each model is locked so one song at a time goes through it, and the
+rows are the same as the normal pass. There is still no charging-only option. Weak phones can take around 10-20 s per song for
 hours on the first run (estimate).
 
 Status: steps 1-2 below are done (PR #31): the golden test, and
