@@ -10,6 +10,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Write access, for the release the app updates from (the last step).
+    permissions:
+      contents: write
 
     env:
       KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -138,6 +141,32 @@ jobs:
           # and the version inside the APK is only readable once installed.
           name: rhythm-apk-${{ github.run_number }}
           path: out/*.apk
+
+      # The release the Android app updates itself from (update/Updater.kt):
+      # every build of main, as a GitHub release holding the APK and an
+      # update.json that names its version, address and SHA-256. Never from a
+      # pull request, and never an APK signed with the debug key - an update
+      # signed with another key cannot install over the app, and phones
+      # would keep being offered one they cannot take.
+      - name: Publish the release the app updates from
+        if: github.event_name == 'push' && env.KEYSTORE_BASE64 != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          VERSION="1.1.${{ github.run_number }}"
+          APK="rhythm-$VERSION.apk"
+          cp out/app-release.apk "$APK"
+          SHA=$(sha256sum "$APK" | cut -d' ' -f1)
+          SIZE=$(stat -c %s "$APK")
+          URL="https://github.com/${{ github.repository }}/releases/download/v$VERSION/$APK"
+          printf '{"versionCode": %s, "versionName": "%s", "url": "%s", "sha256": "%s", "size": %s}\n' \
+            "${{ github.run_number }}" "$VERSION" "$URL" "$SHA" "$SIZE" > update.json
+          cat update.json
+          git log -1 --format=%B > notes.txt
+          gh release create "v$VERSION" "$APK" update.json \
+            --title "Rhythm $VERSION" --notes-file notes.txt --latest
+          echo "published release v$VERSION" >> "$GITHUB_STEP_SUMMARY"
           if-no-files-found: warn
 
       - name: Report failure logs

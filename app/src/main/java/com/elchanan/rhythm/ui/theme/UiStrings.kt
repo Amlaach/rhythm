@@ -1872,6 +1872,21 @@ object UiStrings {
         "קורא CSV שיוצא מנגן אחר. צריך עמודת שם שיר; עמודת אמן ועמודת מספר השמעות משפרות את ההתאמה. קובץ שיש בו שורה לכל השמעה נספר לבד, וייבוא חוזר של אותו קובץ לא מכפיל את המספרים" to "Reads a CSV exported from another player. It needs a song title column; artist and play count columns improve the matching. A file with a row for every play is counted by itself, and importing the same file again does not double the numbers",
         "קורא m3u או pls ומתאים אותו לשירים שבספרייה. מה שלא נמצא נספר ונאמר, ולא נעלם בשקט" to "Reads an m3u or pls file and matches it to the songs in the library. What is not found is counted and reported, not silently dropped",
         "שורה לכל כלל, והסגנונות בתוך השורה מופרדים בפסיק. סגנונות שנמצאים באותה שורה לא יופיעו יחד באותו מיקס, רדיו או המשך תור.\n\nשורה עם סגנון אחד בלבד פירושה שהסגנון הזה מתערבב רק עם עצמו — לא עם סגנון אחר ולא עם שירים בלי תגיות.\n\nלמשל:\nחסידי, ישראלי\nילדים, חזנות\nרק אנגלית\n\nהכלל חל על התגיות שאתה נתת — לשיר עצמו או לאמן שלו." to "One rule per line, with the styles in the line separated by commas. Styles on the same line never appear together in the same mix, radio or queue continuation.\n\nA line with only one style means that style mixes only with itself: not with another style, and not with untagged songs.\n\nFor example:\nחסידי, ישראלי\nילדים, חזנות\nרק אנגלית\n\nThe rule applies to the tags you gave, to the song itself or to its artist.",
-        "שורה לכל כלל, והסגנונות בתוכה מופרדים בפסיק. שני סגנונות באותה שורה לא יופיעו יחד באותו מיקס.\n\nלמשל:\nחסידי, מזרחי\nקלאסי, רוק" to "One rule per line, with the styles in it separated by commas. Two styles on the same line never appear together in the same mix.\n\nFor example:\nחסידי, מזרחי\nקלאסי, רוק"
+        "שורה לכל כלל, והסגנונות בתוכה מופרדים בפסיק. שני סגנונות באותה שורה לא יופיעו יחד באותו מיקס.\n\nלמשל:\nחסידי, מזרחי\nקלאסי, רוק" to "One rule per line, with the styles in it separated by commas. Two styles on the same line never appear together in the same mix.\n\nFor example:\nחסידי, מזרחי\nקלאסי, רוק",
+        "גרסה חדשה זמינה · \${release.versionName}" to "New version available · \${release.versionName}",
+        "מוריד… \${(progress * 100).toInt()}%" to "Downloading… \${(progress * 100).toInt()}%",
+        "מוריד… \${((update.progress ?: 0f) * 100).toInt()}%" to "Downloading… \${((update.progress ?: 0f) * 100).toInt()}%",
+        "ההורדה נבדקת לפני ההתקנה, וההתקנה עוברת דרך אנדרואיד" to "The download is verified before installing, and Android does the installing",
+        "עדכן" to "Update",
+        "עדכונים" to "Updates",
+        "גרסה \${release.versionName} זמינה" to "Version \${release.versionName} is available",
+        "האפליקציה בודקת בעצמה פעמיים ביום, כשיש חיבור" to "The app checks by itself twice a day, when there is a connection",
+        "לא הצלחתי לבדוק כרגע" to "Could not check right now",
+        "יש לך את הגרסה האחרונה" to "You have the latest version",
+        "אשר ל־Rhythm להתקין עדכונים, וחזור ללחוץ על \"עדכן\"" to "Allow Rhythm to install updates, then come back and tap \"Update\"",
+        "ההורדה נכשלה. אפשר לנסות שוב מאוחר יותר" to "The download failed. You can try again later",
+        "ההתקנה נכשלה" to "The installation failed",
+        "העדכון בוטל" to "The update was cancelled",
+        "העדכון לא מתאים לגרסה המותקנת" to "The update does not match the installed version"
     )
 }

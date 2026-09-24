@@ -26,6 +26,15 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Required to attach an audio effect to the player's own session. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!--
+      Updates, for phones that have the internet (see update/Updater.kt). The
+      app never goes online for anything else: the only request it makes is
+      for the release's update.json and the APK it names, and without a
+      working connection it makes none and shows nothing about updates.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!--
         largeHeap: the recommender holds what it knows about every song, and
@@ -71,6 +80,9 @@
             android:name=".data.LibraryWorkService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <receiver
+            android:name=".update.UpdateReceiver"
+            android:exported="false" />
         <receiver
             android:name=".playback.RhythmWidget"
             android:exported="true">

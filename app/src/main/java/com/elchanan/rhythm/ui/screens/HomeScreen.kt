@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.ui.draw.clipToBounds
 import com.elchanan.rhythm.ui.theme.PointingHint
 import androidx.compose.material.icons.filled.Search
@@ -132,6 +133,8 @@ fun HomeScreen(
 
     val tagTipVisible by vm.tagTipVisible.collectAsStateWithLifecycle()
     val searchHint by vm.searchHintVisible.collectAsStateWithLifecycle()
+    val update by vm.update.collectAsStateWithLifecycle()
+    val updateDismissed by vm.updateDismissed.collectAsStateWithLifecycle()
     val tagFixPending by vm.tagFixPending.collectAsStateWithLifecycle()
     LaunchedEffect(library.songs) { vm.refreshTagFixPending() }
     val tagFixDismissedAt by vm.tagFixDismissedAt.collectAsStateWithLifecycle()
@@ -272,6 +275,25 @@ fun HomeScreen(
                     // One-off pointer to the tag repair tool. Shown ahead of the other
                     // nudges because a library filed under a single artist makes every
                     // one of them meaningless.
+                    // A newer version, found by the silent check. Only ever
+                    // there on a phone that reached the server - offline, or
+                    // behind a filter that blocks it, this never appears.
+                    val release = update.release
+                    if (release != null && (release.versionCode != updateDismissed || update.progress != null)) {
+                        item {
+                            val progress = update.progress
+                            Banner(
+                                icon = Icons.Filled.SystemUpdate,
+                                title = "גרסה חדשה זמינה · ${release.versionName}",
+                                body = if (progress != null) "מוריד… ${(progress * 100).toInt()}%"
+                                else "ההורדה נבדקת לפני ההתקנה, וההתקנה עוברת דרך אנדרואיד",
+                                action = if (progress != null) "" else "עדכן",
+                                onClick = { vm.startUpdate() },
+                                onDismiss = if (progress != null) null else ({ vm.dismissUpdate() })
+                            )
+                        }
+                    }
+
                     val allOnOneArtist = tagTipVisible && library.artists.size <= 2 && library.songs.size >= 8
                     // Corrections waiting in the tag fixer - names jammed into the
                     // title, a site's signature, quotes around a name. Shown until

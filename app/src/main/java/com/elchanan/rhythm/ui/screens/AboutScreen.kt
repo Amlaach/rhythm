@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,6 +39,8 @@ fun AboutScreen(vm: MainViewModel, onBack: () -> Unit) {
     val scan by vm.scanReport.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
     val gutter = rememberMetrics().gutter
+    val update by vm.update.collectAsStateWithLifecycle()
+    val updatesReachable by vm.updatesReachable.collectAsStateWithLifecycle()
 
     SettingsScaffold(title = "מידע ואבחון", onBack = onBack) {
         item { SectionHeader(title = "על האפליקציה") }
@@ -56,6 +60,47 @@ fun AboutScreen(vm: MainViewModel, onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
+                }
+            }
+        }
+
+        // Updates, only on a phone that has reached the server once. Without
+        // the internet this row is never there.
+        if (updatesReachable) {
+            item {
+                val release = update.release
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = gutter, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("עדכונים", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            when {
+                                update.progress != null -> "מוריד… ${((update.progress ?: 0f) * 100).toInt()}%"
+                                update.checking -> "בודק…"
+                                release != null -> "גרסה ${release.versionName} זמינה"
+                                update.note != null -> update.note.orEmpty()
+                                else -> "האפליקציה בודקת בעצמה פעמיים ביום, כשיש חיבור"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    if (release != null) {
+                        Button(
+                            onClick = { vm.startUpdate() },
+                            enabled = update.progress == null,
+                            colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                        ) { Text("עדכן") }
+                    } else {
+                        OutlinedButton(
+                            onClick = { vm.checkForUpdate(manual = true) },
+                            enabled = !update.checking
+                        ) { Text("בדוק") }
+                    }
                 }
             }
         }

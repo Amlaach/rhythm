@@ -530,6 +530,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
 
+        // The update check, a while after launch so it never competes with
+        // the library coming up. Silent and skipped altogether offline.
+        viewModelScope.launch {
+            delay(UPDATE_CHECK_DELAY_MS)
+            checkForUpdate(manual = false)
+        }
+        viewModelScope.launch {
+            com.elchanan.rhythm.update.Updater.installResult.collect { result ->
+                if (result != null) {
+                    _message.value = result
+                    com.elchanan.rhythm.update.Updater.installResult.value = null
+                }
+            }
+        }
+
         // Every finished scan rebuilds the feed, whoever ran it. Dropping the
         // first value because it is the starting count and not a scan.
         viewModelScope.launch {
@@ -2452,6 +2467,100 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { _hiddenSongs.value = repo.hiddenSongs() }
     }
 
+    // -----------------------------------------------------------------------
+    // updates, for phones that have the internet (see update/Updater.kt)
+    // -----------------------------------------------------------------------
+
+    data class UpdateState(
+        /** A newer release than this one, when a check found one. */
+        val release: com.elchanan.rhythm.update.Updater.Release? = null,
+        /** 0 to 1 while downloading. */
+        val progress: Float? = null,
+        val checking: Boolean = false,
+        /** The answer to a check asked for by hand, for the settings row. */
+        val note: String? = null
+    )
+
+    private val _update = MutableStateFlow(
+        UpdateState(
+            release = com.elchanan.rhythm.update.Updater.decode(repo.prefs.knownRelease)
+                ?.takeIf { com.elchanan.rhythm.update.Updater.isNewer(it) }
+        )
+    )
+    val update: StateFlow<UpdateState> = _update.asStateFlow()
+
+    private val _updateDismissed = MutableStateFlow(repo.prefs.updateDismissed)
+    val updateDismissed: StateFlow<Int> = _updateDismissed.asStateFlow()
+
+    private val _updatesReachable = MutableStateFlow(repo.prefs.updatesReachable)
+    /** False until a check has reached the server once: until then nothing about updates is shown. */
+    val updatesReachable: StateFlow<Boolean> = _updatesReachable.asStateFlow()
+
+    /**
+     * Asks whether there is a newer version. By itself at most twice a day,
+     * and only with a working connection; asked for by hand, always. Every
+     * failure is silent except the one asked for by hand, and that one is
+     * only asked from a row that only shows after a check once succeeded.
+     */
+    fun checkForUpdate(manual: Boolean) {
+        val now = System.currentTimeMillis()
+        if (!manual && now - repo.prefs.lastUpdateCheck < UPDATE_CHECK_EVERY_MS) return
+        if (_update.value.checking || _update.value.progress != null) return
+        viewModelScope.launch {
+            _update.value = _update.value.copy(checking = true, note = null)
+            val found = com.elchanan.rhythm.update.Updater.latest(getApplication())
+            if (found == null) {
+                _update.value = _update.value.copy(
+                    checking = false,
+                    note = if (manual) "לא הצלחתי לבדוק כרגע" else null
+                )
+                return@launch
+            }
+            repo.prefs.lastUpdateCheck = now
+            repo.prefs.updatesReachable = true
+            _updatesReachable.value = true
+            val newer = found.takeIf { com.elchanan.rhythm.update.Updater.isNewer(it) }
+            repo.prefs.knownRelease = newer?.let { com.elchanan.rhythm.update.Updater.encode(it) }.orEmpty()
+            _update.value = UpdateState(
+                release = newer,
+                note = if (manual && newer == null) "יש לך את הגרסה האחרונה" else null
+            )
+        }
+    }
+
+    /** Downloads, checks and hands the update to the system installer. */
+    fun startUpdate() {
+        val release = _update.value.release ?: return
+        if (_update.value.progress != null) return
+        val app = getApplication<Application>()
+        if (!com.elchanan.rhythm.update.Updater.mayInstall(app)) {
+            // Android 8 and up ask once whether this app may install updates.
+            runCatching { app.startActivity(com.elchanan.rhythm.update.Updater.allowInstallIntent(app)) }
+            _message.value = "אשר ל־Rhythm להתקין עדכונים, וחזור ללחוץ על \"עדכן\""
+            return
+        }
+        viewModelScope.launch {
+            _update.value = _update.value.copy(progress = 0f)
+            val apk = com.elchanan.rhythm.update.Updater.download(app, release) { p ->
+                _update.value = _update.value.copy(progress = p)
+            }
+            _update.value = _update.value.copy(progress = null)
+            if (apk == null) {
+                _message.value = "ההורדה נכשלה. אפשר לנסות שוב מאוחר יותר"
+                return@launch
+            }
+            if (!com.elchanan.rhythm.update.Updater.install(app, apk)) {
+                _message.value = "ההתקנה נכשלה"
+            }
+        }
+    }
+
+    fun dismissUpdate() {
+        val code = _update.value.release?.versionCode ?: return
+        repo.prefs.updateDismissed = code
+        _updateDismissed.value = code
+    }
+
     /** Songs named by their files instead of their tags, everywhere. */
     fun setTitlesFromFiles(enabled: Boolean) {
         repo.setTitlesFromFiles(enabled)
@@ -2765,6 +2874,12 @@ private const val SAMPLE_LIMIT = 300
 
 /** How long after the app opens the first tastes are prepared - after the opening, not during it. */
 private const val TASTES_WARM_DELAY_MS = 12_000L
+
+/** How long after launch the silent update check waits. */
+private const val UPDATE_CHECK_DELAY_MS = 25_000L
+
+/** How often the silent update check asks. */
+private const val UPDATE_CHECK_EVERY_MS = 12L * 60 * 60 * 1000
 
 /** How many choruses are found ahead: at the start, and past the one being tasted. */
 internal const val TASTES_AHEAD = 10
