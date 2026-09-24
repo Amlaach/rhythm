@@ -100,6 +100,7 @@ fun ArtistMergeSuggestions(vm: MainViewModel, artists: List<ArtistInfo>, gutter:
     }
     if (show && selected == null) {
         AlertDialog(
+            containerColor = Surface1,
             onDismissRequest = { show = false },
             title = { Text("ייתכן שזה אותו אמן") },
             text = {
@@ -118,6 +119,7 @@ fun ArtistMergeSuggestions(vm: MainViewModel, artists: List<ArtistInfo>, gutter:
         val target = if (keepFirst) pair.first else pair.second
         val source = if (keepFirst) pair.second else pair.first
         AlertDialog(
+            containerColor = Surface1,
             onDismissRequest = { selected = null },
             title = { Text("לאחד את האמנים?") },
             text = {

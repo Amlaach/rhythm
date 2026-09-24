@@ -127,6 +127,7 @@ fun AlgorithmSettingsScreen(
 
         if (confirmReset) {
             AlertDialog(
+                containerColor = Surface1,
                 onDismissRequest = { confirmReset = false },
                 title = { Text("לאפס את הכוונונים?") },
                 text = {
