@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.components
 
+import coil.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.animation.core.animateFloatAsState
@@ -144,13 +146,22 @@ fun Artwork(
             // the tint and the mark.
             var loaded by remember(songId, albumId) { mutableStateOf(false) }
             if (loaded) Box(modifier = Modifier.fillMaxSize().background(Bg))
+            val context = LocalContext.current
+            val backdrop = remember(songId, albumId) {
+                ImageRequest.Builder(context)
+                    .data(SongArt(songId, albumId))
+                    .size(BACKDROP_PX)
+                    .build()
+            }
             AsyncImage(
-                model = SongArt(songId, albumId),
+                model = backdrop,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                // Blur is honoured from Android 12 and ignored below it, where
-                // this stays a scaled up still of the same artwork - softer
-                // than a hard edge either way, and never a frame.
+                // Read as a tiny picture and stretched, which is a blur by
+                // itself. Modifier.blur is ignored before Android 12, and
+                // there the backdrop used to be a sharp, enlarged copy of the
+                // cover above and below it - a second picture, framing the
+                // first, rather than a wash of its colours.
                 alpha = BACKDROP_ALPHA,
                 onSuccess = { loaded = true },
                 modifier = Modifier.fillMaxSize().blur(BACKDROP_BLUR)
@@ -171,6 +182,9 @@ fun Artwork(
 
 /** Enough to read as colour rather than as a second, smaller picture. */
 private val BACKDROP_BLUR = 26.dp
+
+/** Small enough that stretched to the size of the cover it is only colour. */
+private const val BACKDROP_PX = 24
 
 /** Dimmed, so the cover in front of it stays the thing being looked at. */
 private const val BACKDROP_ALPHA = 0.55f
@@ -504,10 +518,11 @@ fun MixCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(0.38f)
-                        // Graphite, not a dark wash over the mix's colour: over the
-                        // gradient it came out a heavy purple or green block
-                        // under every collage. The covers bring the colour.
-                        .background(Surface2)
+                        // A dark wash over the mix's own colour, so each mix keeps
+                        // its tint under the covers - the owner prefers it to
+                        // a plain graphite strip - and the white title stays
+                        // readable on any of them.
+                        .background(Color.Black.copy(alpha = 0.55f))
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     Text(

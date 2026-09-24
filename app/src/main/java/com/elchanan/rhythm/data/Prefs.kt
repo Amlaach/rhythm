@@ -140,6 +140,15 @@ class Prefs(context: Context) {
         set(value) = sp.edit { putBoolean(KEY_TAG_TIP, value) }
 
     /**
+     * How many tag corrections were waiting when the home banner about them
+     * was closed. It comes back only when there are more than that - new
+     * downloads - and not for the same ones again.
+     */
+    var tagFixBannerDismissedAt: Int
+        get() = sp.getInt(KEY_TAG_FIX_BANNER, 0)
+        set(value) = sp.edit { putInt(KEY_TAG_FIX_BANNER, value) }
+
+    /**
      * Also strip Latin script leftovers from song names - producer credits, an
      * English gloss, whatever the video page's heading left behind.
      *
@@ -584,6 +593,7 @@ class Prefs(context: Context) {
         const val KEY_SKIP_SILENCE = "skip_silence"
         const val KEY_NORMALIZE = "normalize_volume"
         const val KEY_TAG_TIP = "tag_tip_seen"
+        const val KEY_TAG_FIX_BANNER = "tag_fix_banner_dismissed_at"
         const val KEY_STRIP_FOREIGN = "tag_strip_foreign"
         const val KEY_WRITE_TAGS = "tag_write_to_files"
         const val KEY_HOME_SHELVES = "home_shelves"

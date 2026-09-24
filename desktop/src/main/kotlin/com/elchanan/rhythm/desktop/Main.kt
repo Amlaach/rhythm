@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.desktop
 
+import com.elchanan.rhythm.engine.HebrewSpelling
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.foundation.Image
@@ -319,9 +320,13 @@ private fun RhythmApp() {
     // only ever changes from this screen.
     var tagTipVisible by remember { mutableStateOf(!prefs.tagTipSeen) }
     var ratingTipVisible by remember { mutableStateOf(!prefs.ratingTipSeen) }
+    var tagFixDismissedAt by remember { mutableStateOf(prefs.tagFixBannerDismissedAt) }
     var welcomeDone by remember { mutableStateOf(prefs.welcomeSeen) }
     var recap by remember { mutableStateOf<RecapData?>(null) }
     var proposals by remember { mutableStateOf<List<TagFixer.Proposal>>(emptyList()) }
+    var hebrewSuggestions by remember { mutableStateOf<List<HebrewSpelling.Suggestion>?>(null) }
+    // Which way the spelling offers go; English readers start with Hebrew to Latin.
+    var spellingToLatin by remember { mutableStateOf(UiLanguage.english) }
     var bookmarks by remember { mutableStateOf<List<BookmarkEntity>>(emptyList()) }
     var resumePoints by remember { mutableStateOf<Map<Long, Long>>(emptyMap()) }
     var bookmarksOpen by remember { mutableStateOf(false) }
@@ -1125,6 +1130,53 @@ private fun RhythmApp() {
         }
     }
 
+    // The tag fixer's proposals are what the home banner counts, so they are
+    // worked out whenever the library changes, not only when the tool opens.
+    LaunchedEffect(songs) { if (songs.isNotEmpty()) buildProposals() }
+
+    fun buildHebrewSuggestions(toLatin: Boolean = spellingToLatin) {
+        spellingToLatin = toLatin
+        hebrewSuggestions = null
+        scope.launch {
+            hebrewSuggestions = withContext(Dispatchers.Default) {
+                if (toLatin) HebrewSpelling.suggestLatin(songs) else HebrewSpelling.suggest(songs)
+            }
+        }
+    }
+
+    /**
+     * The spellings the listener accepted, saved as the names the app shows -
+     * the same corrections the tag fixer saves, so an artist's ratings follow
+     * the new name - and into the files when the settings say so.
+     */
+    fun applyHebrewNames(chosen: List<HebrewSpelling.Suggestion>) {
+        if (chosen.isEmpty()) return
+        scope.launch {
+            val note = withContext(Dispatchers.IO) {
+                val rows = LinkedHashMap<Long, TagOverrideEntity>()
+                val existing = store.overrides()
+                for (s in chosen) for (id in s.songIds) {
+                    val row = rows[id] ?: existing[id] ?: TagOverrideEntity(songId = id)
+                    rows[id] = when (s.field) {
+                        HebrewSpelling.Field.ARTIST -> row.copy(artistName = s.proposed)
+                        HebrewSpelling.Field.TITLE -> row.copy(title = s.proposed)
+                    }
+                }
+                saveOverridesCarryingArtists(store, rows.values.toList())
+                if (!prefs.writeTagsToFiles) {
+                    "עודכנו ${rows.size} שירים"
+                } else {
+                    val result = TagWriter.write(rows.values.toList(), songs.associateBy { it.id })
+                    if (result.failed > 0) "${result.failed} קבצים לא ניתנים לכתיבה" else "עודכנו ${rows.size} שירים"
+                }
+            }
+            reload()
+            buildProposals()
+            buildHebrewSuggestions()
+            status = note
+        }
+    }
+
     /**
      * Saves the corrections, and optionally pushes them into the files.
      *
@@ -1152,6 +1204,9 @@ private fun RhythmApp() {
             }
             reload()
             buildProposals()
+            // Dealt with: the banner may come back for the next downloads.
+            tagFixDismissedAt = 0
+            withContext(Dispatchers.IO) { prefs.tagFixBannerDismissedAt = 0 }
             status = note ?: "עודכנו ${overrides.size} שירים"
         }
     }
@@ -2206,6 +2261,19 @@ private fun RhythmApp() {
                     onWriteToFiles = { prefs.writeTagsToFiles = it },
                     onApply = { list, uncertain -> applyTagFix(list, uncertain) },
                     onEdit = { id, title, artist -> editTags(id, title, artist) },
+                    onBack = { stack = stack.dropLast(1) },
+                    onOpenHebrewNames = {
+                        buildHebrewSuggestions()
+                        stack = stack + Route.HebrewNames
+                    }
+                )
+
+                Route.HebrewNames -> HebrewNamesScreen(
+                    suggestions = hebrewSuggestions,
+                    toLatin = spellingToLatin,
+                    onDirection = { buildHebrewSuggestions(it) },
+                    artistOf = { id -> songs.firstOrNull { it.id == id }?.artistName.orEmpty() },
+                    onApply = { applyHebrewNames(it) },
                     onBack = { stack = stack.dropLast(1) }
                 )
 
@@ -2315,6 +2383,17 @@ private fun RhythmApp() {
                         onDismissRatingTip = {
                             ratingTipVisible = false
                             scope.launch { withContext(Dispatchers.IO) { prefs.ratingTipSeen = true } }
+                        },
+                        tagFixPending = proposals.count { it.changed && it.certain }
+                            .takeIf { it > tagFixDismissedAt } ?: 0,
+                        onOpenTagFix = {
+                            buildProposals()
+                            stack = stack + Route.Tags
+                        },
+                        onDismissTagFix = {
+                            val n = proposals.count { it.changed && it.certain }
+                            tagFixDismissedAt = n
+                            scope.launch { withContext(Dispatchers.IO) { prefs.tagFixBannerDismissedAt = n } }
                         },
                         onPlay = { list, index -> play(list, index) },
                         onOpenList = { stack = stack + Route.Detail(it) },
@@ -2589,6 +2668,7 @@ private sealed interface Route {
     data object Equalizer : Route
     data object Algorithm : Route
     data object Tags : Route
+    data object HebrewNames : Route
     data object Recap : Route
     data object Queue : Route
     data class Lyrics(val songId: Long) : Route

@@ -22,6 +22,7 @@ import com.elchanan.rhythm.data.YouTubeMusicImport
 import com.elchanan.rhythm.data.TagEdit
 import com.elchanan.rhythm.data.TagFileWriter
 import com.elchanan.rhythm.data.TagFixer
+import com.elchanan.rhythm.engine.HebrewSpelling
 import com.elchanan.rhythm.data.db.ArtistEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.BookmarkEntity
@@ -1710,6 +1711,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val changed = proposals.filter { it.changed && (it.certain || includeUncertain) }
             repo.saveOverrides(TagFixer.toOverrides(proposals, includeUncertain))
             prefs.tagTipSeen = true
+            // Dealt with: the banner may come back for the next downloads.
+            prefs.tagFixBannerDismissedAt = 0
+            _tagFixDismissedAt.value = 0
             // The shelves hold a snapshot of the songs taken when the feed was
             // built, so without this the home screen keeps showing the old
             // titles while the player shows the corrected ones.
@@ -1758,6 +1762,69 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 songIds.mapNotNull { id -> songs[id]?.let { TagFileWriter.Item(id, it.path, edit) } },
                 fileOnly = fileOnly
             )
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Hebrew spellings for names written in English letters
+    // -----------------------------------------------------------------------
+
+    private val _hebrewSuggestions = MutableStateFlow<List<HebrewSpelling.Suggestion>?>(null)
+
+    /** Null while they are being worked out. */
+    val hebrewSuggestions: StateFlow<List<HebrewSpelling.Suggestion>?> = _hebrewSuggestions.asStateFlow()
+
+    /** Which way the offers go: Latin names to Hebrew, or - for English readers - Hebrew names to Latin. */
+    private var spellingToLatin = false
+
+    fun buildHebrewSuggestions(toLatin: Boolean = spellingToLatin) {
+        spellingToLatin = toLatin
+        _hebrewSuggestions.value = null
+        viewModelScope.launch {
+            val songs = library.value.songs
+            _hebrewSuggestions.value = withContext(Dispatchers.Default) {
+                if (toLatin) HebrewSpelling.suggestLatin(songs) else HebrewSpelling.suggest(songs)
+            }
+        }
+    }
+
+    /**
+     * The spellings the listener accepted, as the name the app shows - the
+     * same corrections the tag fixer saves, so they survive a rescan and an
+     * artist's ratings follow the new name. Into the files too, when the
+     * settings say corrections go there.
+     */
+    fun applyHebrewNames(chosen: List<HebrewSpelling.Suggestion>) {
+        if (chosen.isEmpty()) return
+        viewModelScope.launch {
+            val existing = repo.overrides().associateBy { it.songId }.toMutableMap()
+            val edits = LinkedHashMap<Long, TagEdit>()
+            for (s in chosen) {
+                for (id in s.songIds) {
+                    val row = existing[id] ?: TagOverrideEntity(songId = id)
+                    val edit = edits[id] ?: TagEdit()
+                    when (s.field) {
+                        HebrewSpelling.Field.ARTIST -> {
+                            existing[id] = row.copy(artistName = s.proposed)
+                            edits[id] = edit.copy(artist = s.proposed)
+                        }
+                        HebrewSpelling.Field.TITLE -> {
+                            existing[id] = row.copy(title = s.proposed)
+                            edits[id] = edit.copy(title = s.proposed)
+                        }
+                    }
+                }
+            }
+            repo.saveOverrides(edits.keys.mapNotNull { existing[it] })
+            refreshFeed()
+            _message.value = "עודכנו ${edits.size} שירים"
+            buildHebrewSuggestions()
+            if (prefs.writeTagsToFiles) {
+                val songs = library.value.songsById
+                startFileWriteItems(edits.mapNotNull { (id, edit) ->
+                    songs[id]?.let { TagFileWriter.Item(id, it.path, edit) }
+                })
+            }
         }
     }
 
@@ -1904,6 +1971,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _ratingTipVisible = MutableStateFlow(!repo.prefs.ratingTipSeen)
     val ratingTipVisible: StateFlow<Boolean> = _ratingTipVisible.asStateFlow()
+
+    /** How many songs the tag fixer has a sure correction for; the home banner's count. */
+    private val _tagFixPending = MutableStateFlow(0)
+    val tagFixPending: StateFlow<Int> = _tagFixPending.asStateFlow()
+
+    private val _tagFixDismissedAt = MutableStateFlow(repo.prefs.tagFixBannerDismissedAt)
+    val tagFixDismissedAt: StateFlow<Int> = _tagFixDismissedAt.asStateFlow()
+
+    /** Counted off the main thread: proposing is a pass over the whole library. */
+    fun refreshTagFixPending() {
+        viewModelScope.launch {
+            val songs = library.value.songs
+            if (songs.isEmpty()) return@launch
+            _tagFixPending.value = withContext(Dispatchers.Default) {
+                TagFixer.propose(songs, dropForeign = prefs.tagStripForeign).count { it.changed && it.certain }
+            }
+        }
+    }
+
+    fun dismissTagFixBanner() {
+        prefs.tagFixBannerDismissedAt = _tagFixPending.value
+        _tagFixDismissedAt.value = _tagFixPending.value
+    }
 
     fun dismissTagTip() {
         prefs.tagTipSeen = true

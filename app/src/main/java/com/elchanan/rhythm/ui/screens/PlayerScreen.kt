@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.ui.platform.LocalConfiguration
 import com.elchanan.rhythm.ui.components.DialogBody
 import com.elchanan.rhythm.ui.components.fitHeight
 import com.elchanan.rhythm.ui.theme.localized
@@ -304,6 +305,7 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     val dragY = remember { Animatable(0f) }
     val dismissPx = with(LocalDensity.current) { 120.dp.toPx() }
+    val sheetPx = with(LocalDensity.current) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
 
     // Pulled down from anywhere on the sheet, not only its header. The drag
     // sits on a frame that does not move, around the sheet that does: a
@@ -321,7 +323,22 @@ fun PlayerScreen(
                     onDragEnd = {
                         scope.launch {
                             if (dragY.value > dismissPx) {
+                                // The swipe carries the sheet the rest of the
+                                // way down and only then puts it away. It used
+                                // to close and snap back to the top in the same
+                                // moment, so the player flashed up again and
+                                // then slid down a second time - as if the
+                                // swipe had not closed it and a button had. The
+                                // sheet leaves the screen with its offset still
+                                // on it, and the next one opens from nothing.
+                                dragY.animateTo(sheetPx, tween(durationMillis = 160))
                                 onCollapse()
+                                // Opened again before it had finished going:
+                                // it must not come back still pushed off the
+                                // bottom. Long after the exit has ended - by
+                                // then a closed sheet is gone and this never
+                                // runs.
+                                delay(700)
                                 dragY.snapTo(0f)
                             } else {
                                 dragY.animateTo(0f)
@@ -873,14 +890,19 @@ fun PlayerScreen(
                     ) { zoomed = false },
                 contentAlignment = Alignment.Center
             ) {
-                Artwork(
-                    songId = song.id,
-                    albumId = song.albumId,
-                    seed = song.artistKey,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-                    corner = 0
-                )
+                // As large as the screen allows in both directions: sized by
+                // the width alone, a phone on its side drew the square taller
+                // than the screen and cut the cover off top and bottom.
+                BoxWithConstraints(contentAlignment = Alignment.Center) {
+                    Artwork(
+                        songId = song.id,
+                        albumId = song.albumId,
+                        seed = song.artistKey,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.size(minOf(maxWidth, maxHeight)),
+                        corner = 0
+                    )
+                }
             }
         }
     }

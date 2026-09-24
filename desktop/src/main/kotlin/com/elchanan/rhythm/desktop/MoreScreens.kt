@@ -1,5 +1,9 @@
 package com.elchanan.rhythm.desktop
 
+import androidx.compose.material.icons.outlined.Circle
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.runtime.mutableStateMapOf
+import com.elchanan.rhythm.engine.HebrewSpelling
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.foundation.background
@@ -351,7 +355,8 @@ internal fun TagFixScreen(
     onWriteToFiles: (Boolean) -> Unit,
     onApply: (List<TagFixer.Proposal>, Boolean) -> Unit,
     onEdit: (Long, String, String) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenHebrewNames: () -> Unit = {}
 ) {
     var filter by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<TagFixer.Proposal?>(null) }
@@ -431,6 +436,30 @@ internal fun TagFixScreen(
                 enabled = applying > 0,
                 colors = ButtonDefaults.buttonColors(containerColor = Accent)
             ) { Text("החל על $applying שירים") }
+            Spacer(Modifier.height(10.dp))
+            // Names written in English letters, offered in Hebrew - a screen
+            // of its own, because every one of them is the listener's call.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Surface1)
+                    .clickable(onClick = onOpenHebrewNames)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("איות שמות", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "הצעות לאיות שמות של אמנים ושירים בעברית או באנגלית",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+                Button(onClick = onOpenHebrewNames, colors = ButtonDefaults.buttonColors(containerColor = Accent)) {
+                    Text("הצג")
+                }
+            }
         }
 
         LazyColumn(contentPadding = PaddingValues(top = 10.dp, bottom = 32.dp)) {
@@ -850,5 +879,147 @@ internal fun LyricsScreen(
                 )
             }
         }
+    }
+}
+
+/**
+ * Hebrew spellings for artists and songs written in English letters, offered
+ * one by one - the phone's screen of the same name. Nothing starts ticked:
+ * some songs really are called something in English.
+ */
+@Composable
+internal fun HebrewNamesScreen(
+    suggestions: List<HebrewSpelling.Suggestion>?,
+    toLatin: Boolean,
+    onDirection: (Boolean) -> Unit,
+    artistOf: (Long) -> String,
+    onApply: (List<HebrewSpelling.Suggestion>) -> Unit,
+    onBack: () -> Unit
+) {
+    val chosen = remember { mutableStateMapOf<String, String>() }
+    var editing by remember { mutableStateOf<HebrewSpelling.Suggestion?>(null) }
+    fun keyOf(s: HebrewSpelling.Suggestion) = "${s.field}:${s.original}:${s.songIds.first()}"
+    val all = suggestions.orEmpty()
+
+    Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
+        DetailTopBar(title = "איות שמות", onBack = onBack)
+        Column(modifier = Modifier.padding(horizontal = GUTTER)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Chip(label = "לעברית", selected = !toLatin, onClick = { chosen.clear(); onDirection(false) })
+                Chip(label = "לאנגלית", selected = toLatin, onClick = { chosen.clear(); onDirection(true) })
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (toLatin) {
+                    "שמות של אמנים ושירים שכתובים בעברית, ואיך הם נכתבים באותיות אנגליות. " +
+                        "זו הצעה בלבד, אז שום דבר לא מסומן מראש. " +
+                        "לחיצה על הצעה מאפשרת לתקן את האיות."
+                } else {
+                    "שמות של אמנים ושירים שכתובים באותיות אנגליות, ואיך הם נכתבים בעברית. " +
+                        "זו הצעה בלבד: יש שירים ששמם האמיתי באנגלית, אז שום דבר לא מסומן מראש. " +
+                        "לחיצה על הצעה מאפשרת לתקן את האיות."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    onClick = {
+                        onApply(all.mapNotNull { s -> chosen[keyOf(s)]?.let { s.copy(proposed = it) } })
+                        chosen.clear()
+                    },
+                    enabled = chosen.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                ) { Text("החל על ${chosen.size}") }
+                Spacer(Modifier.width(10.dp))
+                if (all.isNotEmpty()) {
+                    TextButton(onClick = {
+                        if (chosen.size == all.size) chosen.clear()
+                        else all.forEach { chosen[keyOf(it)] = chosen[keyOf(it)] ?: it.proposed }
+                    }) { Text(if (chosen.size == all.size) "בטל הכל" else "בחר הכל", color = TextSecondary) }
+                }
+            }
+        }
+        LazyColumn(contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp)) {
+            if (suggestions == null) {
+                item { Text("מחפש…", color = TextSecondary, modifier = Modifier.padding(GUTTER)) }
+            } else if (all.isEmpty()) {
+                item {
+                    Text(
+                        if (toLatin) "אין כרגע שמות בעברית שנמצא להם איות באנגלית."
+                        else "אין כרגע שמות באנגלית שנמצא להם איות בעברית.",
+                        color = TextSecondary,
+                        modifier = Modifier.padding(GUTTER)
+                    )
+                }
+            }
+            for (field in HebrewSpelling.Field.entries) {
+                val group = all.filter { it.field == field }
+                if (group.isEmpty()) continue
+                item(key = "title:$field") {
+                    Text(
+                        (if (field == HebrewSpelling.Field.ARTIST) "אמנים" else "שירים") + " (${group.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(start = GUTTER, end = GUTTER, top = 12.dp, bottom = 4.dp)
+                    )
+                }
+                items(group, key = { keyOf(it) }) { s ->
+                    val ticked = chosen[keyOf(s)]
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = GUTTER, vertical = 3.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (ticked != null) Accent.copy(alpha = 0.14f) else Surface1)
+                            .clickable { editing = s }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(ticked ?: s.proposed, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(s.original, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val detail = if (field == HebrewSpelling.Field.ARTIST) "${s.songIds.size} שירים" else artistOf(s.songIds.first())
+                            Text(
+                                detail + if (s.fromLibrary) " · כך כתוב בספרייה" else "",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (s.fromLibrary) Accent else TextSecondary,
+                                maxLines = 1
+                            )
+                        }
+                        IconButton(onClick = {
+                            if (ticked != null) chosen.remove(keyOf(s)) else chosen[keyOf(s)] = s.proposed
+                        }) {
+                            Icon(
+                                if (ticked != null) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+                                contentDescription = localized(if (ticked != null) "מסומן" else "לא מסומן"),
+                                tint = if (ticked != null) Accent else TextSecondary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    editing?.let { s ->
+        var text by remember(s) { mutableStateOf(chosen[keyOf(s)] ?: s.proposed) }
+        AlertDialog(
+            onDismissRequest = { editing = null },
+            containerColor = Surface1,
+            title = { Text(s.original) },
+            text = {
+                DialogBody {
+                    OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true, label = { Text(if (toLatin) "האיות באנגלית" else "האיות בעברית") })
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = text.isNotBlank(), onClick = {
+                    chosen[keyOf(s)] = text.trim()
+                    editing = null
+                }) { Text("סמן", color = Accent) }
+            },
+            dismissButton = { TextButton(onClick = { editing = null }) { Text("ביטול", color = TextSecondary) } }
+        )
     }
 }

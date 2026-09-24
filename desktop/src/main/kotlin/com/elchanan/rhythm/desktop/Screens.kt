@@ -1,5 +1,10 @@
 package com.elchanan.rhythm.desktop
 
+import com.elchanan.rhythm.ui.theme.Surface3
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import com.elchanan.rhythm.ui.theme.CaptionedIconButton
 import com.elchanan.rhythm.ui.theme.localized
 
@@ -999,7 +1004,7 @@ private fun ArtistMergeSuggestions(
                 Text(if (pairs.size == 1) "אמן אחד שנראה כפול" else "${pairs.size} אמנים שנראים כפולים")
                 Text("אותו אמן בשני איותים. אפשר לאחד אותם לאמן אחד", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
             }
-            Button(onClick = { show = true }, enabled = !busy) { Text("בדיקה") }
+            Button(onClick = { show = true }, enabled = !busy) { Text("תקן") }
         }
     }
     if (show && selected == null) {
@@ -1010,8 +1015,36 @@ private fun ArtistMergeSuggestions(
             text = {
                 LazyColumn(Modifier.heightIn(max = 400.dp)) {
                     items(pairs) { pair ->
-                        TextButton(onClick = { selected = pair; keepFirst = true }, enabled = !busy) {
-                            Text("${pair.first.displayName} / ${pair.second.displayName}")
+                        // Each pair with a button that says what it does. A
+                        // bare pair of names read as information, not as
+                        // something to act on. The name that stays starts on
+                        // the one with more songs, which is usually the one
+                        // the tags agree on; the next step can switch it.
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(pair.first.displayName, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    pair.second.displayName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextSecondary
+                                )
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(if (busy) Surface2 else Accent)
+                                    .clickable(enabled = !busy) {
+                                        selected = pair
+                                        keepFirst = pair.first.songs.size >= pair.second.songs.size
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 7.dp)
+                            ) {
+                                Text("תקן", style = MaterialTheme.typography.labelLarge, color = Color.White)
+                            }
                         }
                     }
                 }
@@ -1025,7 +1058,7 @@ private fun ArtistMergeSuggestions(
         AlertDialog(
             onDismissRequest = { selected = null },
             containerColor = Surface1,
-            title = { Text("לאחד את האמנים?") },
+            title = { Text("לתקן לאמן אחד?") },
             text = {
                 DialogBody {
                     Column(Modifier.fillMaxWidth()) {
@@ -1045,7 +1078,7 @@ private fun ArtistMergeSuggestions(
                     onMerge(source, target)
                     selected = null
                     show = false
-                }) { Text("אחד", color = Accent) }
+                }) { Text("תקן", color = Accent) }
             },
             dismissButton = { TextButton(onClick = { selected = null }) { Text("ביטול", color = TextSecondary) } }
         )
@@ -1945,10 +1978,16 @@ internal fun ArtistDetailScreen(
     // As on the phone: the albums first, the one long list a chip away.
     var byAlbum by remember { mutableStateOf(true) }
     val shelves = remember(artist.songs) { ArtistShelves.of(artist.songs, looseName = "שירים בודדים") }
+    // Closed to begin with, unless the artist has one album and nothing else.
+    var openAlbums by remember(artist.key) {
+        mutableStateOf(shelves.singleOrNull()?.albumId?.let { setOf(it) } ?: emptySet())
+    }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     val shown = if (byAlbum) shelves.flatMap { it.songs } else artist.songs
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
         DetailTopBar(title = artist.displayName, onBack = onBack)
-        LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+        LazyColumn(state = listState, contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
                 val (c1, c2) = gradientFor(artist.key)
                 Column(
@@ -2051,16 +2090,41 @@ internal fun ArtistDetailScreen(
                 // One heading would only repeat the page's own title.
                 val headed = !(shelves.size == 1 && shelves[0].albumId == null)
                 shelves.forEach { shelf ->
+                    val albumId = shelf.albumId
+                    // An album is closed until it is opened; its songs then sit
+                    // inside it, with a button at the end that closes it again
+                    // so a long album need not be scrolled back up to put away.
+                    val open = albumId == null || albumId in openAlbums
                     if (headed) {
-                        item(key = "shelf:${shelf.albumId ?: "loose"}") {
+                        item(key = "shelf:${albumId ?: "loose"}") {
                             ShelfHeading(
                                 shelf = shelf,
-                                onOpen = shelf.albumId?.let { id -> { onOpenAlbum(id) } },
+                                expanded = if (albumId == null) null else open,
+                                onToggle = albumId?.let { id ->
+                                    { openAlbums = if (id in openAlbums) openAlbums - id else openAlbums + id }
+                                },
+                                onOpen = albumId?.let { id -> { onOpenAlbum(id) } },
                                 onPlay = { onPlay(shelf.songs, 0) }
                             )
                         }
                     }
-                    items(shelf.songs, key = { it.id }) { song -> row(song) }
+                    if (open) {
+                        if (albumId == null || !headed) {
+                            items(shelf.songs, key = { it.id }) { song -> row(song) }
+                        } else {
+                            items(shelf.songs, key = { it.id }) { song -> InsideAlbum { row(song) } }
+                            item(key = "close:$albumId") {
+                                CloseAlbumRow(onClose = {
+                                    val here = listState.layoutInfo.visibleItemsInfo
+                                        .firstOrNull { it.key == "close:$albumId" }?.index
+                                    openAlbums = openAlbums - albumId
+                                    if (here != null) {
+                                        scope.launch { listState.scrollToItem(maxOf(0, here - shelf.songs.size - 1)) }
+                                    }
+                                })
+                            }
+                        }
+                    }
                 }
             } else {
                 items(artist.songs, key = { it.id }) { song -> row(song) }
@@ -2070,12 +2134,22 @@ internal fun ArtistDetailScreen(
 }
 
 @Composable
-private fun ShelfHeading(shelf: ArtistShelf, onOpen: (() -> Unit)?, onPlay: () -> Unit) {
+private fun ShelfHeading(
+    shelf: ArtistShelf,
+    /** Whether the album is open, or null for the loose songs, which do not fold. */
+    expanded: Boolean?,
+    onToggle: (() -> Unit)?,
+    onOpen: (() -> Unit)?,
+    onPlay: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)
-            .padding(start = GUTTER, end = GUTTER - 8.dp, top = 18.dp, bottom = 4.dp),
+            .padding(top = 10.dp)
+            // A click opens and closes the album where it is; the album's own
+            // page is the arrow button beside it.
+            .then(if (onToggle != null) Modifier.clickable(onClick = onToggle) else Modifier)
+            .padding(start = GUTTER, end = GUTTER - 8.dp, top = 8.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (shelf.albumId != null) {
@@ -2098,6 +2172,57 @@ private fun ShelfHeading(shelf: ArtistShelf, onOpen: (() -> Unit)?, onPlay: () -
         }
         IconButton(onClick = onPlay) {
             Icon(Icons.Filled.PlayArrow, contentDescription = localized("נגן"), tint = Accent)
+        }
+        if (onOpen != null) {
+            IconButton(onClick = onOpen) {
+                Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = localized("לעמוד האלבום"), tint = TextSecondary)
+            }
+        }
+        if (expanded != null) {
+            Icon(
+                if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = localized(if (expanded) "סגור אלבום" else "פתח אלבום"),
+                tint = TextSecondary
+            )
+        }
+    }
+}
+
+/** A song inside an open album: set in, with a line down its side that ties it to the album above. */
+@Composable
+private fun InsideAlbum(content: @Composable () -> Unit) {
+    val line = Surface3
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = GUTTER + 20.dp)
+            .drawBehind {
+                val x = if (layoutDirection == LayoutDirection.Rtl) size.width - 1.dp.toPx() else 1.dp.toPx()
+                drawLine(line, Offset(x, 0f), Offset(x, size.height), strokeWidth = 2.dp.toPx())
+            }
+    ) { content() }
+}
+
+/** The end of an open album, with the way to close it where the reading stopped. */
+@Composable
+private fun CloseAlbumRow(onClose: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = GUTTER + 20.dp, top = 2.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(Surface1)
+                .clickable(onClick = onClose)
+                .padding(start = 10.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("סגור אלבום", style = MaterialTheme.typography.labelLarge, color = TextSecondary)
         }
     }
 }

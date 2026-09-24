@@ -110,7 +110,10 @@ class RhythmWidget : AppWidgetProvider() {
             var sample = 1
             while (bounds.outWidth / sample > ART_PX * 2) sample *= 2
             val options = BitmapFactory.Options().apply { inSampleSize = sample }
-            val full = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
+            val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) ?: return null
+            // A video thumbnail's padding off first, so the square below is
+            // the sleeve and not a slice of it with the bars' edges in.
+            val full = com.elchanan.rhythm.ui.components.trimPadding(decoded)
             // Square crop from the centre: these covers are video thumbnails and
             // letterboxing them inside the widget wastes most of the tile.
             val side = minOf(full.width, full.height)

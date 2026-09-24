@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.foundation.layout.Box
 import com.elchanan.rhythm.ui.components.DialogBody
 import com.elchanan.rhythm.ui.theme.localized
 
@@ -64,7 +65,7 @@ import com.elchanan.rhythm.ui.theme.TextSecondary
  * worse than it started, with no way to tell what happened.
  */
 @Composable
-fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
+fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit, onOpenHebrewNames: () -> Unit = {}) {
     val proposals by vm.tagProposals.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
 
@@ -212,6 +213,10 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
                 }
             }
 
+            // Names written in English letters, offered in Hebrew - a screen of
+            // its own, because every one of them is the listener's call.
+            item { HebrewNamesDoor(gutter, onOpenHebrewNames) }
+
             item {
                 OutlinedTextField(
                     value = filter,
@@ -276,6 +281,39 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+/** The way to the Hebrew spellings, from the tag fixer and the tag settings. */
+@Composable
+internal fun HebrewNamesDoor(gutter: androidx.compose.ui.unit.Dp, onOpen: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = gutter)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Surface1)
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("איות שמות", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "הצעות לאיות שמות של אמנים ושירים בעברית או באנגלית",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .background(Accent)
+                .padding(horizontal = 14.dp, vertical = 7.dp)
+        ) {
+            Text("הצג", style = MaterialTheme.typography.labelLarge, color = androidx.compose.ui.graphics.Color.White)
         }
     }
 }

@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.Surface2
 import com.elchanan.rhythm.ui.components.DialogBody
 import com.elchanan.rhythm.ui.components.fitHeight
 import androidx.compose.foundation.layout.Column
@@ -96,7 +97,7 @@ fun ArtistMergeSuggestions(vm: MainViewModel, artists: List<ArtistInfo>, gutter:
                     .background(Accent)
                     .padding(horizontal = 14.dp, vertical = 7.dp)
             ) {
-                Text("בדיקה", style = MaterialTheme.typography.labelLarge, color = Color.White)
+                Text("תקן", style = MaterialTheme.typography.labelLarge, color = Color.White)
             }
         }
     }
@@ -108,8 +109,36 @@ fun ArtistMergeSuggestions(vm: MainViewModel, artists: List<ArtistInfo>, gutter:
             text = {
                 LazyColumn(Modifier.heightIn(max = fitHeight(400.dp))) {
                     items(pairs) { pair ->
-                        TextButton(onClick = { selected = pair; keepFirst = true }, enabled = !busy) {
-                            Text("${pair.first.displayName} / ${pair.second.displayName}")
+                        // Each pair with a button that says what it does. A
+                        // bare pair of names read as information, not as
+                        // something to act on. The name that stays starts on
+                        // the one with more songs, which is usually the one
+                        // the tags agree on; the next step can switch it.
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(pair.first.displayName, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    pair.second.displayName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextSecondary
+                                )
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(if (busy) Surface2 else Accent)
+                                    .clickable(enabled = !busy) {
+                                        selected = pair
+                                        keepFirst = pair.first.songs.size >= pair.second.songs.size
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 7.dp)
+                            ) {
+                                Text("תקן", style = MaterialTheme.typography.labelLarge, color = Color.White)
+                            }
                         }
                     }
                 }
@@ -123,7 +152,7 @@ fun ArtistMergeSuggestions(vm: MainViewModel, artists: List<ArtistInfo>, gutter:
         AlertDialog(
             containerColor = Surface1,
             onDismissRequest = { selected = null },
-            title = { Text("לאחד את האמנים?") },
+            title = { Text("לתקן לאמן אחד?") },
             text = {
                 DialogBody {
                     Column(Modifier.fillMaxWidth()) {
@@ -144,7 +173,7 @@ fun ArtistMergeSuggestions(vm: MainViewModel, artists: List<ArtistInfo>, gutter:
                     vm.mergeArtists(source, target)
                     selected = null
                     show = false
-                }) { Text("אחד") }
+                }) { Text("תקן") }
             },
             dismissButton = { TextButton(onClick = { selected = null }) { Text("ביטול") } }
         )

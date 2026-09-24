@@ -7,11 +7,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asComposeImageBitmap
+import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.res.loadImageBitmap
+import com.elchanan.rhythm.data.ArtTrim
 import com.elchanan.rhythm.data.db.SongEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jaudiotagger.audio.AudioFileIO
+import org.jetbrains.skia.Bitmap
+import org.jetbrains.skia.IRect
 import java.io.ByteArrayInputStream
 import java.io.File
 
@@ -70,8 +75,27 @@ object Artwork {
         return runCatching {
             val bytes = AudioFileIO.read(file).tag?.firstArtwork?.binaryData ?: return null
             if (bytes.isEmpty()) return null
-            ByteArrayInputStream(bytes).use { loadImageBitmap(it) }
+            trimPadding(ByteArrayInputStream(bytes).use { loadImageBitmap(it) })
         }.getOrNull()
+    }
+
+    /**
+     * The cover without the bars a video thumbnail was padded out with, the
+     * same cut the phone makes (see [ArtTrim]): shown whole they framed the
+     * sleeve in a colour that had nothing to do with it, and cropped to a
+     * square they left slivers of it at the sides.
+     */
+    private fun trimPadding(image: ImageBitmap): ImageBitmap {
+        val w = image.width
+        val h = image.height
+        // Square pictures are real sleeves; not worth reading their pixels.
+        if (w * 10 in h * 9..h * 11) return image
+        val pixels = IntArray(w * h)
+        image.readPixels(pixels, 0, 0, w, h)
+        val c = ArtTrim.crop(pixels, w, h) ?: return image
+        val part = Bitmap()
+        if (!image.asSkiaBitmap().extractSubset(part, IRect.makeLTRB(c[0], c[1], c[2], c[3]))) return image
+        return part.asComposeImageBitmap()
     }
 }
 

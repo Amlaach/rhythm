@@ -117,6 +117,10 @@ internal fun HomeScreen(
     onStopAnalysis: () -> Unit,
     onDismissTagTip: () -> Unit,
     onDismissRatingTip: () -> Unit,
+    /** Songs the tag fixer has a sure correction for, when the banner about them is to show; 0 hides it. */
+    tagFixPending: Int = 0,
+    onOpenTagFix: () -> Unit = {},
+    onDismissTagFix: () -> Unit = {},
     onPlay: (List<SongEntity>, Int) -> Unit,
     onOpenList: (DetailList) -> Unit,
     onMore: (SongEntity) -> Unit
@@ -203,6 +207,21 @@ internal fun HomeScreen(
             // A one off pointer to the tag repair tool, ahead of the rest
             // because a library filed under a single artist makes every other
             // suggestion meaningless until that is fixed.
+            // Corrections waiting in the tag fixer, until closed - and back
+            // only when new ones arrive. The phone's banner.
+            if (!(tagTipVisible && singleArtist) && tagFixPending > 0) {
+                item {
+                    Banner(
+                        icon = Icons.Filled.Sell,
+                        title = "$tagFixPending שירים עם תגיות שאפשר לתקן",
+                        body = "שם האמן בתוך שם השיר, שם של אתר הורדות ועוד. " +
+                            "כל שינוי מוצג לפני שמחילים אותו",
+                        action = "לתיקון",
+                        onClick = onOpenTagFix,
+                        onDismiss = onDismissTagFix
+                    )
+                }
+            }
             if (tagTipVisible && singleArtist) {
                 item {
                     Banner(
@@ -748,10 +767,11 @@ private fun MixCard(mix: Mix, onOpen: () -> Unit, onPlay: () -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(0.38f)
-                        // Graphite, not a dark wash over the mix's colour: over the
-                        // gradient it came out a heavy purple or green block
-                        // under every collage. The covers bring the colour.
-                        .background(Surface2)
+                        // A dark wash over the mix's own colour, so each mix keeps
+                        // its tint under the covers - the owner prefers it to
+                        // a plain graphite strip - and the white title stays
+                        // readable on any of them.
+                        .background(Color.Black.copy(alpha = 0.55f))
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     Text(
