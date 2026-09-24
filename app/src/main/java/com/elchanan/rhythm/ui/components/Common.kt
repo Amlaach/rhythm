@@ -504,7 +504,10 @@ fun MixCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(0.38f)
-                        .background(Color.Black.copy(alpha = 0.55f))
+                        // Graphite, not a dark wash over the mix's colour: over the
+                        // gradient it came out a heavy purple or green block
+                        // under every collage. The covers bring the colour.
+                        .background(Surface2)
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     Text(
@@ -528,7 +531,9 @@ fun MixCard(
                     .padding(10.dp)
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.35f))
+                    // In the accent, like the big play button: plainly the
+                    // thing to press, not a shadow on the picture.
+                    .background(Accent)
                     .clickable(onClick = onPlay),
                 contentAlignment = Alignment.Center
             ) {

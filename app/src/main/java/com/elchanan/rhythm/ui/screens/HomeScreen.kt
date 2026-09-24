@@ -99,7 +99,9 @@ import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
+import com.elchanan.rhythm.ui.theme.CaptionedIconButton
 import com.elchanan.rhythm.ui.theme.HeaderMid
+import com.elchanan.rhythm.ui.theme.collageSongs
 import com.elchanan.rhythm.ui.theme.HeaderWarm
 import com.elchanan.rhythm.ui.theme.RhythmMark
 import com.elchanan.rhythm.ui.theme.Surface1
@@ -581,20 +583,14 @@ private fun HomeTopBar(
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.weight(1f)
         )
+        // Each with its name under it: four bare glyphs up here - a list, two
+        // arrows, a chart, a cog - left people guessing which was which.
         if (onQueue != null) {
-            IconButton(onClick = onQueue) {
-                Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = localized("התור"), tint = TextSecondary)
-            }
+            CaptionedIconButton(Icons.AutoMirrored.Filled.QueueMusic, "תור", onQueue)
         }
-        IconButton(onClick = onRefresh) {
-            Icon(Icons.Filled.Autorenew, contentDescription = localized("רענון"), tint = TextSecondary)
-        }
-        IconButton(onClick = onRecap) {
-            Icon(Icons.Filled.BarChart, contentDescription = localized("הסיכום שלך"), tint = TextSecondary)
-        }
-        IconButton(onClick = onSettings) {
-            Icon(Icons.Filled.Settings, contentDescription = localized("הגדרות"), tint = TextSecondary)
-        }
+        CaptionedIconButton(Icons.Filled.Autorenew, "רענון", onRefresh)
+        CaptionedIconButton(Icons.Filled.BarChart, "סיכום", onRecap)
+        CaptionedIconButton(Icons.Filled.Settings, "הגדרות", onSettings)
     }
 }
 
@@ -733,7 +729,13 @@ private fun FeedSectionView(
                 )
             } else {
                 val columns = section.songs.chunked(4)
-                LazyRow(contentPadding = PaddingValues(horizontal = gutter)) {
+                // A gap between the columns: without one, each row's three
+                // dots sat against the next column's cover and read as
+                // belonging to that song.
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = gutter),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
                     items(columns) { column ->
                         Column(modifier = Modifier.width(quickPickColumnWidth())) {
                             column.forEach { song ->
@@ -780,7 +782,7 @@ private fun FeedSectionView(
                             onOpenDetail()
                         },
                         onPlay = { vm.playList(mix.songs) },
-                        covers = mix.songs.take(4).map { it.id to it.albumId }
+                        covers = collageSongs(mix.songs).map { it.id to it.albumId }
                     )
                 }
             }

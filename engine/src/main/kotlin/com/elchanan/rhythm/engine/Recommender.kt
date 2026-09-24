@@ -1871,7 +1871,10 @@ class Recommender(
                 Mix(
                     id = "mix:discover",
                     title = "מיקס גילוי",
-                    subtitle = "${unheard.size} שירים שעוד לא שמעת",
+                    // No count here: the card already shows how many songs the mix
+                    // holds, and a second, bigger number - the whole unheard
+                    // pool - read as the mix contradicting itself.
+                    subtitle = "שירים שעוד לא שמעת",
                     songs = pick(unheard, 45, salt = 31L, maxPerArtist = 3, maxPerAlbum = 2)
                 )
             )
@@ -1937,7 +1940,7 @@ class Recommender(
                     Mix(
                         id = "mix:lovedartists",
                         title = "מהאמנים שדירגת",
-                        subtitle = "${lovedArtists.size} אמנים שנתת להם 4 ומעלה",
+                        subtitle = "מאמנים שנתת להם 4 כוכבים ומעלה",
                         songs = pick(theirs, 50, salt = 83L, maxPerArtist = 6, maxPerAlbum = 3)
                     )
                 )
@@ -2593,7 +2596,7 @@ class Recommender(
                 Mix(
                     id = "mix:daily:$c",
                     title = label,
-                    subtitle = "${members.size} שירים שנשמעים דומה",
+                    subtitle = "שירים שנשמעים דומה",
                     songs = pick(
                         members.filter { (stats[it.id]?.liked ?: 0) != -1 },
                         45,

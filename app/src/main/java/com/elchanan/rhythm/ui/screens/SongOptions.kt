@@ -67,7 +67,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.engine.AudioTags
-import com.elchanan.rhythm.engine.Features
 import com.elchanan.rhythm.engine.Capo
 import com.elchanan.rhythm.engine.MusicalMode
 import com.elchanan.rhythm.engine.Mood
@@ -83,6 +82,7 @@ import com.elchanan.rhythm.ui.theme.Color_Error
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.TextTertiary
 import com.elchanan.rhythm.ui.theme.TextSecondary
+import com.elchanan.rhythm.ui.theme.tempoAndKey
 import com.elchanan.rhythm.ui.components.rememberMetrics
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -152,7 +152,7 @@ fun SongOptionsSheet(
                     )
                     features[song.id]?.let { f ->
                         Text(
-                            text = "${f.bpm.toInt()} BPM · ${Features.keyLabel(f.musicalKey, f.mode)}",
+                            text = tempoAndKey(f.bpm.toInt(), f.musicalKey, f.mode),
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary
                         )

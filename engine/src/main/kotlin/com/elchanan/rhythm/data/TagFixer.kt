@@ -141,6 +141,36 @@ object TagFixer {
     private fun hasHebrew(text: String) = HEBREW.containsMatchIn(text)
 
     /**
+     * A title in quotation marks, without them: a song tagged "האסיר", marks
+     * and all, is called האסיר.
+     *
+     * Some sites quote every name they post, and the marks then sit in the
+     * player, in every list and in the search. Only marks that wrap the whole
+     * name go, and only when nothing inside is itself a quotation - a mark
+     * inside a word is an abbreviation (תנ"ך) and stays, but one beside a
+     * space means the name quotes something ("א" ו"ב") and is left alone.
+     */
+    fun unquote(title: String): String {
+        val t = title.trim()
+        if (t.length < 3) return title
+        val open = t.first()
+        val close = t.last()
+        val paired = (open in DOUBLE_QUOTES && close in DOUBLE_QUOTES) || (open == '\'' && close == '\'')
+        if (!paired) return title
+        val inner = t.substring(1, t.length - 1).trim()
+        if (inner.isEmpty()) return title
+        for (i in inner.indices) {
+            val c = inner[i]
+            if (c !in DOUBLE_QUOTES && c != '\'') continue
+            val between = i > 0 && i < inner.length - 1 && inner[i - 1].isLetter() && inner[i + 1].isLetter()
+            if (!between) return title
+        }
+        return inner
+    }
+
+    private val DOUBLE_QUOTES = setOf('"', '\u05F4', '\u201C', '\u201D', '\u201E', '\u00AB', '\u00BB')
+
+    /**
      * Drops the Latin script leftovers from a title that is really in Hebrew.
      *
      * A bracketed aside or a trailing segment goes only when it contains no
@@ -359,7 +389,7 @@ object TagFixer {
             val songName = if (dropForeign) stripForeign(rawName) else rawName
             val artist = (fromTitle ?: cleanArtist(artistField)).trim()
             val repaired = repairNames(songName.ifEmpty { title }, artist.ifEmpty { artistField }, song.artistName, knowledge)
-            val newTitle = repaired.title.ifEmpty { song.title }
+            val newTitle = unquote(repaired.title.ifEmpty { song.title })
             // An album that was nothing but the site's name becomes the song's
             // own, as a single is its own album: it was one "album" of every
             // song the site ever served, all under one cover.

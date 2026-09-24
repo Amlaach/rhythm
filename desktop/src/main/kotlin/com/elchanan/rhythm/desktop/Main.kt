@@ -178,8 +178,11 @@ import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface2
 import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
+import com.elchanan.rhythm.ui.theme.ActionPill
 import com.elchanan.rhythm.ui.theme.TextTertiary
 import com.elchanan.rhythm.ui.theme.gradientFor
+import com.elchanan.rhythm.ui.theme.keyText
+import com.elchanan.rhythm.ui.theme.tempoAndKey
 import java.awt.Toolkit
 import java.io.File
 import java.lang.Runtime
@@ -2506,7 +2509,7 @@ private fun RhythmApp() {
             NavTab(tab, 0, "בית", Icons.Filled.Home) { go(0) }
             NavTab(tab, 1, "חיפוש", Icons.Filled.Search) { go(1) }
             NavTab(tab, 2, "ספרייה", Icons.Filled.LibraryMusic) { go(2) }
-            NavTab(tab, 3, "אמנים", Icons.Filled.Star) { go(3) }
+            NavTab(tab, 3, "דירוגים", Icons.Filled.Star) { go(3) }
         }
     }
 
@@ -3088,7 +3091,9 @@ private fun PlayerScreen(
                     .horizontalScroll(rememberScrollState())
                     .padding(top = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+                // Each action says what it is: a row of bare icons left people
+                // guessing which one was which.
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
             ) {
                 if (placement(PlayerAction.LIKE) == ActionPlacement.BUTTON) {
                     IconButton(onClick = onDislike) {
@@ -3107,49 +3112,39 @@ private fun PlayerScreen(
                     }
                 }
                 if (placement(PlayerAction.RADIO) == ActionPlacement.BUTTON) {
-                    IconButton(onClick = onRadio) {
-                        Icon(
-                            Icons.Filled.Radio,
-                            contentDescription = localized("התחל רדיו מהשיר"),
-                            tint = TextSecondary
-                        )
-                    }
+                    ActionPill(
+                        icon = Icons.Filled.Radio,
+                        label = "רדיו",
+                        onClick = onRadio
+                    )
                 }
                 if (placement(PlayerAction.DETAILS) == ActionPlacement.BUTTON) {
-                    IconButton(onClick = { detailsOpen = true }) {
-                        Icon(
-                            Icons.Filled.Info,
-                            contentDescription = localized("פרטי השיר"),
-                            tint = TextSecondary
-                        )
-                    }
+                    ActionPill(
+                        icon = Icons.Filled.Info,
+                        label = "פרטים",
+                        onClick = { detailsOpen = true }
+                    )
                 }
                 if (placement(PlayerAction.WHY) == ActionPlacement.BUTTON) {
-                    IconButton(onClick = { whyOpen = true }) {
-                        Icon(
-                            Icons.Filled.Insights,
-                            contentDescription = localized("למה זה הומלץ"),
-                            tint = TextSecondary
-                        )
-                    }
+                    ActionPill(
+                        icon = Icons.Filled.Insights,
+                        label = "למה הומלץ",
+                        onClick = { whyOpen = true }
+                    )
                 }
                 if (placement(PlayerAction.EQUALIZER) == ActionPlacement.BUTTON) {
-                    IconButton(onClick = onEqualizer) {
-                        Icon(
-                            Icons.Filled.GraphicEq,
-                            contentDescription = localized("אקולייזר"),
-                            tint = TextSecondary
-                        )
-                    }
+                    ActionPill(
+                        icon = Icons.Filled.GraphicEq,
+                        label = "אקולייזר",
+                        onClick = onEqualizer
+                    )
                 }
                 if (placement(PlayerAction.BOOKMARK) == ActionPlacement.BUTTON) {
-                    IconButton(onClick = onBookmarks) {
-                        Icon(
-                            Icons.Filled.BookmarkBorder,
-                            contentDescription = localized("סימניות"),
-                            tint = TextSecondary
-                        )
-                    }
+                    ActionPill(
+                        icon = Icons.Filled.BookmarkBorder,
+                        label = "סימניות",
+                        onClick = onBookmarks
+                    )
                 }
             }
             if (placement(PlayerAction.RATING) == ActionPlacement.BUTTON) {
@@ -3169,7 +3164,7 @@ private fun PlayerScreen(
                         Text(
                             // Key only. The modal estimate drives the engine
                             // but reads as jargon on screen.
-                            "${f.bpm.toInt()} BPM · ${Features.keyLabel(f.musicalKey, f.mode)}",
+                            tempoAndKey(f.bpm.toInt(), f.musicalKey, f.mode),
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary
                         )
@@ -3662,7 +3657,7 @@ private fun SongDetailsDialog(
                 if (feature != null) {
                     Spacer(Modifier.height(8.dp))
                     DetailLine("קצב", "${feature.bpm.toInt()} BPM")
-                    DetailLine("סולם", Features.modeLabel(feature))
+                    DetailLine("סולם", keyText(Features.modeLabel(feature)))
                 } else {
                     Spacer(Modifier.height(8.dp))
                     Text(

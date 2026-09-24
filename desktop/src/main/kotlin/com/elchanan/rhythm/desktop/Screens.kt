@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.desktop
 
+import com.elchanan.rhythm.ui.theme.CaptionedIconButton
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.foundation.background
@@ -1164,20 +1165,19 @@ internal fun ArtistsPane(
                 Text("דירוג אמנים וסגנונות", style = MaterialTheme.typography.headlineMedium)
                 Text(
                     text = "${artists.count { it.rating > 0 }} מתוך ${artists.size} דורגו · " +
-                        "לחיצה ארוכה = בחירה",
+                        "לחיצה ארוכה על אמן בוחרת כמה יחד",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
             }
             // The way in for a list written somewhere else. Rating a few
             // hundred artists one at a time is the job this avoids.
-            IconButton(onClick = { importOpen = true }) {
-                Icon(
-                    Icons.AutoMirrored.Filled.PlaylistAddCheck,
-                    contentDescription = localized("הזנה מרוכזת"),
-                    tint = Accent
-                )
-            }
+            CaptionedIconButton(
+                Icons.AutoMirrored.Filled.PlaylistAddCheck,
+                "הזנה מרוכזת",
+                { importOpen = true },
+                tint = Accent
+            )
         }
         OutlinedTextField(
             value = filter,

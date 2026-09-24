@@ -74,6 +74,7 @@ import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
 import com.elchanan.rhythm.ui.theme.BgElevated
+import com.elchanan.rhythm.ui.theme.CaptionedIconButton
 import com.elchanan.rhythm.ui.theme.Surface1
 import com.elchanan.rhythm.ui.theme.Surface3
 import com.elchanan.rhythm.ui.theme.TextPrimary
@@ -131,16 +132,15 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
                     color = TextSecondary
                 )
             }
-            IconButton(onClick = { bulkOpen = true }) {
-                Icon(Icons.Filled.PostAdd, contentDescription = localized("הזנה מרוכזת"), tint = Accent)
-            }
-            IconButton(onClick = {
+            // Named, not bare glyphs: a red note and two squares said
+            // nothing about typing in many ratings at once or copying them.
+            CaptionedIconButton(Icons.Filled.PostAdd, "הזנה מרוכזת", { bulkOpen = true }, tint = Accent)
+            CaptionedIconButton(Icons.Filled.ContentCopy, "העתק גיבוי", {
                 scope.launch {
                     clipboard.setText(AnnotatedString(vm.exportArtistsJson()))
                 }
-            }) {
-                Icon(Icons.Filled.ContentCopy, contentDescription = localized("העתק גיבוי"), tint = TextSecondary)
-            }
+                vm.toast("הגיבוי הועתק")
+            })
         }
 
         TextField(
@@ -185,7 +185,8 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = gutter, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Chip(
                         label = "בחר הכל (${artists.size})",
@@ -195,10 +196,13 @@ fun ArtistRatingsScreen(vm: MainViewModel, onOpenArtist: () -> Unit) {
                             else artists.map { it.key }.toSet()
                         }
                     )
-                    Chip(
-                        label = "לחיצה ארוכה = בחירה",
-                        selected = false,
-                        onClick = { }
+                    // A hint, and drawn as one. It used to be a chip like the
+                    // button beside it, and pressing it did nothing.
+                    Text(
+                        "לחיצה ארוכה על אמן בוחרת כמה יחד",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextTertiary,
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -304,7 +308,13 @@ private fun RatingRow(
     onOpen: () -> Unit,
     onLongPress: () -> Unit
 ) {
-    val gutter = rememberMetrics().gutter
+    val metrics = rememberMetrics()
+    val gutter = metrics.gutter
+    // The stars beside the name, on one line, wherever there is room for
+    // them: stacked under it, every artist took a tall card of mostly empty
+    // space and a library of sixty was a long scroll. A narrow phone keeps
+    // them underneath, where the name still has the width to be read.
+    val inline = !metrics.isCompact
     val top = artist.songs.firstOrNull()
     Row(
         modifier = Modifier
@@ -316,7 +326,7 @@ private fun RatingRow(
             // screen looked emptier than the rest of the app.
             .background(if (selected) Accent.copy(alpha = 0.18f) else Surface1)
             .combinedClickable(onClick = onOpen, onLongClick = onLongPress)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = if (inline) 8.dp else 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (selectionMode) {
@@ -356,8 +366,14 @@ private fun RatingRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(6.dp))
-            StarRow(rating = artist.rating, onRate = onRate, size = 20)
+            if (!inline) {
+                Spacer(Modifier.height(6.dp))
+                StarRow(rating = artist.rating, onRate = onRate, size = 20)
+            }
+        }
+        if (inline) {
+            Spacer(Modifier.width(8.dp))
+            StarRow(rating = artist.rating, onRate = onRate, size = 22)
         }
     }
 }

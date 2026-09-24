@@ -106,7 +106,9 @@ private val TABS = listOf(
     Tab(Routes.HOME, "בית", Icons.Filled.Home),
     Tab(Routes.SEARCH, "חיפוש", Icons.Filled.Search),
     Tab(Routes.LIBRARY, "ספרייה", Icons.Filled.LibraryMusic),
-    Tab(Routes.RATINGS, "אמנים", Icons.Filled.Star)
+    // "דירוגים", not "אמנים": the library already has an artists tab, and
+    // this one is where they are rated - which is what the star says.
+    Tab(Routes.RATINGS, "דירוגים", Icons.Filled.Star)
 )
 
 /** The folders' own tab, beside the library, for those who chose it. */
