@@ -1740,6 +1740,8 @@ object UiStrings {
         "מאמנים שנתת להם 4 כוכבים ומעלה" to "From artists you gave 4 stars or more",
         "שירים שנשמעים דומה" to "Songs that sound alike",
         "הזנה" to "Import",
-        "גיבוי" to "Backup"
+        "גיבוי" to "Backup",
+        "תקן" to "Fix",
+        "לתקן לאמן אחד?" to "Fix into one artist?"
     )
 }

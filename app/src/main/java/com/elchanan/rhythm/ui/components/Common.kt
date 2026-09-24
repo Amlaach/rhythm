@@ -504,10 +504,11 @@ fun MixCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(0.38f)
-                        // Graphite, not a dark wash over the mix's colour: over the
-                        // gradient it came out a heavy purple or green block
-                        // under every collage. The covers bring the colour.
-                        .background(Surface2)
+                        // A dark wash over the mix's own colour, so each mix keeps
+                        // its tint under the covers - the owner prefers it to
+                        // a plain graphite strip - and the white title stays
+                        // readable on any of them.
+                        .background(Color.Black.copy(alpha = 0.55f))
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     Text(

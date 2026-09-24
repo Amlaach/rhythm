@@ -999,7 +999,7 @@ private fun ArtistMergeSuggestions(
                 Text(if (pairs.size == 1) "אמן אחד שנראה כפול" else "${pairs.size} אמנים שנראים כפולים")
                 Text("אותו אמן בשני איותים. אפשר לאחד אותם לאמן אחד", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
             }
-            Button(onClick = { show = true }, enabled = !busy) { Text("בדיקה") }
+            Button(onClick = { show = true }, enabled = !busy) { Text("תקן") }
         }
     }
     if (show && selected == null) {
@@ -1010,8 +1010,36 @@ private fun ArtistMergeSuggestions(
             text = {
                 LazyColumn(Modifier.heightIn(max = 400.dp)) {
                     items(pairs) { pair ->
-                        TextButton(onClick = { selected = pair; keepFirst = true }, enabled = !busy) {
-                            Text("${pair.first.displayName} / ${pair.second.displayName}")
+                        // Each pair with a button that says what it does. A
+                        // bare pair of names read as information, not as
+                        // something to act on. The name that stays starts on
+                        // the one with more songs, which is usually the one
+                        // the tags agree on; the next step can switch it.
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(pair.first.displayName, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    pair.second.displayName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextSecondary
+                                )
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(if (busy) Surface2 else Accent)
+                                    .clickable(enabled = !busy) {
+                                        selected = pair
+                                        keepFirst = pair.first.songs.size >= pair.second.songs.size
+                                    }
+                                    .padding(horizontal = 16.dp, vertical = 7.dp)
+                            ) {
+                                Text("תקן", style = MaterialTheme.typography.labelLarge, color = Color.White)
+                            }
                         }
                     }
                 }
@@ -1025,7 +1053,7 @@ private fun ArtistMergeSuggestions(
         AlertDialog(
             onDismissRequest = { selected = null },
             containerColor = Surface1,
-            title = { Text("לאחד את האמנים?") },
+            title = { Text("לתקן לאמן אחד?") },
             text = {
                 DialogBody {
                     Column(Modifier.fillMaxWidth()) {
@@ -1045,7 +1073,7 @@ private fun ArtistMergeSuggestions(
                     onMerge(source, target)
                     selected = null
                     show = false
-                }) { Text("אחד", color = Accent) }
+                }) { Text("תקן", color = Accent) }
             },
             dismissButton = { TextButton(onClick = { selected = null }) { Text("ביטול", color = TextSecondary) } }
         )
