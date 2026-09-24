@@ -130,3 +130,17 @@ User reports that point to this issue:
   desktop: Components.kt), which caps it to about half the window and
   scrolls. Never put a LazyColumn inside it.
 - The owner wants the home top bar as bare icons, no captions.
+
+## In-app updates (Android only)
+
+- Every push to main, when the APK is signed with the repository keystore,
+  publishes a GitHub release `v1.1.<run>` holding `rhythm-1.1.<run>.apk`
+  and `update.json` (versionCode, versionName, url, sha256, size). The last
+  step of `build.yml` does it; pull requests never publish.
+- `update/Updater.kt` reads `releases/latest/download/update.json`, only
+  with a validated connection, downloads the APK into the cache, checks its
+  SHA-256 and hands it to PackageInstaller (which refuses another key).
+- The owner's rule: someone without the internet sees no trace of it. So
+  nothing about updates shows until a check has once reached the server
+  (`Prefs.updatesReachable`); every failure is silent. The only network use
+  in the app is this one file and the APK it names.

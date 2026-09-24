@@ -2614,6 +2614,7 @@ private fun RhythmApp() {
                             }
                         },
                         onBulkDelete = { deleteSongs(it) },
+                        onBulkHide = { hideSongs(it) },
                         onBulkAddTo = { playlistId, ids ->
                             scope.launch {
                                 withContext(Dispatchers.IO) {

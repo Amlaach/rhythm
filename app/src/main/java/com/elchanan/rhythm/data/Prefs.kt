@@ -491,6 +491,29 @@ class Prefs(context: Context) {
             .mapNotNullTo(LinkedHashSet()) { it.trim().toLongOrNull() }
         set(value) = sp.edit { putString("hidden_songs", value.joinToString(",")) }
 
+    /**
+     * Updates (see update/Updater.kt). [updatesReachable] turns true the
+     * first time a check reaches the server and never before, so a phone
+     * without the internet never shows anything about updates at all.
+     */
+    var updatesReachable: Boolean
+        get() = sp.getBoolean("updates_reachable", false)
+        set(value) = sp.edit { putBoolean("updates_reachable", value) }
+
+    var lastUpdateCheck: Long
+        get() = sp.getLong("update_checked_at", 0L)
+        set(value) = sp.edit { putLong("update_checked_at", value) }
+
+    /** The newest release a check found, as update.json said it, so the banner survives a restart. */
+    var knownRelease: String
+        get() = sp.getString("update_release", "").orEmpty()
+        set(value) = sp.edit { putString("update_release", value) }
+
+    /** The version whose banner was closed; a newer one brings it back. */
+    var updateDismissed: Int
+        get() = sp.getInt("update_dismissed", 0)
+        set(value) = sp.edit { putInt("update_dismissed", value) }
+
     /** Name songs by their file rather than by their tags. See FileTitles. */
     var titlesFromFiles: Boolean
         get() = sp.getBoolean("titles_from_files", false)

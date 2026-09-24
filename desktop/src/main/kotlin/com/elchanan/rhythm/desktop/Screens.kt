@@ -273,7 +273,8 @@ internal fun LibraryPane(
     onBulkAddTo: (Long, List<Long>) -> Unit,
     onBulkGenre: (List<Long>, String) -> Unit,
     onTagFolder: (List<Long>, List<String>, Boolean) -> Unit,
-    onBulkDelete: (List<SongEntity>) -> Unit
+    onBulkDelete: (List<SongEntity>) -> Unit,
+    onBulkHide: (List<SongEntity>) -> Unit = {}
 ) {
     // Opens on whichever tab the settings name, and only reads that setting
     // once - changing it later should not yank the screen out from under
@@ -368,6 +369,10 @@ internal fun LibraryPane(
                 },
                 onDelete = {
                     onBulkDelete(chosen)
+                    selection = emptySet()
+                },
+                onHide = {
+                    onBulkHide(chosen)
                     selection = emptySet()
                 }
             )
@@ -858,7 +863,9 @@ private fun SelectionBar(
     onQueue: () -> Unit,
     onAddTo: () -> Unit,
     onGenre: (String) -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    /** Hide from the player, as on the phone; null leaves the button out. */
+    onHide: (() -> Unit)? = null
 ) {
     var rateOpen by remember { mutableStateOf(false) }
     var genreOpen by remember { mutableStateOf(false) }
@@ -891,6 +898,7 @@ private fun SelectionBar(
         BarAction(Icons.Filled.Star, "דרג") { rateOpen = true }
         BarAction(Icons.AutoMirrored.Filled.PlaylistAdd, "לרשימה", onAddTo)
         BarAction(Icons.Filled.LocalOffer, "ז'אנר") { genreOpen = true }
+        if (onHide != null) BarAction(Icons.Filled.VisibilityOff, "הסתר", onHide)
         BarAction(Icons.Filled.Delete, "מחק") { deleteOpen = true }
     }
 
