@@ -46,6 +46,7 @@ enum class SongMenuItem(val key: String, val label: String) {
     TAGS("tags", "תגיות סגנון לשיר"),
     MOOD("mood", "מצב רוח"),
     ARTIST("artist", "עבור לאמן"),
+    ARTIST_RATING("artist_rating", "דירוג האמן"),
     ALBUM("album", "עבור לאלבום"),
     GENRE("genre", "שנה ז'אנר"),
     EDIT("edit", "עריכת תגיות"),
@@ -53,6 +54,7 @@ enum class SongMenuItem(val key: String, val label: String) {
     SPOKEN("spoken", "הרצאה או מוזיקה"),
     VOCAL("vocal", "ווקאלי"),
     RESET("reset", "אפס את מספר ההשמעות"),
+    HIDE("hide", "הסתר מהנגן"),
     DELETE("delete", "מחק את הקובץ מהמכשיר")
 }
 

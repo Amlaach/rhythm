@@ -40,6 +40,9 @@ enum class PlayerAction(
     RADIO("radio", "התחל רדיו", "השמעה אינסופית מהשיר", ActionPlacement.BUTTON),
     LYRICS("lyrics", "מילות השיר", "נגללות עם הזמן כשיש קובץ LRC", ActionPlacement.MENU),
     RATING("rating", "דירוג בכוכבים", "שורת הכוכבים מתחת לשם", ActionPlacement.BUTTON),
+    // In the menu to begin with, like every control that came after the
+    // player was laid out; a button puts the singer's stars on the screen.
+    ARTIST_RATING("artist_rating", "דירוג האמן", "כוכבים לאמן של השיר, בלי לצאת מהנגן", ActionPlacement.MENU),
     ADD_TO_PLAYLIST("playlist", "הוספה לרשימה", "", ActionPlacement.MENU),
     DETAILS("details", "פרטי השיר", "קובץ, קצב, סולם ומיקום בדיסק", ActionPlacement.MENU),
     WHY("why", "למה זה הומלץ", "פירוק הניקוד שהמנוע נתן", ActionPlacement.MENU),
@@ -49,6 +52,7 @@ enum class PlayerAction(
     VOLUME("volume", "עוצמת הנגן", "עוצמה משלו, בלי לגעת בעוצמת הטלפון", ActionPlacement.BUTTON),
     BOOKMARK("bookmark", "סימניות", "סימון מקום בהקלטה וחזרה אליו", ActionPlacement.MENU),
     SHARE("share", "שיתוף", "שליחת קובץ השיר לאפליקציה אחרת", ActionPlacement.MENU),
+    HIDE("hide", "הסתרה מהנגן", "השיר נעלם מכל הרשימות, ואפשר להחזיר אותו בהגדרות", ActionPlacement.MENU),
     DELETE("delete", "מחיקת הקובץ", "מוחק מהמכשיר, לא רק מהספרייה", ActionPlacement.HIDDEN);
 
     companion object {

@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.platform.LocalConfiguration
 import com.elchanan.rhythm.ui.components.DialogBody
 import com.elchanan.rhythm.ui.components.fitHeight
@@ -657,6 +658,13 @@ fun PlayerScreen(
                                 onClick = { bookmarksOpen = true }
                             )
                         }
+                        if (placement(PlayerAction.HIDE) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.VisibilityOff,
+                                label = "הסתר",
+                                onClick = { vm.hideSongs(listOf(song)) }
+                            )
+                        }
                     }
 
                     Spacer(Modifier.height(6.dp))
@@ -684,6 +692,28 @@ fun PlayerScreen(
                             )
                         }
                     }
+                    }
+                    // The singer's stars, when the listener put them on the
+                    // player. Labelled, like the song's, so the two rows are
+                    // never read as each other.
+                    val artist = library.artists.firstOrNull { it.key == song.artistKey }
+                    if (artist != null && placement(PlayerAction.ARTIST_RATING) == ActionPlacement.BUTTON) {
+                        Row(
+                            modifier = Modifier.padding(top = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "דירוג האמן",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = TextSecondary
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            StarRow(
+                                rating = artist.rating,
+                                onRate = { vm.rateArtist(artist.key, artist.displayName, it, artist.styles, artist.note) },
+                                size = 20
+                            )
+                        }
                     }
 
                     Spacer(Modifier.height(6.dp))
@@ -951,7 +981,9 @@ fun PlayerScreen(
             onShowLyrics = {
                 showLyrics = true
                 showQueue = false
-            }
+            },
+            showArtistRating = placement(PlayerAction.ARTIST_RATING) != ActionPlacement.HIDDEN,
+            showHide = placement(PlayerAction.HIDE) != ActionPlacement.HIDDEN
         )
     }
 }

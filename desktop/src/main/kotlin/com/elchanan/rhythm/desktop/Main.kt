@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.desktop
 
+import androidx.compose.material.icons.filled.VisibilityOff
+import com.elchanan.rhythm.data.FileTitles
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
@@ -318,6 +320,9 @@ private fun RhythmApp() {
     // The song the options dialog is open on, if any. Held here rather than
     // inside each screen so every list in the app opens the same one.
     var options by remember { mutableStateOf<SongEntity?>(null) }
+    // Whether the song menu was opened from the player, whose arrangement can
+    // leave two of its rows out.
+    var optionsFromPlayer by remember { mutableStateOf(false) }
     val prefs = remember(store) { Prefs(store).also { UiLanguage.code = it.language } }
     // Read once: a nudge that has been turned down stays down, and the flag
     // only ever changes from this screen.
@@ -1681,6 +1686,55 @@ private fun RhythmApp() {
 
     fun deleteSong(song: SongEntity) = deleteSongs(listOf(song))
 
+    /**
+     * "Hide from the player", as on the phone: gone from every list, search
+     * and shelf and from the queue, the file untouched, and back from the
+     * library settings. The song playing is moved on from, to the one after it.
+     */
+    fun hideSongs(list: List<SongEntity>) {
+        if (list.isEmpty()) return
+        val ids = list.mapTo(HashSet()) { it.id }
+        val playing = queue.getOrNull(queueIndex)
+        val without = queue.filterNot { it.id in ids }
+        if (without.size != queue.size) {
+            if (playing != null && playing.id in ids) {
+                // The first song still there after the one that was playing.
+                val after = queue.drop(queueIndex + 1).firstOrNull { it.id !in ids }
+                queue = without
+                if (after == null) {
+                    queueIndex = -1
+                    player.stop()
+                } else {
+                    play(without, without.indexOf(after))
+                }
+            } else {
+                queue = without
+                queueIndex = without.indexOfFirst { it.id == playing?.id }
+            }
+        }
+        scope.launch {
+            withContext(Dispatchers.IO) { prefs.hiddenSongs = prefs.hiddenSongs + ids }
+            reload()
+            status = if (list.size == 1) "הוסתר מהנגן: ${list[0].title}" else "${list.size} שירים הוסתרו מהנגן"
+        }
+    }
+
+    fun unhideSongs(ids: Collection<Long>) {
+        if (ids.isEmpty()) return
+        scope.launch {
+            withContext(Dispatchers.IO) { prefs.hiddenSongs = prefs.hiddenSongs - ids.toSet() }
+            reload()
+            status = if (ids.size == 1) "השיר חזר לנגן" else "${ids.size} שירים חזרו לנגן"
+        }
+    }
+
+    fun setTitlesFromFiles(enabled: Boolean) {
+        scope.launch {
+            withContext(Dispatchers.IO) { prefs.titlesFromFiles = enabled }
+            reload()
+        }
+    }
+
     fun removeFromPlaylist(id: Long, song: SongEntity) {
         scope.launch {
             withContext(Dispatchers.IO) { store.removeFromPlaylist(id, song.id) }
@@ -1847,6 +1901,15 @@ private fun RhythmApp() {
             inPlaylist = (stack.lastOrNull() as? Route.Detail)?.list?.playlistId,
             onDismiss = { options = null },
             onRate = { rate(song, it) },
+            artistName = library.artists.firstOrNull { it.key == song.artistKey }
+                ?.takeIf { !optionsFromPlayer || placement(PlayerAction.ARTIST_RATING) != ActionPlacement.HIDDEN }
+                ?.displayName,
+            artistRating = library.artists.firstOrNull { it.key == song.artistKey }?.rating ?: 0,
+            onRateArtist = { stars ->
+                library.artists.firstOrNull { it.key == song.artistKey }?.let { rateArtist(it, stars) }
+            },
+            onHide = if (optionsFromPlayer && placement(PlayerAction.HIDE) == ActionPlacement.HIDDEN) null
+                else { { hideSongs(listOf(song)) } },
             onRadio = { startRadio(song) },
             onMix = { createMix(song) },
             onRemoveFromPlaylist = {
@@ -1990,7 +2053,12 @@ private fun RhythmApp() {
             onRepeat = { cycleRepeat() },
             sleepArmed = SleepTimer.remainingMs() != null || SleepTimer.stopAfterTrack,
             onSleep = { sleepOpen = true },
-            onMore = { options = current }
+            onMore = { optionsFromPlayer = true; options = current },
+            artistRating = library.artists.firstOrNull { it.key == current.artistKey }?.rating,
+            onRateArtist = { stars ->
+                library.artists.firstOrNull { it.key == current.artistKey }?.let { rateArtist(it, stars) }
+            },
+            onHide = { hideSongs(listOf(current)) }
         )
         SleepAndBookmarks(
             song = current,
@@ -2065,7 +2133,7 @@ private fun RhythmApp() {
                         onShuffle = { shuffleList(it) },
                         onLike = { like(it) },
                         onDislike = { dislike(it) },
-                        onMore = { options = it },
+                        onMore = { optionsFromPlayer = false; options = it },
                         onRemove = data.playlistId?.let { id ->
                             { song: SongEntity -> removeFromPlaylist(id, song) }
                         }
@@ -2098,7 +2166,7 @@ private fun RhythmApp() {
                             onTag = { tagArtist(info, it) },
                             onLike = { like(it) },
                             onDislike = { dislike(it) },
-                            onMore = { options = it },
+                            onMore = { optionsFromPlayer = false; options = it },
                             onOpenAlbum = { id ->
                                 library.albums.firstOrNull { it.albumId == id }?.let { album ->
                                     stack = stack + Route.Detail(
@@ -2155,6 +2223,14 @@ private fun RhythmApp() {
                             reload()
                         }
                     },
+                    hiddenSongs = produceState(emptyList<SongEntity>(), songs) {
+                        value = withContext(Dispatchers.IO) {
+                            val hidden = prefs.hiddenSongs
+                            if (hidden.isEmpty()) emptyList() else store.songs().filter { it.id in hidden }
+                        }
+                    }.value,
+                    onUnhide = { unhideSongs(it) },
+                    onTitlesFromFiles = { setTitlesFromFiles(it) },
                     onOpenAlgorithm = { stack = stack + Route.Algorithm },
                     onOpenTags = {
                         buildProposals()
@@ -2417,7 +2493,7 @@ private fun RhythmApp() {
                         },
                         onPlay = { list, index -> play(list, index) },
                         onOpenList = { stack = stack + Route.Detail(it) },
-                        onMore = { options = it }
+                        onMore = { optionsFromPlayer = false; options = it }
                     )
                     1 -> SearchPane(
                         query = query,
@@ -2450,7 +2526,7 @@ private fun RhythmApp() {
                         onPlay = { list, index -> play(list, index) },
                         onLike = { like(it) },
                         onDislike = { dislike(it) },
-                        onMore = { options = it },
+                        onMore = { optionsFromPlayer = false; options = it },
                         onOpenList = { stack = stack + Route.Detail(it) },
                         onBack = { go(0) }
                     )
@@ -2461,7 +2537,7 @@ private fun RhythmApp() {
                         onPlay = { list, index -> play(list, index) },
                         onLike = { like(it) },
                         onDislike = { dislike(it) },
-                        onMore = { options = it },
+                        onMore = { optionsFromPlayer = false; options = it },
                         onOpenList = { stack = stack + Route.Detail(it) },
                         onOpenArtist = { stack = stack + Route.Artist(it.key) },
                         onOpenAlbums = { stack = stack + Route.Albums },
@@ -2764,6 +2840,12 @@ private fun filterLibrary(
     prefs: Prefs
 ): List<SongEntity> {
     var out = songs
+    // Hidden songs are nowhere, and songs named by their files are named so
+    // for the engine as well as the screens - search runs through it. Neither
+    // changes anything until asked for.
+    val hidden = prefs.hiddenSongs
+    if (hidden.isNotEmpty()) out = out.filter { it.id !in hidden }
+    if (prefs.titlesFromFiles) out = FileTitles.apply(out)
     if (prefs.skipRecordings) {
         out = out.filterNot {
             Names.looksLikeRecording(
@@ -3076,7 +3158,11 @@ private fun PlayerScreen(
     onJumpTo: (Int) -> Unit,
     onRemoveFromQueue: (Int) -> Unit,
     resumeAt: Long?,
-    onSaveLyrics: (String, String) -> Unit
+    onSaveLyrics: (String, String) -> Unit,
+    /** The singer's stars, null when the artist has no profile to rate. */
+    artistRating: Int? = null,
+    onRateArtist: (Int) -> Unit = {},
+    onHide: () -> Unit = {}
 ) {
     var scrub by remember { mutableStateOf<Float?>(null) }
     // The two panels the phone opens inside the player rather than beside it:
@@ -3291,6 +3377,13 @@ private fun PlayerScreen(
                                 onClick = onBookmarks
                             )
                         }
+                        if (placement(PlayerAction.HIDE) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.VisibilityOff,
+                                label = "הסתר",
+                                onClick = onHide
+                            )
+                        }
                     }
                     if (placement(PlayerAction.RATING) == ActionPlacement.BUTTON) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -3314,6 +3407,21 @@ private fun PlayerScreen(
                                     color = TextSecondary
                                 )
                             }
+                        }
+                    }
+                    // The singer's stars, when put on the player - the phone's row.
+                    if (artistRating != null && placement(PlayerAction.ARTIST_RATING) == ActionPlacement.BUTTON) {
+                        Row(
+                            modifier = Modifier.padding(top = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "דירוג האמן",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = TextSecondary
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            StarRow(rating = artistRating, onRate = onRateArtist, size = 20)
                         }
                     }
                 }

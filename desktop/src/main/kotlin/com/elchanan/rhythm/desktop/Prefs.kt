@@ -118,6 +118,22 @@ class Prefs(private val store: Store) {
         get() = flag("hideDuplicates", false)
         set(value) = set("hideDuplicates", value)
 
+    /**
+     * Songs hidden from the player: gone from every list, search and shelf,
+     * as if deleted, while the file and what was learned about it stay. The
+     * phone keeps the same list of its own.
+     */
+    var hiddenSongs: Set<Long>
+        get() = store.get("hiddenSongs").orEmpty()
+            .split(',')
+            .mapNotNullTo(LinkedHashSet()) { it.trim().toLongOrNull() }
+        set(value) = store.put("hiddenSongs", value.joinToString(","))
+
+    /** Songs named by their files instead of their tags. See FileTitles. */
+    var titlesFromFiles: Boolean
+        get() = flag("titlesFromFiles", false)
+        set(value) = set("titlesFromFiles", value)
+
     /** Open the full player when something starts, rather than staying put. */
     var openPlayerOnPlay: Boolean
         get() = flag("openPlayerOnPlay", false)

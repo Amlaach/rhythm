@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.material.icons.filled.VisibilityOff
 import com.elchanan.rhythm.ui.components.DialogBody
 import com.elchanan.rhythm.ui.components.fitHeight
 import com.elchanan.rhythm.ui.theme.localized
@@ -861,6 +862,11 @@ internal fun SelectionBar(vm: MainViewModel) {
                     text = { Text("שתף") },
                     leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
                     onClick = { moreOpen = false; vm.shareSongs(songs); onClear() }
+                )
+                DropdownMenuItem(
+                    text = { Text("הסתר מהנגן") },
+                    leadingIcon = { Icon(Icons.Filled.VisibilityOff, contentDescription = null) },
+                    onClick = { moreOpen = false; vm.hideSongs(songs); onClear() }
                 )
                 DropdownMenuItem(
                     text = { Text("מחק", color = Color_Error) },

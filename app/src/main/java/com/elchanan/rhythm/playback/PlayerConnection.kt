@@ -243,6 +243,17 @@ class PlayerConnection(
         }
     }
 
+    /** Every entry of [ids] still to come, leaving the one playing where it is. */
+    fun removeUpcoming(ids: Set<Long>) {
+        val c = controller ?: return
+        val current = c.currentMediaItemIndex
+        for (i in c.mediaItemCount - 1 downTo 0) {
+            if (i == current) continue
+            val id = c.getMediaItemAt(i).mediaId.toLongOrNull() ?: continue
+            if (id in ids) c.removeMediaItem(i)
+        }
+    }
+
     fun removeAt(index: Int) {
         val c = controller ?: return
         if (index in 0 until c.mediaItemCount) c.removeMediaItem(index)

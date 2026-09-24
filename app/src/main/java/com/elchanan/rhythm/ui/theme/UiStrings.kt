@@ -1796,6 +1796,25 @@ object UiStrings {
         "סימנת בעצמך · הזיהוי האוטומטי: כן" to "Marked by you · automatic reading: yes",
         "סימנת בעצמך · הזיהוי האוטומטי: לא" to "Marked by you · automatic reading: no",
         "הזיהוי האוטומטי: כן" to "Automatic reading: yes",
-        "הזיהוי האוטומטי: לא" to "Automatic reading: no"
+        "הזיהוי האוטומטי: לא" to "Automatic reading: no",
+        "ככל שגבוה יותר, שיר שהתנגן לאחרונה ירד בדירוג. מעל האמצע הוא גם נשאר למטה יותר זמן, עד שבוע בקצה" to "The higher, the lower a recently played song ranks. Past the middle it also stays down longer, up to a week at the far end",
+        "משם הקובץ: \${fromFile}" to "From the file name: \${fromFile}",
+        "הסתר מהנגן" to "Hide from the player",
+        "הסתר" to "Hide",
+        "הוסתר מהנגן: \${songs[0].title}" to "Hidden from the player: \${songs[0].title}",
+        "\${songs.size} שירים הוסתרו מהנגן" to "\${songs.size} songs hidden from the player",
+        "השיר חזר לנגן" to "The song is back in the player",
+        "\${ids.size} שירים חזרו לנגן" to "\${ids.size} songs are back in the player",
+        "שם הקובץ במקום שם השיר" to "File name instead of song title",
+        "לשירים שהתגיות שלהם שגויות: כל שיר ייקרא בשם הקובץ שלו, בכל מקום באפליקציה. הקבצים עצמם לא משתנים" to "For songs with wrong tags: every song goes by its file name, everywhere in the app. The files themselves are not changed",
+        "שירים מוסתרים (\${hidden.size})" to "Hidden songs (\${hidden.size})",
+        "שירים שהסתרת מהנגן. אפשר להחזיר אותם מכאן" to "Songs you hid from the player. You can bring them back here",
+        "שירים מוסתרים" to "Hidden songs",
+        "החזר" to "Restore",
+        "החזר הכל" to "Restore all",
+        "הסתרה מהנגן" to "Hide from the player",
+        "השיר נעלם מכל הרשימות, ואפשר להחזיר אותו בהגדרות" to "The song disappears from every list; it can be brought back in the settings",
+        "כוכבים לאמן של השיר, בלי לצאת מהנגן" to "Stars for the song's artist, without leaving the player",
+        "דירוג האמן · \${artistName}" to "Artist rating · \${artistName}"
     )
 }

@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.desktop
 
+import androidx.compose.runtime.LaunchedEffect
+import com.elchanan.rhythm.data.db.SongEntity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -123,6 +125,10 @@ internal fun SettingsScreen(
     /** The recap and the feed refresh, which were buttons on the home screen. */
     onOpenRecap: () -> Unit = {},
     onRefreshFeed: () -> Unit = {},
+    /** The songs hidden from the player, as their tags name them, and the way back. */
+    hiddenSongs: List<SongEntity> = emptyList(),
+    onUnhide: (List<Long>) -> Unit = {},
+    onTitlesFromFiles: (Boolean) -> Unit = {},
     /** Whether the AI models loaded, in a sentence. */
     modelStatus: String,
     busy: Boolean,
@@ -143,6 +149,8 @@ internal fun SettingsScreen(
     var writeTags by remember { mutableStateOf(prefs.writeTagsToFiles) }
     var resumeSpoken by remember { mutableStateOf(prefs.resumeSpoken) }
     var skipRecordings by remember { mutableStateOf(prefs.skipRecordings) }
+    var titlesFromFiles by remember { mutableStateOf(prefs.titlesFromFiles) }
+    var hiddenOpen by remember { mutableStateOf(false) }
     var pinMoodRow by remember { mutableStateOf(prefs.pinMoodRow) }
     var firstTab by remember { mutableStateOf(prefs.libraryFirstTab) }
     var minDuration by remember { mutableStateOf(prefs.minDurationSec.toFloat()) }
@@ -454,6 +462,26 @@ internal fun SettingsScreen(
                     resumeSpoken = it
                     prefs.resumeSpoken = it
                 }
+                SwitchRow(
+                    title = "שם הקובץ במקום שם השיר",
+                    subtitle = "לשירים שהתגיות שלהם שגויות: כל שיר ייקרא בשם הקובץ שלו, " +
+                        "בכל מקום באפליקציה. הקבצים עצמם לא משתנים",
+                    checked = titlesFromFiles
+                ) {
+                    titlesFromFiles = it
+                    onTitlesFromFiles(it)
+                }
+                // Only once something was hidden: an empty list behind a
+                // button is a button to nowhere.
+                if (hiddenSongs.isNotEmpty()) {
+                    ActionRow(
+                        title = "שירים מוסתרים (${hiddenSongs.size})",
+                        subtitle = "שירים שהסתרת מהנגן. אפשר להחזיר אותם מכאן",
+                        action = "הצג",
+                        enabled = true,
+                        primary = false
+                    ) { hiddenOpen = true }
+                }
             }
 
             if (page == SettingsPage.LIBRARY) item {
@@ -631,6 +659,50 @@ internal fun SettingsScreen(
             }
 
         }
+    }
+
+    if (hiddenOpen) {
+        // Closed by itself once the last one is back.
+        LaunchedEffect(hiddenSongs.isEmpty()) { if (hiddenSongs.isEmpty()) hiddenOpen = false }
+        AlertDialog(
+            onDismissRequest = { hiddenOpen = false },
+            containerColor = Surface1,
+            title = { Text("שירים מוסתרים") },
+            text = {
+                DialogBody {
+                    Column {
+                        for (song in hiddenSongs) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        song.artistName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = TextSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                TextButton(onClick = { onUnhide(listOf(song.id)) }) {
+                                    Text("החזר", color = Accent)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { onUnhide(hiddenSongs.map { it.id }); hiddenOpen = false }) {
+                    Text("החזר הכל", color = Accent)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { hiddenOpen = false }) { Text("סגור", color = TextSecondary) }
+            }
+        )
     }
 
     if (foldersOpen) {
@@ -982,7 +1054,7 @@ internal fun AlgorithmSettingsScreen(
                     ) { onChange(tuning.copy(acousticWeight = it)) }
                     Knob(
                         "מניעת חזרתיות", tuning.repeatGuard, 0f..2f,
-                        "ככל שגבוה יותר, שיר שהתנגן לאחרונה ירד בדירוג"
+                        "ככל שגבוה יותר, שיר שהתנגן לאחרונה ירד בדירוג. מעל האמצע הוא גם נשאר למטה יותר זמן, עד שבוע בקצה"
                     ) { onChange(tuning.copy(repeatGuard = it)) }
                     // A slider moves under a pointer that was only passing,
                     // and nothing said where it started. Asked first, because

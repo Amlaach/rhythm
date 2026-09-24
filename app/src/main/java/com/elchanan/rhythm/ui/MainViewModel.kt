@@ -2412,6 +2412,52 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         refreshFeed()
     }
 
+    /**
+     * "Hide from the player": the song is gone from every list, search and
+     * shelf, and from what is still to come in the queue, as if deleted - but
+     * the file and everything learned about it stay, and it comes back from
+     * the library settings.
+     */
+    fun hideSongs(songs: List<SongEntity>) {
+        if (songs.isEmpty()) return
+        val ids = songs.mapTo(HashSet()) { it.id }
+        repo.setHidden(ids, true)
+        // The song playing is moved on from, not left: the player finds what
+        // it shows in the library, and a hidden song is no longer there.
+        val playing = player.state.value.currentSongId
+        if (playing != null && playing in ids) {
+            val q = player.state.value
+            val hasNext = q.queueIds.drop(q.queueIndex + 1).any { it !in ids }
+            if (hasNext) player.next() else player.stop()
+        }
+        player.removeUpcoming(ids)
+        _selection.value = _selection.value - ids
+        refreshHiddenSongs()
+        refreshFeed()
+        _message.value = if (songs.size == 1) "הוסתר מהנגן: ${songs[0].title}" else "${songs.size} שירים הוסתרו מהנגן"
+    }
+
+    fun unhideSongs(ids: Collection<Long>) {
+        if (ids.isEmpty()) return
+        repo.setHidden(ids, false)
+        refreshHiddenSongs()
+        refreshFeed()
+        _message.value = if (ids.size == 1) "השיר חזר לנגן" else "${ids.size} שירים חזרו לנגן"
+    }
+
+    private val _hiddenSongs = MutableStateFlow<List<SongEntity>>(emptyList())
+    val hiddenSongs: StateFlow<List<SongEntity>> = _hiddenSongs.asStateFlow()
+
+    fun refreshHiddenSongs() {
+        viewModelScope.launch { _hiddenSongs.value = repo.hiddenSongs() }
+    }
+
+    /** Songs named by their files instead of their tags, everywhere. */
+    fun setTitlesFromFiles(enabled: Boolean) {
+        repo.setTitlesFromFiles(enabled)
+        refreshFeed()
+    }
+
     fun setHideDuplicates(enabled: Boolean) {
         prefs.hideDuplicates = enabled
         refreshFeed()
