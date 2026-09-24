@@ -788,6 +788,7 @@ object UiStrings {
         "שחזר מקור" to "restore source",
         "חפש שיר לעריכה" to "Find a song to edit",
         "מוצע: \${proposal.newTitle} · \${proposal.newArtist}" to "Suggested: \${proposal.newTitle} · \${proposal.newArtist}",
+        "אלבום: \${proposal.oldAlbum} ← \${proposal.newAlbum}" to "Album: \${proposal.oldAlbum} → \${proposal.newAlbum}",
         "מפריד את שם האמן משם השיר ומנקה שמות ערוץ. בלי זה כל השירים " to "Separates the artist name from the song name and clears channel names. Without it all the songs",
         "שהורדו מהאינטרנט נראים כמו אמן אחד" to "downloaded from the internet look like one artist",
         "הסרת טקסט באנגלית" to "Removing English text",

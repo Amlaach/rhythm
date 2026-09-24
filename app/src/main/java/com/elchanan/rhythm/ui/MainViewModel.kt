@@ -1762,7 +1762,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun startFileWrite(changed: List<TagFixer.Proposal>) {
         val songs = library.value.songsById
         startFileWriteItems(changed.mapNotNull { p ->
-            songs[p.songId]?.let { TagFileWriter.Item(p.songId, it.path, TagEdit(title = p.newTitle, artist = p.newArtist)) }
+            songs[p.songId]?.let {
+                TagFileWriter.Item(
+                    p.songId, it.path,
+                    TagEdit(title = p.newTitle, artist = p.newArtist, album = if (p.albumChanged) p.newAlbum else null)
+                )
+            }
         })
     }
 

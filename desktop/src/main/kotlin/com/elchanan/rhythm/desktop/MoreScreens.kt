@@ -458,6 +458,15 @@ internal fun TagFixScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (proposal.albumChanged) {
+                        Text(
+                            "אלבום: ${proposal.oldAlbum} ← ${proposal.newAlbum}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
