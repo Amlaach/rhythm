@@ -873,14 +873,19 @@ fun PlayerScreen(
                     ) { zoomed = false },
                 contentAlignment = Alignment.Center
             ) {
-                Artwork(
-                    songId = song.id,
-                    albumId = song.albumId,
-                    seed = song.artistKey,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-                    corner = 0
-                )
+                // As large as the screen allows in both directions: sized by
+                // the width alone, a phone on its side drew the square taller
+                // than the screen and cut the cover off top and bottom.
+                BoxWithConstraints(contentAlignment = Alignment.Center) {
+                    Artwork(
+                        songId = song.id,
+                        albumId = song.albumId,
+                        seed = song.artistKey,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.size(minOf(maxWidth, maxHeight)),
+                        corner = 0
+                    )
+                }
             }
         }
     }
