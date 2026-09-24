@@ -281,8 +281,9 @@ object EngineFixture {
     val TUNING = EngineTuning(
         discovery = 0.4f, artistWeight = 1.1f, styleWeight = 0.9f, repeatGuard = 1.0f,
         acousticWeight = 1.2f,
-        // What a fresh install has, so the separation paths are pinned too.
-        separations = Styles.DEFAULT_SEPARATIONS,
+        // A rule, so the separation paths are pinned too. What the default
+        // was until it became empty; the recorded digests were made with it.
+        separations = Styles.HASIDIC_ISRAELI,
         lastMood = "CALM",
         learned = SignalWeights(1.2, 0.8, 1.1, 1.4, 0.7),
         onlyVocalInSeason = true

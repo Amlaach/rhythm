@@ -196,11 +196,15 @@ object Styles {
     }
 
     /**
-     * What a new install starts with.
+     * What a new install starts with: nothing kept apart.
      *
-     * Only the one pair, and only because it is the pair this app was built
-     * for. Everything else is left to the user, who is the only one who knows
-     * what they do not want mixed.
+     * It was "חסידי, ישראלי", the pair the app was first built around, and
+     * the owner asked for it gone - what not to mix is the listener's to say,
+     * and Windows never had it. A rule someone wrote stays theirs; only an
+     * install that never set one follows this.
      */
-    const val DEFAULT_SEPARATIONS = "חסידי, ישראלי"
+    const val DEFAULT_SEPARATIONS = ""
+
+    /** The rule the default used to be, for the tests that exercise separations with it. */
+    const val HASIDIC_ISRAELI = "חסידי, ישראלי"
 }
