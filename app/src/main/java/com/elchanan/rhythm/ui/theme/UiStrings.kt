@@ -1895,6 +1895,7 @@ object UiStrings {
         "גדול" to "Large",
         "גדול מאוד" to "Extra large",
         "מה מופיע בתפריט שלוש הנקודות של כל שיר, ובאיזה סדר" to "What appears in every song's three-dot menu, and in what order",
-        "סדר" to "Arrange"
+        "סדר" to "Arrange",
+        "הצעות לתיקון (\${suggested.size})" to "Suggested fixes (\${suggested.size})"
     )
 }

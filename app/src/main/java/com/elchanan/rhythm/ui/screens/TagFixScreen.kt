@@ -227,15 +227,84 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit, onOpenHebrewNames: () ->
                 )
             }
 
-            val shown = library.songs.filter {
-                filter.isBlank() ||
-                    it.title.contains(filter, true) ||
-                    it.artistName.contains(filter, true)
+            fun matches(title: String, artist: String) =
+                filter.isBlank() || title.contains(filter, true) || artist.contains(filter, true)
+
+            // The suggestions first and on their own: they are what the screen
+            // was opened for, and mixed into the whole library in its usual
+            // order they had to be scrolled for, one here and one there.
+            val suggested = changed.filter { matches(it.oldTitle, it.oldArtist) || matches(it.newTitle, it.newArtist) }
+            if (suggested.isNotEmpty()) {
+                item {
+                    Text(
+                        "הצעות לתיקון (${suggested.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = gutter, vertical = 4.dp)
+                    )
+                }
+                items(suggested, key = { "p${it.songId}" }) { proposal ->
+                    val song = library.songsById[proposal.songId]
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = gutter)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Surface1)
+                            .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 4.dp)
+                    ) {
+                        Text(
+                            proposal.oldTitle,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(proposal.oldArtist, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            if (proposal.certain) "מוצע: ${proposal.newTitle} · ${proposal.newArtist}"
+                            else "לא בטוח · מוצע: ${proposal.newTitle} · ${proposal.newArtist}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (proposal.certain) Accent else TextSecondary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        // The album too, where a site's name was all it was.
+                        if (proposal.albumChanged) {
+                            Text(
+                                "אלבום: ${proposal.oldAlbum} ← ${proposal.newAlbum}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        // This one only - uncertain or not, since it was picked
+                        // by hand - or edited first.
+                        Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                            if (song != null) {
+                                TextButton(onClick = { editing = song }) { Text("ערוך", color = TextSecondary) }
+                            }
+                            TextButton(onClick = { vm.applyTagFix(listOf(proposal), includeUncertain = true) }) {
+                                Text("החל", color = Accent)
+                            }
+                        }
+                    }
+                }
+                item {
+                    Text(
+                        "כל השירים",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = gutter, vertical = 4.dp)
+                    )
+                }
             }
-            val proposalById = changed.associateBy { it.songId }
+
+            // Every other song, for fixing by hand what no pattern can.
+            val proposed = changed.mapTo(HashSet()) { it.songId }
+            val shown = library.songs.filter { it.id !in proposed && matches(it.title, it.artistName) }
 
             items(shown, key = { it.id }) { song ->
-                val proposal = proposalById[song.id]
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -258,27 +327,6 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit, onOpenHebrewNames: () ->
                         color = TextSecondary,
                         maxLines = 1
                     )
-                    if (proposal != null) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            if (proposal.certain) "מוצע: ${proposal.newTitle} · ${proposal.newArtist}"
-                            else "לא בטוח · מוצע: ${proposal.newTitle} · ${proposal.newArtist}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (proposal.certain) Accent else TextSecondary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        // The album too, where a site's name was all it was.
-                        if (proposal.albumChanged) {
-                            Text(
-                                "אלבום: ${proposal.oldAlbum} ← ${proposal.newAlbum}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
                 }
             }
         }

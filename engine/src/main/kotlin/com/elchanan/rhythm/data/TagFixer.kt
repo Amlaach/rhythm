@@ -337,6 +337,25 @@ object TagFixer {
             }
         }
 
+        // "השיבנו Hanan Ben Ari": the same the other way round - the song name
+        // first, the artist's English name after it. Only when the English is
+        // an artist: one the library or the catalogue knows, or this song's
+        // own artist field spelled in Latin letters. An English gloss of the
+        // song's name is not an artist, and stays for the rules below.
+        HEBREW_THEN_LATIN.matchEntire(t)?.let { m ->
+            val rest = m.groupValues[1].trim()
+            val latin = m.groupValues[2].trim()
+            val hebrew = k.hebrewFor(latin)
+                ?: normalize(originalArtist).takeIf { hebrewOnly(it) && Transliteration.sameName(it, latin) }
+            if (hebrew != null && rest.isNotBlank()) {
+                val artistSaysOtherwise = hebrewOnly(originalArtist) && Names.hasRealArtist(originalArtist) &&
+                    ArtistStyles.matchKey(originalArtist) != ArtistStyles.matchKey(hebrew)
+                t = rest
+                a = hebrew
+                if (artistSaysOtherwise) certain = false
+            }
+        }
+
         // The artist field.
         val names = halves(a)?.let { bilingual(it.first, it.second) }
         when {
@@ -394,8 +413,14 @@ object TagFixer {
             // own, as a single is its own album: it was one "album" of every
             // song the site ever served, all under one cover.
             val album = song.albumName
+            // A file with no album of its own is shown under its folder's
+            // name - "Download" - and that is the folder, not a site's stamp:
+            // turning it into the song's name made an album of every file in
+            // the folder.
+            val folderName = song.folder.replace('\\', '/').trimEnd('/').substringAfterLast('/')
+            val fromFolder = folderName.isNotBlank() && Names.normalizeKey(album) == Names.normalizeKey(folderName)
             val newAlbum = when {
-                album.isBlank() -> ""
+                album.isBlank() || fromFolder -> ""
                 junk.isAllJunk(album) -> newTitle
                 Names.normalizeKey(junk.clean(album)) != Names.normalizeKey(album) -> junk.clean(album)
                 else -> ""
