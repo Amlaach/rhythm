@@ -2486,12 +2486,25 @@ class Recommender(
      * large library, for the same answer. The same computation as
      * [Mood.strongest] over the same rows and marks; drawn from what the feed
      * may offer, so a shiur is never a mood and the vocal-only weeks apply.
+     *
+     * Styles the user keeps apart are kept apart here too: one side of each
+     * rule, the side the listener plays most among this mood's songs. The
+     * mixes always did this and the mood lists did not, so "שמח" put English
+     * songs among the rest for someone who had said English stays with
+     * English.
      */
-    fun strongestIn(mood: Mood): List<SongEntity> =
-        playable
+    fun strongestIn(mood: Mood): List<SongEntity> {
+        val found = playable
             .filter { (stats[it.id]?.liked ?: 0) != -1 }
             .filter { moodModel.matches(mood, features[it.id]) && it.id !in speechAhead }
             .sortedByDescending { moodModel.strength(mood, features[it.id]) }
+        if (separations.isEmpty) return found
+        return separations.favoured(
+            found,
+            { declaredStyles[it.id].orEmpty() },
+            { (stats[it.id]?.playCount ?: 0).toDouble() }
+        )
+    }
 
     /** Whether anything in this snapshot has been analysed at all. */
     val hasAnalysis: Boolean get() = features.isNotEmpty()

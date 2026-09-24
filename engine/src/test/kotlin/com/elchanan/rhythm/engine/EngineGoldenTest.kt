@@ -46,12 +46,18 @@ class EngineGoldenTest {
         private const val GOLDEN = "engine-golden.txt"
 
         /** The engine exactly as the app builds it: the space from the full rows, the rest lean. */
-        fun engine(lib: EngineFixture.Library, now: Long): Recommender = build(lib, now, lean = true)
+        fun engine(lib: EngineFixture.Library, now: Long, tuning: EngineTuning = EngineFixture.TUNING): Recommender =
+            build(lib, now, lean = true, tuning = tuning)
 
         /** The engine holding every feature row whole, as it was before [Recommender.leanFeatures]. */
         fun fullEngine(lib: EngineFixture.Library, now: Long): Recommender = build(lib, now, lean = false)
 
-        private fun build(lib: EngineFixture.Library, now: Long, lean: Boolean): Recommender {
+        private fun build(
+            lib: EngineFixture.Library,
+            now: Long,
+            lean: Boolean,
+            tuning: EngineTuning = EngineFixture.TUNING
+        ): Recommender {
             val rows = lib.features.filter { it.energy > 0f }
             return Recommender(
                 songs = lib.songs,
@@ -61,7 +67,7 @@ class EngineGoldenTest {
                 transitions = lib.transitions,
                 features = if (lean) Recommender.leanFeatures(rows) else rows.associateBy { it.songId },
                 acoustic = if (rows.size >= 8) AcousticSpace(rows) else null,
-                tuning = EngineFixture.TUNING,
+                tuning = tuning,
                 now = now,
                 feedSeed = 7L,
                 spoken = lib.spoken,

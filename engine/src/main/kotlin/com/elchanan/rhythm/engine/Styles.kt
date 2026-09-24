@@ -146,6 +146,62 @@ object Styles {
             return false
         }
 
+        /**
+         * Thins a list down to one side of every rule: the side the listening
+         * leans to, weighed by [weight]. The list's own order is kept.
+         *
+         * For a list with no seed to take a side from - a mood chip's list,
+         * strongest first. Taking the strongest song's side made the whole
+         * list hang on one reading of the model: whichever style happened to
+         * top "שמח" decided that a listener of English songs got none. The
+         * side the listener actually plays in is the one they came for.
+         *
+         * Ties go to the side with more songs, then, for a style kept to
+         * itself, to the side without it, as [keepTogether] does. Untagged
+         * songs clash with no pair rule and stay.
+         */
+        fun <T> favoured(group: List<T>, stylesOf: (T) -> Collection<String>, weight: (T) -> Double): List<T> {
+            if (isEmpty || group.size < 2) return group
+            val named = group.map { g -> stylesOf(g).mapTo(HashSet()) { normalize(it) } }
+            val weights = group.map(weight)
+            fun heavier(a: List<Int>, b: List<Int>): Boolean {
+                val wa = a.sumOf { weights[it] }
+                val wb = b.sumOf { weights[it] }
+                return if (wa != wb) wa > wb else a.size > b.size
+            }
+            var kept: List<Int> = group.indices.toList()
+            for (style in isolated.sorted()) {
+                val (with, without) = kept.partition { style in named[it] }
+                if (with.isEmpty() || without.isEmpty()) continue
+                kept = if (heavier(with, without)) with else without
+            }
+            if (rules.isNotEmpty()) {
+                val ruled = rules.flatMapTo(HashSet()) { it }
+                val weightOf = HashMap<String, Double>()
+                val countOf = HashMap<String, Int>()
+                for (i in kept) for (style in named[i]) {
+                    if (style !in ruled) continue
+                    weightOf[style] = (weightOf[style] ?: 0.0) + weights[i]
+                    countOf[style] = (countOf[style] ?: 0) + 1
+                }
+                // Heaviest first, each taken unless a rule already holds
+                // another style it names. A song stays only if every ruled
+                // style it carries was taken - which leaves no two songs
+                // naming different things in one rule.
+                val order = weightOf.keys.sortedWith(
+                    compareByDescending<String> { weightOf[it] }
+                        .thenByDescending { countOf[it] }
+                        .thenBy { it }
+                )
+                val chosen = HashSet<String>()
+                for (style in order) {
+                    if (rules.none { rule -> style in rule && rule.any { it in chosen } }) chosen.add(style)
+                }
+                kept = kept.filter { i -> named[i].all { it !in ruled || it in chosen } }
+            }
+            return kept.map { group[it] }
+        }
+
         companion object {
             fun parse(raw: String): Separations {
                 val lines = raw.split('\n')
