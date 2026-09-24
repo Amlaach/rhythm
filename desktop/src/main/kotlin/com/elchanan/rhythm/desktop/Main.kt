@@ -512,7 +512,7 @@ private fun RhythmApp() {
      * do not end - they are skipped, and heard out against moved on from is
      * the distinction the recommender's skip rate is built on.
      */
-    fun play(list: List<SongEntity>, index: Int, previousCompleted: Boolean = false) {
+    fun play(list: List<SongEntity>, index: Int, previousCompleted: Boolean = false, startMs: Long = 0L) {
         // A queue put back from the last session has a current song that
         // never started; leaving it is not a skip.
         val leaving = if (restoredIdle || player.state.value.file == null) null else queue.getOrNull(queueIndex)
@@ -595,9 +595,9 @@ private fun RhythmApp() {
         player.setTrackGain(
             if (prefs.normalizeVolume) loudnessGains[song.id] ?: 1f else 1f
         )
-        player.play(File(song.path), song.durationMs)
         val resumeAt = resumePoints[song.id]
-        if (prefs.resumeSpoken && resumeAt != null) player.seekTo(resumeAt)
+        val startAt = if (startMs > 0L) startMs else if (prefs.resumeSpoken && resumeAt != null) resumeAt else 0L
+        player.play(File(song.path), song.durationMs, startAt)
         if (prefs.openPlayerOnPlay) showPlayer = true
     }
 
@@ -610,8 +610,7 @@ private fun RhythmApp() {
             val at = resumeRestoredAt
             // Nothing is being left: the song on screen was never started.
             restoredIdle = true
-            play(queue, queueIndex)
-            if (at > 0L) player.seekTo(at)
+            play(queue, queueIndex, startMs = at)
             resumeRestoredAt = 0L
         } else {
             player.togglePause()
@@ -703,6 +702,9 @@ private fun RhythmApp() {
                                 }
                             }
                         }
+                        if (player.state.value.playing) {
+                            delay(20)
+                        }
                     }
                 } finally {
                     analysisThreads.shutdown()
@@ -778,6 +780,9 @@ private fun RhythmApp() {
             stats = withContext(Dispatchers.IO) {
                 store.setLike(song.id, -1)
                 store.stats()
+            }
+            if (queue.getOrNull(queueIndex)?.id == song.id) {
+                play(queue, queueIndex + 1)
             }
         }
     }
@@ -912,8 +917,8 @@ private fun RhythmApp() {
         if (merging || source.key == target.key) return
         merging = true
         scope.launch {
-            val count = runCatching {
-                withContext(Dispatchers.IO) {
+            try {
+                val count = withContext(Dispatchers.IO) {
                     val existing = store.overrides()
                     val rows = applyOverrides(store.songs(), existing).mapNotNull { song ->
                         val renamed = ArtistMerge.renameCredit(song.artistName, source.key, target.displayName)
@@ -923,10 +928,16 @@ private fun RhythmApp() {
                     saveOverridesCarryingArtists(store, rows)
                     rows.size
                 }
-            }.getOrNull()
-            merging = false
-            reload()
-            status = if (count == null) "האיחוד נכשל. אפשר לנסות שוב." else "אוחדו $count שירים תחת ${target.displayName}"
+                reload()
+                status = "אוחדו $count שירים תחת ${target.displayName}"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                reload()
+                status = "האיחוד נכשל. אפשר לנסות שוב."
+            } finally {
+                merging = false
+            }
         }
     }
 
@@ -2594,15 +2605,12 @@ private fun RhythmApp() {
                         onDislike = { dislike(it) },
                         onQueue = { song ->
                             if (queueIndex < 0) {
-                                status = "נוסף לתור"
                                 queue = listOf(song)
                                 queueIndex = 0
-                                play(queue, 0)
-                                player.pause()
                             } else {
                                 queue = queue + song
-                                status = "נוסף לתור"
                             }
+                            status = "נוסף לתור"
                         },
                         // The whole song, from the top, in the app's player -
                         // on the home screen with the player bar under it.

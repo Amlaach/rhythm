@@ -42,6 +42,30 @@ object Analysis {
     private const val MEL_BANDS = 26
     private const val MFCC_COUNT = 12
 
+    private val DEFAULT_FFT by lazy { Fft(WINDOW) }
+    private val DEFAULT_HANN_WINDOW by lazy { Dsp.hannWindow(WINDOW) }
+    private val DEFAULT_MEL_BANK by lazy { Dsp.melFilterBank(MEL_BANDS, WINDOW, TARGET_SAMPLE_RATE) }
+    private val DEFAULT_BIN_PITCH_CLASS by lazy { computeBinPitchClass(WINDOW / 2, TARGET_SAMPLE_RATE) }
+    private val DEFAULT_BIN_QUARTER_CLASS by lazy { computeBinQuarterClass(WINDOW / 2, TARGET_SAMPLE_RATE) }
+
+    private fun computeBinPitchClass(bins: Int, sampleRate: Int): IntArray = IntArray(bins) { k ->
+        val hz = k.toDouble() * sampleRate / WINDOW
+        if (hz < 55.0 || hz > 5000.0) -1
+        else {
+            val midi = 69.0 + 12.0 * log2(hz / 440.0)
+            ((midi.roundToInt() % 12) + 12) % 12
+        }
+    }
+
+    private fun computeBinQuarterClass(bins: Int, sampleRate: Int): IntArray = IntArray(bins) { k ->
+        val hz = k.toDouble() * sampleRate / WINDOW
+        if (hz < 55.0 || hz > 5000.0) -1
+        else {
+            val quarters = 138.0 + 24.0 * log2(hz / 440.0)
+            ((quarters.roundToInt() % 24) + 24) % 24
+        }
+    }
+
     /**
      * Eight probes at these points of the track, four seconds each.
      *
@@ -225,6 +249,7 @@ object Analysis {
      * average out identically. The shape vector carries that difference.
      */
     fun merge(songId: Long, windows: List<WindowStats>): AudioFeatureEntity {
+        require(windows.isNotEmpty()) { "Cannot merge an empty list of windows for song $songId" }
         val n = windows.size
 
         val chromaTotal = DoubleArray(12)
@@ -321,9 +346,9 @@ object Analysis {
     }
 
     fun windowStats(samples: FloatArray, sampleRate: Int): WindowStats {
-        val fft = Fft(WINDOW)
-        val window = Dsp.hannWindow(WINDOW)
-        val bank = Dsp.melFilterBank(MEL_BANDS, WINDOW, sampleRate)
+        val fft = if (sampleRate == TARGET_SAMPLE_RATE) DEFAULT_FFT else Fft(WINDOW)
+        val window = DEFAULT_HANN_WINDOW
+        val bank = if (sampleRate == TARGET_SAMPLE_RATE) DEFAULT_MEL_BANK else Dsp.melFilterBank(MEL_BANDS, WINDOW, sampleRate)
         val bins = WINDOW / 2
 
         val frameCount = max(1, (samples.size - WINDOW) / HOP)
@@ -345,27 +370,8 @@ object Analysis {
         val spectrogram = Array(frameCount) { DoubleArray(bins) }
 
         // pitch class of every fft bin, computed once
-        val binPitchClass = IntArray(bins) { k ->
-            val hz = k.toDouble() * sampleRate / WINDOW
-            if (hz < 55.0 || hz > 5000.0) -1
-            else {
-                val midi = 69.0 + 12.0 * log2(hz / 440.0)
-                ((midi.roundToInt() % 12) + 12) % 12
-            }
-        }
-
-        // The same thing at quarter tone resolution. Twelve bins cannot express
-        // the neutral second and third that define Rast and Bayati - the pitch
-        // simply rounds to its nearest semitone and the mode disappears. Twenty
-        // four bins keep it.
-        val binQuarterClass = IntArray(bins) { k ->
-            val hz = k.toDouble() * sampleRate / WINDOW
-            if (hz < 55.0 || hz > 5000.0) -1
-            else {
-                val quarters = 138.0 + 24.0 * log2(hz / 440.0)
-                ((quarters.roundToInt() % 24) + 24) % 24
-            }
-        }
+        val binPitchClass = if (sampleRate == TARGET_SAMPLE_RATE) DEFAULT_BIN_PITCH_CLASS else computeBinPitchClass(bins, sampleRate)
+        val binQuarterClass = if (sampleRate == TARGET_SAMPLE_RATE) DEFAULT_BIN_QUARTER_CLASS else computeBinQuarterClass(bins, sampleRate)
         val chroma24 = DoubleArray(24)
 
         for (frame in 0 until frameCount) {

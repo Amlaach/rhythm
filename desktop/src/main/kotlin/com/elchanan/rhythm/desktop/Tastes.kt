@@ -73,6 +73,7 @@ import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import com.elchanan.rhythm.ui.theme.gradientFor
 import com.elchanan.rhythm.ui.theme.localized
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -146,8 +147,21 @@ internal fun TastesPane(
                 var playing by remember { mutableStateOf(true) }
                 var finding by remember { mutableStateOf(false) }
                 val progress = remember { mutableFloatStateOf(0f) }
+                val fade = remember { Animatable(0f) }
+                var fadeJob by remember { mutableStateOf<Job?>(null) }
                 val focus = remember { FocusRequester() }
                 LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+
+                LaunchedEffect(volume) {
+                    taste.setVolume(fade.value * volume)
+                }
+
+                // A taste counts as heard once it has had a few seconds, for
+                // the chorus finder's hit rate - same as on the phone.
+                LaunchedEffect(pager.settledPage) {
+                    delay(5_000)
+                    onHeard()
+                }
 
                 // The page that has settled is the one that plays: its chorus
                 // found (or remembered), then 25 seconds from there, over and
@@ -156,17 +170,17 @@ internal fun TastesPane(
                     val song = songs.getOrNull(pager.settledPage) ?: return@LaunchedEffect
                     taste.stop()
                     playing = true
+                    progress.floatValue = 0f
                     finding = Hooks.cached(song.id) == null
                     val start = Hooks.find(song)
                     finding = false
                     Hooks.prefetch(songs.drop(pager.settledPage + 1).take(TASTES_AHEAD))
                     onTasted(song)
-                    onHeard()
-                    val fade = Animatable(0f)
                     taste.setVolume(0f)
-                    taste.play(File(song.path), song.durationMs)
-                    taste.seekTo(start)
-                    launch { fade.animateTo(1f, tween(FADE_MS)) { taste.setVolume(value * volume) } }
+                    taste.play(File(song.path), song.durationMs, start)
+                    fade.snapTo(0f)
+                    fadeJob?.cancel()
+                    fadeJob = launch { fade.animateTo(1f, tween(FADE_MS)) { taste.setVolume(value * volume) } }
                     while (true) {
                         delay(200)
                         val state = taste.state.value
@@ -178,10 +192,15 @@ internal fun TastesPane(
                         val ended = !state.playing && playing && state.positionMs >= song.durationMs - 1_000
                         if (into >= CLIP_MS || ended) {
                             taste.setVolume(0f)
-                            if (ended) taste.play(File(song.path), song.durationMs)
-                            taste.seekTo(start)
+                            progress.floatValue = 0f
+                            if (ended) {
+                                taste.play(File(song.path), song.durationMs, start)
+                            } else {
+                                taste.seekTo(start)
+                            }
                             fade.snapTo(0f)
-                            launch { fade.animateTo(1f, tween(FADE_MS)) { taste.setVolume(value * volume) } }
+                            fadeJob?.cancel()
+                            fadeJob = launch { fade.animateTo(1f, tween(FADE_MS)) { taste.setVolume(value * volume) } }
                         }
                     }
                 }

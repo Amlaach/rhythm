@@ -109,7 +109,7 @@ object Hook {
      * of the song to tell - the caller then starts a third of the way in.
      */
     fun find(frames: FrameSet): Double? {
-        val n = frames.chroma.size
+        val n = frames.chroma.size.coerceAtMost(MAX_FRAMES)
         val w = (CLIP_SECONDS / HOP_SECONDS).toInt()
         if (n < w * 3) return null
 
@@ -219,4 +219,12 @@ object Hook {
 
     /** How alike two stretches have to be, on average, to count as the same music coming back. */
     private const val REPEATS = 0.8
+
+    /**
+     * The most frames to consider, so the similarity matrix stays in memory.
+     * 2400 at [HOP_SECONDS] = 0.5 is 20 minutes - more than enough for chorus
+     * detection, and the array stays under 22 MB instead of the 200+ MB a
+     * 60-minute track would need.
+     */
+    private const val MAX_FRAMES = 2400
 }

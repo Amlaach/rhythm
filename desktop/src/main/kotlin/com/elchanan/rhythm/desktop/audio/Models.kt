@@ -282,6 +282,25 @@ object Models {
 
     /** Whatever shape an output came in, its values in order. */
     private fun floats(value: Any?): FloatArray {
+        if (value is FloatArray) return value
+        if (value is Array<*> && value.isNotEmpty()) {
+            if (value.size == 1 && value[0] is FloatArray) return value[0] as FloatArray
+            var allFloats = true
+            var total = 0
+            for (item in value) {
+                if (item is FloatArray) total += item.size else { allFloats = false; break }
+            }
+            if (allFloats) {
+                val out = FloatArray(total)
+                var offset = 0
+                for (item in value) {
+                    val arr = item as FloatArray
+                    System.arraycopy(arr, 0, out, offset, arr.size)
+                    offset += arr.size
+                }
+                return out
+            }
+        }
         val out = ArrayList<Float>()
         fun walk(v: Any?) {
             when (v) {

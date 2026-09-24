@@ -64,10 +64,13 @@ object Separation {
         val harmonic = Array(frames) { DoubleArray(bins) }
         val percussive = Array(frames) { DoubleArray(bins) }
 
+        val isSquare = power == 2.0
         for (t in 0 until frames) {
             for (f in 0 until bins) {
-                val h = Math.pow(harmonicEstimate[t][f], power)
-                val p = Math.pow(percussiveEstimate[t][f], power)
+                val hEst = harmonicEstimate[t][f]
+                val pEst = percussiveEstimate[t][f]
+                val h = if (isSquare) hEst * hEst else Math.pow(hEst, power)
+                val p = if (isSquare) pEst * pEst else Math.pow(pEst, power)
                 val total = h + p
                 if (total <= 1e-12) continue
                 val value = spectrogram[t][f]
@@ -83,14 +86,16 @@ object Separation {
         val bins = s[0].size
         val out = Array(frames) { DoubleArray(bins) }
         val window = DoubleArray(2 * radius + 1)
+        val copy = DoubleArray(2 * radius + 1)
         for (f in 0 until bins) {
             for (t in 0 until frames) {
                 var n = 0
-                for (k in -radius..radius) {
-                    val i = t + k
-                    if (i in 0 until frames) window[n++] = s[i][f]
+                val from = max(0, t - radius)
+                val to = min(frames - 1, t + radius)
+                for (i in from..to) {
+                    window[n++] = s[i][f]
                 }
-                out[t][f] = medianOf(window, n)
+                out[t][f] = fastMedianOf(window, copy, n)
             }
         }
         return out
@@ -101,32 +106,41 @@ object Separation {
         val bins = s[0].size
         val out = Array(frames) { DoubleArray(bins) }
         val window = DoubleArray(2 * radius + 1)
+        val copy = DoubleArray(2 * radius + 1)
         for (t in 0 until frames) {
             val row = s[t]
             for (f in 0 until bins) {
                 var n = 0
-                for (k in -radius..radius) {
-                    val i = f + k
-                    if (i in 0 until bins) window[n++] = row[i]
+                val from = max(0, f - radius)
+                val to = min(bins - 1, f + radius)
+                for (i in from..to) {
+                    window[n++] = row[i]
                 }
-                out[t][f] = medianOf(window, n)
+                out[t][f] = fastMedianOf(window, copy, n)
             }
         }
         return out
     }
 
     /**
-     * Median of the first [n] entries. Sorts a copy of just that prefix, which
-     * is the whole cost of this method: it runs once per bin per frame, so an
-     * allocation here would be millions of them.
+     * Median of the first [n] entries. Sorts in-place into [copy] without any
+     * heap allocations, saving millions of objects and Quicksort calls per song.
      */
-    private fun medianOf(buffer: DoubleArray, n: Int): Double {
+    private fun fastMedianOf(buffer: DoubleArray, copy: DoubleArray, n: Int): Double {
         if (n == 0) return 0.0
-        val copy = DoubleArray(n)
+        if (n == 1) return buffer[0]
         System.arraycopy(buffer, 0, copy, 0, n)
-        copy.sort()
+        for (i in 1 until n) {
+            val v = copy[i]
+            var j = i - 1
+            while (j >= 0 && copy[j] > v) {
+                copy[j + 1] = copy[j]
+                j--
+            }
+            copy[j + 1] = v
+        }
         val mid = n / 2
-        return if (n % 2 == 1) copy[mid] else (copy[mid - 1] + copy[mid]) / 2.0
+        return if (n % 2 == 1) copy[mid] else (copy[mid - 1] + copy[mid]) * 0.5
     }
 }
 
@@ -178,6 +192,11 @@ object BeatTracker {
 
         val searchFrom = (period * 0.5).toInt().coerceAtLeast(1)
         val searchTo = (period * 2.0).toInt().coerceAtLeast(searchFrom + 1)
+        val penalties = DoubleArray(searchTo + 1)
+        for (back in searchFrom..searchTo) {
+            val ratio = Math.log(back / period)
+            penalties[back] = -tightness * ratio * ratio
+        }
 
         for (i in 0 until n) {
             var best = Double.NEGATIVE_INFINITY
@@ -185,11 +204,7 @@ object BeatTracker {
             for (back in searchFrom..searchTo) {
                 val j = i - back
                 if (j < 0) break
-                // Penalises spacing that departs from the tempo, on a log scale
-                // so that half and double time are punished symmetrically.
-                val ratio = Math.log(back / period)
-                val penalty = -tightness * ratio * ratio
-                val candidate = score[j] + penalty
+                val candidate = score[j] + penalties[back]
                 if (candidate > best) {
                     best = candidate
                     bestIndex = j

@@ -3,6 +3,7 @@ package com.elchanan.rhythm.desktop.audio
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.io.File
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioInputStream
@@ -71,6 +72,13 @@ class AudioPlayer {
     @Volatile private var seekRequestMs = -1L
 
     /**
+     * Incremented on every [play] call, so a worker thread that outlives
+     * [stop]'s join timeout (slow I/O, for instance) sees it belongs to a
+     * previous generation and exits instead of playing alongside the new one.
+     */
+    @Volatile private var generation = 0L
+
+    /**
      * The length of what is playing, so a seek can be kept inside it.
      *
      * Seeking is a skip over the decoded stream, and a skip that runs past
@@ -88,14 +96,16 @@ class AudioPlayer {
      *   cannot say. An MP3's frame count is not in its header, so asking the
      *   stream gives NOT_SPECIFIED and the progress bar would have no end.
      */
-    fun play(file: File, durationMs: Long) {
+    fun play(file: File, durationMs: Long, startMs: Long = 0L) {
         stop()
+        val gen = ++generation
         stopRequested = false
         paused = false
         seekRequestMs = -1L
         trackDurationMs = durationMs
-        _state.value = PlayerState(file = file, playing = true, durationMs = durationMs)
-        worker = Thread({ run(file, durationMs) }, "rhythm-audio").apply {
+        val initialStart = startMs.coerceIn(0L, maxOf(0L, durationMs - END_MARGIN_MS))
+        _state.update { PlayerState(file = file, playing = true, positionMs = initialStart, durationMs = durationMs) }
+        worker = Thread({ run(file, durationMs, initialStart, gen) }, "rhythm-audio").apply {
             isDaemon = true
             // Ahead of everything else the app does. The line holds well under
             // a second, and a library being analysed in the background - the
@@ -108,7 +118,7 @@ class AudioPlayer {
 
     fun pause() {
         paused = true
-        _state.value = _state.value.copy(playing = false)
+        _state.update { it.copy(playing = false) }
     }
 
     fun resume() {
@@ -116,7 +126,7 @@ class AudioPlayer {
             paused = false
             pauseLock.notifyAll()
         }
-        _state.value = _state.value.copy(playing = true)
+        _state.update { it.copy(playing = true) }
     }
 
     fun togglePause() = if (_state.value.playing) pause() else resume()
@@ -127,7 +137,9 @@ class AudioPlayer {
         // skip below lands approximately anyway, so asking for the last
         // instant reliably overshoots into nothing.
         val end = trackDurationMs - END_MARGIN_MS
-        seekRequestMs = if (end > 0) ms.coerceIn(0L, end) else ms.coerceAtLeast(0L)
+        val target = if (end > 0) ms.coerceIn(0L, end) else ms.coerceAtLeast(0L)
+        seekRequestMs = target
+        _state.update { it.copy(positionMs = target) }
         // A seek while paused has to wake the thread or nothing happens until
         // the user presses play, which looks like the seek was ignored.
         synchronized(pauseLock) { pauseLock.notifyAll() }
@@ -165,24 +177,26 @@ class AudioPlayer {
         }
         worker?.join(1_000)
         worker = null
-        _state.value = _state.value.copy(playing = false)
+        _state.update { it.copy(playing = false) }
     }
 
-    private fun run(file: File, durationMs: Long) {
-        var startMs = 0L
+    private fun run(file: File, durationMs: Long, initialStartMs: Long = 0L, gen: Long = generation) {
+        var startMs = initialStartMs
         var finished = false
 
-        while (!stopRequested) {
+        fun stale() = stopRequested || generation != gen
+
+        while (!stale()) {
             var line: SourceDataLine? = null
             var pcm: AudioInputStream? = null
             var reopening = false
             try {
                 val opened = open(file, startMs)
                 if (opened == null) {
-                    _state.value = _state.value.copy(
+                    _state.update { it.copy(
                         playing = false,
                         error = "לא הצלחתי לנגן את ${file.name}"
-                    )
+                    ) }
                     return
                 }
                 line = opened.first
@@ -196,7 +210,7 @@ class AudioPlayer {
                 var produced = false
                 line.start()
 
-                while (!stopRequested) {
+                while (!stale()) {
                     val wanted = seekRequestMs
                     if (wanted >= 0) {
                         seekRequestMs = -1L
@@ -207,11 +221,11 @@ class AudioPlayer {
                     if (paused) {
                         line.stop()
                         synchronized(pauseLock) {
-                            while (paused && !stopRequested && seekRequestMs < 0) {
+                            while (paused && !stale() && seekRequestMs < 0) {
                                 pauseLock.wait()
                             }
                         }
-                        if (stopRequested) break
+                        if (stale()) break
                         line.start()
                         continue
                     }
@@ -233,19 +247,19 @@ class AudioPlayer {
                     // returns as soon as the buffer accepts the data, which is
                     // ahead of what anyone has heard. microsecondPosition is
                     // what actually came out of the speaker.
-                    _state.value = _state.value.copy(
+                    _state.update { it.copy(
                         positionMs = offset + line.microsecondPosition / 1000L
-                    )
+                    ) }
                 }
 
                 if (finished) line.drain()
             } catch (_: InterruptedException) {
                 return
             } catch (e: Exception) {
-                _state.value = _state.value.copy(
+                _state.update { it.copy(
                     playing = false,
                     error = e.message ?: "שגיאה בניגון"
-                )
+                ) }
                 return
             } finally {
                 runCatching { line?.stop() }
@@ -256,8 +270,8 @@ class AudioPlayer {
             if (!reopening) break
         }
 
-        if (finished && !stopRequested) {
-            _state.value = _state.value.copy(playing = false, positionMs = durationMs)
+        if (finished && !stale()) {
+            _state.update { it.copy(playing = false, positionMs = durationMs) }
             onEnded?.invoke()
         }
     }

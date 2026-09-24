@@ -840,7 +840,7 @@ class Recommender(
      */
     private fun moodPreference(mood: Mood, songId: Long): Double {
         val (sum, n) = moodTotals[mood] ?: return 0.0
-        val own = spill[songId]?.takeIf { it != 0.0 && songId in moodsOf }
+        val own = spill[songId]?.takeIf { it != 0.0 && mood in (moodsOf[songId] ?: emptyList()) }
         val othersSum = if (own != null) sum - own else sum
         val othersN = if (own != null) n - 1 else n
         if (othersN <= 0) return 0.0
@@ -2755,7 +2755,7 @@ class Recommender(
             if (tokensBySong[from] == null || tokensBySong[to] == null) continue
             pairs.add(from to to)
         }
-        if (pairs.isEmpty()) return null
+        if (pairs.isEmpty() || maxPairs <= 0) return null
         val sample = pairs.takeLast(maxPairs)
 
         var hits10 = 0

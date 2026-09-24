@@ -126,7 +126,9 @@ object Updater {
         // One object, as the first version of this stored it, or a list.
         if (text.trimStart().startsWith("{")) return listOfNotNull(decode(text))
         val list = org.json.JSONArray(text)
-        (0 until list.length()).mapNotNull { decode(list.getJSONObject(it).toString()) }
+        (0 until list.length()).mapNotNull { i ->
+            list.optJSONObject(i)?.toString()?.let { decode(it) }
+        }
     }.getOrDefault(emptyList())
 
     fun encode(release: Release): String = JSONObject()

@@ -37,9 +37,11 @@ object AudioAnalyzer {
         // and resampling twice is far cheaper than decoding the file again.
         val forTagging = ArrayList<FloatArray>(Analysis.PROBE_POINTS.size)
 
-        for (fraction in Analysis.PROBE_POINTS) {
-            val startUs = Analysis.probeStart(song.durationMs, fraction)
-            val decoded = runCatching {
+        val starts = Analysis.PROBE_POINTS.map { Analysis.probeStart(song.durationMs, it) }.distinct().sorted()
+        val allDecoded = runCatching { decodeProbesMono(context, uri, starts, Analysis.PROBE_SECONDS) }.getOrDefault(emptyMap())
+
+        for (startUs in starts) {
+            val decoded = allDecoded[startUs] ?: runCatching {
                 decodeMono(context, uri, startUs, Analysis.PROBE_SECONDS)
             }.getOrNull() ?: continue
             val (raw, sampleRate) = decoded
@@ -123,10 +125,11 @@ object AudioAnalyzer {
     fun addMusic(context: Context, song: SongEntity, existing: AudioFeatureEntity): AudioFeatureEntity? {
         if (!musicAvailable(context)) return existing
         val uri = MediaItems.songUri(song.id)
-        val probes = ArrayList<FloatArray>(Analysis.PROBE_POINTS.size)
-        for (fraction in Analysis.PROBE_POINTS) {
-            val startUs = Analysis.probeStart(song.durationMs, fraction)
-            val decoded = runCatching {
+        val starts = Analysis.PROBE_POINTS.map { Analysis.probeStart(song.durationMs, it) }.distinct().sorted()
+        val allDecoded = runCatching { decodeProbesMono(context, uri, starts, Analysis.PROBE_SECONDS) }.getOrDefault(emptyMap())
+        val probes = ArrayList<FloatArray>(starts.size)
+        for (startUs in starts) {
+            val decoded = allDecoded[startUs] ?: runCatching {
                 decodeMono(context, uri, startUs, Analysis.PROBE_SECONDS)
             }.getOrNull() ?: continue
             val (raw, sampleRate) = decoded
@@ -267,6 +270,114 @@ object AudioAnalyzer {
             data[size++] = v
         }
         fun trimmed(): FloatArray = data.copyOf(size)
+    }
+
+    /**
+     * Decodes multiple probe points with a single MediaExtractor and MediaCodec instance.
+     * Reusing the codec across all probes saves hundreds of milliseconds and massive IPC overhead per song.
+     */
+    internal fun decodeProbesMono(
+        context: Context,
+        uri: Uri,
+        startsUs: List<Long>,
+        seconds: Int
+    ): Map<Long, Pair<FloatArray, Int>> {
+        val extractor = MediaExtractor()
+        var codec: MediaCodec? = null
+        val results = HashMap<Long, Pair<FloatArray, Int>>(startsUs.size)
+        try {
+            extractor.setDataSource(context, uri, null)
+            var track = -1
+            var inputFormat: MediaFormat? = null
+            for (i in 0 until extractor.trackCount) {
+                val f = extractor.getTrackFormat(i)
+                val mime = f.getString(MediaFormat.KEY_MIME) ?: continue
+                if (mime.startsWith("audio/")) {
+                    track = i
+                    inputFormat = f
+                    break
+                }
+            }
+            val format = inputFormat ?: return emptyMap()
+            if (track < 0) return emptyMap()
+            extractor.selectTrack(track)
+
+            val mime = format.getString(MediaFormat.KEY_MIME) ?: return emptyMap()
+            codec = MediaCodec.createDecoderByType(mime)
+            codec.configure(format, null, null, 0)
+            codec.start()
+
+            var sampleRate = intOrDefault(format, MediaFormat.KEY_SAMPLE_RATE, 44100)
+            var channels = intOrDefault(format, MediaFormat.KEY_CHANNEL_COUNT, 2)
+            var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
+            val info = MediaCodec.BufferInfo()
+
+            for (startUs in startsUs) {
+                extractor.seekTo(startUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+                codec.flush()
+
+                val out = Samples()
+                var wanted = sampleRate * seconds
+                var sawInputEos = false
+                var sawOutputEos = false
+                var guard = 0
+
+                while (!sawOutputEos && out.size < wanted && guard < 40_000) {
+                    guard++
+                    if (!sawInputEos) {
+                        val inIndex = codec.dequeueInputBuffer(DECODE_TIMEOUT_US)
+                        if (inIndex >= 0) {
+                            val buffer = codec.getInputBuffer(inIndex)
+                            val read = if (buffer == null) -1 else extractor.readSampleData(buffer, 0)
+                            if (read < 0) {
+                                codec.queueInputBuffer(
+                                    inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                                )
+                                sawInputEos = true
+                            } else {
+                                codec.queueInputBuffer(inIndex, 0, read, extractor.sampleTime, 0)
+                                extractor.advance()
+                            }
+                        }
+                    }
+
+                    val outIndex = codec.dequeueOutputBuffer(info, DECODE_TIMEOUT_US)
+                    when {
+                        outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                            val of = codec.outputFormat
+                            sampleRate = intOrDefault(of, MediaFormat.KEY_SAMPLE_RATE, sampleRate)
+                            channels = intOrDefault(of, MediaFormat.KEY_CHANNEL_COUNT, channels)
+                            pcmEncoding = if (of.containsKey(MediaFormat.KEY_PCM_ENCODING)) {
+                                of.getInteger(MediaFormat.KEY_PCM_ENCODING)
+                            } else {
+                                AudioFormat.ENCODING_PCM_16BIT
+                            }
+                            wanted = sampleRate * seconds
+                        }
+                        outIndex >= 0 -> {
+                            val buffer = codec.getOutputBuffer(outIndex)
+                            if (buffer != null && info.size > 0) {
+                                buffer.position(info.offset)
+                                buffer.limit(info.offset + info.size)
+                                appendMono(buffer, channels, pcmEncoding, out)
+                            }
+                            codec.releaseOutputBuffer(outIndex, false)
+                            if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) sawOutputEos = true
+                        }
+                    }
+                }
+                if (out.size > 0) {
+                    results[startUs] = out.trimmed() to sampleRate
+                }
+            }
+            return results
+        } catch (_: Throwable) {
+            return results
+        } finally {
+            runCatching { codec?.stop() }
+            runCatching { codec?.release() }
+            runCatching { extractor.release() }
+        }
     }
 
     /** Mono samples from [startUs] on, for [seconds]; also used by the player to find silence at the end. */

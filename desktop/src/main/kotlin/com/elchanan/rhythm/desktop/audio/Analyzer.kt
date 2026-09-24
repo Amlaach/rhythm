@@ -207,6 +207,7 @@ object Analyzer {
      */
     private fun toMono(buffer: ByteArray, frames: Int, channels: Int): FloatArray {
         val out = FloatArray(frames)
+        val scale = 1f / (channels * 32768f)
         var at = 0
         for (f in 0 until frames) {
             var sum = 0
@@ -217,7 +218,7 @@ object Analyzer {
                 sum += (hi shl 8) or lo
                 at += 2
             }
-            out[f] = sum / (channels * 32768f)
+            out[f] = sum * scale
         }
         return out
     }

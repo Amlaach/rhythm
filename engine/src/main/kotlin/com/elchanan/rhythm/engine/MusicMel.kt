@@ -37,9 +37,10 @@ class MusicMel(
 
     enum class Normalisation { UNIT_TRI, UNIT_SUM, UNIT_MAX }
 
-    private val fft = Fft(FRAME)
-    private val window = DoubleArray(FRAME) { 0.5 - 0.5 * cos(2.0 * PI * it / (FRAME - 1)) }
-    private val filters: Array<Pair<Int, DoubleArray>> = bank()
+    private val fft = if (FRAME == 512) DEFAULT_FFT else Fft(FRAME)
+    private val window = if (FRAME == 512) DEFAULT_WINDOW else DoubleArray(FRAME) { 0.5 - 0.5 * cos(2.0 * PI * it / (FRAME - 1)) }
+    private val filters: Array<Pair<Int, DoubleArray>> =
+        if (normalisation == Normalisation.UNIT_TRI) DEFAULT_UNIT_TRI_FILTERS else buildBank(normalisation)
 
     /** Every frame of the signal, [frames][96]. */
     fun frames(signal: FloatArray): Array<FloatArray> {
@@ -78,39 +79,7 @@ class MusicMel(
         return List(count) { p -> Array(PATCH) { frames[p * hop + it] } }
     }
 
-    private fun bank(): Array<Pair<Int, DoubleArray>> {
-        val lowMel = slaney(0.0)
-        val highMel = slaney(HIGH_HZ)
-        val edges = DoubleArray(BANDS + 2) { unslaney(lowMel + (highMel - lowMel) * it / (BANDS + 1)) }
-        val binHz = SAMPLE_RATE / 2.0 / (BINS - 1)
-        return Array(BANDS) { b ->
-            val f0 = edges[b]
-            val f1 = edges[b + 1]
-            val f2 = edges[b + 2]
-            val weights = DoubleArray(BINS) { k ->
-                val f = k * binHz
-                when {
-                    f > f0 && f <= f1 -> (f - f0) / (f1 - f0)
-                    f > f1 && f < f2 -> (f2 - f) / (f2 - f1)
-                    else -> 0.0
-                }
-            }
-            when (normalisation) {
-                Normalisation.UNIT_TRI -> {
-                    val h = 2.0 / (f2 - f0)
-                    for (k in weights.indices) weights[k] *= h
-                }
-                Normalisation.UNIT_SUM -> {
-                    val s = weights.sum()
-                    if (s > 0) for (k in weights.indices) weights[k] /= s
-                }
-                Normalisation.UNIT_MAX -> Unit
-            }
-            val first = weights.indexOfFirst { it > 0.0 }.coerceAtLeast(0)
-            val lastNonZero = weights.indexOfLast { it > 0.0 }.coerceAtLeast(first)
-            first to weights.copyOfRange(first, lastNonZero + 1)
-        }
-    }
+    private fun bank(): Array<Pair<Int, DoubleArray>> = buildBank(normalisation)
 
     companion object {
         const val SAMPLE_RATE = 16000
@@ -122,6 +91,44 @@ class MusicMel(
         const val PATCH_HOP = 62
         private const val HIGH_HZ = 8000.0
         private const val SCALE = 10000.0
+
+        private val DEFAULT_FFT by lazy { Fft(FRAME) }
+        private val DEFAULT_WINDOW by lazy { DoubleArray(FRAME) { 0.5 - 0.5 * cos(2.0 * PI * it / (FRAME - 1)) } }
+        private val DEFAULT_UNIT_TRI_FILTERS by lazy { buildBank(Normalisation.UNIT_TRI) }
+
+        private fun buildBank(normalisation: Normalisation): Array<Pair<Int, DoubleArray>> {
+            val lowMel = slaney(0.0)
+            val highMel = slaney(HIGH_HZ)
+            val edges = DoubleArray(BANDS + 2) { unslaney(lowMel + (highMel - lowMel) * it / (BANDS + 1)) }
+            val binHz = SAMPLE_RATE / 2.0 / (BINS - 1)
+            return Array(BANDS) { b ->
+                val f0 = edges[b]
+                val f1 = edges[b + 1]
+                val f2 = edges[b + 2]
+                val weights = DoubleArray(BINS) { k ->
+                    val f = k * binHz
+                    when {
+                        f > f0 && f <= f1 -> (f - f0) / (f1 - f0)
+                        f > f1 && f < f2 -> (f2 - f) / (f2 - f1)
+                        else -> 0.0
+                    }
+                }
+                when (normalisation) {
+                    Normalisation.UNIT_TRI -> {
+                        val h = 2.0 / (f2 - f0)
+                        for (k in weights.indices) weights[k] *= h
+                    }
+                    Normalisation.UNIT_SUM -> {
+                        val s = weights.sum()
+                        if (s > 0) for (k in weights.indices) weights[k] /= s
+                    }
+                    Normalisation.UNIT_MAX -> Unit
+                }
+                val first = weights.indexOfFirst { it > 0.0 }.coerceAtLeast(0)
+                val lastNonZero = weights.indexOfLast { it > 0.0 }.coerceAtLeast(first)
+                first to weights.copyOfRange(first, lastNonZero + 1)
+            }
+        }
 
         // Slaney's mel scale: linear to 1 kHz, logarithmic above.
         private const val F_SP = 200.0 / 3.0
