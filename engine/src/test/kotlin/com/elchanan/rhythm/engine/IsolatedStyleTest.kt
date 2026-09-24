@@ -56,10 +56,12 @@ class IsolatedStyleTest {
         }
     private fun isEnglish(s: SongEntity) = artists[s.artistKey]?.styles == "אנגלית"
 
-    private fun engine(separations: String) = Recommender(
+    // Some listening on both sides, so the shelves have something to rank.
+    private val listening = songs.filter { it.id % 3 == 0L }.associate { it.id to SongStatsEntity(it.id, playCount = 3, liked = 1) }
+
+    private fun engine(separations: String, stats: Map<Long, SongStatsEntity> = listening) = Recommender(
         songs,
-        // Some listening on both sides, so the shelves have something to rank.
-        songs.filter { it.id % 3 == 0L }.associate { it.id to SongStatsEntity(it.id, playCount = 3, liked = 1) },
+        stats,
         artists, emptyMap(), emptyMap(), emptyMap(), null,
         EngineTuning(separations = separations), 1_750_000_000_000L, 5L
     )
@@ -81,6 +83,27 @@ class IsolatedStyleTest {
             val mixed = list.any { isEnglish(it) } && list.any { !isEnglish(it) }
             assertFalse("\"$title\" mixes English with other songs", mixed)
         }
+    }
+
+    /**
+     * "שמח" typed on one English song says how it feels, not that it stopped
+     * being English. It used to replace the artist's tag outright, and that
+     * one song then went into every mix the rule kept English out of.
+     */
+    @Test fun aSongTaggedByHandKeepsItsArtistsGenreForTheRule() {
+        val tagged = songs.filter { isEnglish(it) }.take(4)
+        val stats = listening + tagged.associate {
+            it.id to (listening[it.id] ?: SongStatsEntity(it.id)).copy(styles = "שמח", playCount = 6, liked = 1)
+        }
+        val e = engine("אנגלית", stats)
+        for ((title, list) in generated(e)) {
+            val mixed = list.any { isEnglish(it) } && list.any { !isEnglish(it) }
+            assertFalse("\"$title\" mixes English with other songs", mixed)
+        }
+        // A genre typed on the song still overrides the artist's.
+        val retagged = tagged.first()
+        val own = engine("אנגלית", stats + (retagged.id to stats.getValue(retagged.id).copy(styles = "חסידי")))
+        assertTrue(own.radio(retagged, 30).drop(1).none { isEnglish(it) })
     }
 
     @Test fun withoutTheRuleTheyDoMix() {

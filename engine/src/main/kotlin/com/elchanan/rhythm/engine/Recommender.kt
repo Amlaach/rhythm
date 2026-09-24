@@ -408,11 +408,29 @@ class Recommender(
      * Only the words the user wrote. The measured tokens that [tokensFor] adds
      * - tempo, mode, decade - are for scoring similarity, and a rule about
      * what not to mix is about what the user called things.
+     *
+     * The artist's words stay where the song's own tags do not answer the
+     * same question. Typed on one song, "שמח" says how it feels, not that it
+     * is no longer English - but [stylesOf] lets a typed tag replace the
+     * artist's, so that one song lost "אנגלית" and slipped into every mix
+     * the rule "רק אנגלית" was meant to keep it out of. A song tagged with a
+     * genre of its own still overrides its artist's genre.
      */
     private val declaredStyles: Map<Long, List<String>> = if (separations.isEmpty) {
         emptyMap()
     } else {
-        songs.associate { song -> song.id to stylesOf(song) }
+        songs.associate { song -> song.id to separationStyles(song) }
+    }
+
+    private fun separationStyles(song: SongEntity): List<String> {
+        val inForce = stylesOf(song)
+        val own = stats[song.id]
+        if (own == null || own.stylesAuto == 1) return inForce
+        val songStyles = Styles.parse(own.styles)
+        if (songStyles.isEmpty()) return inForce
+        val unanswered = Styles.parse(artists[song.artistKey]?.styles.orEmpty())
+            .filter { Styles.familyOf(it) != null && !Styles.answers(it, songStyles) }
+        return if (unanswered.isEmpty()) inForce else (inForce + unanswered).distinct()
     }
 
     /** True when these two must not appear in the same generated list. */
@@ -2486,12 +2504,25 @@ class Recommender(
      * large library, for the same answer. The same computation as
      * [Mood.strongest] over the same rows and marks; drawn from what the feed
      * may offer, so a shiur is never a mood and the vocal-only weeks apply.
+     *
+     * Styles the user keeps apart are kept apart here too: one side of each
+     * rule, the side the listener plays most among this mood's songs. The
+     * mixes always did this and the mood lists did not, so "שמח" put English
+     * songs among the rest for someone who had said English stays with
+     * English.
      */
-    fun strongestIn(mood: Mood): List<SongEntity> =
-        playable
+    fun strongestIn(mood: Mood): List<SongEntity> {
+        val found = playable
             .filter { (stats[it.id]?.liked ?: 0) != -1 }
             .filter { moodModel.matches(mood, features[it.id]) && it.id !in speechAhead }
             .sortedByDescending { moodModel.strength(mood, features[it.id]) }
+        if (separations.isEmpty) return found
+        return separations.favoured(
+            found,
+            { declaredStyles[it.id].orEmpty() },
+            { (stats[it.id]?.playCount ?: 0).toDouble() }
+        )
+    }
 
     /** Whether anything in this snapshot has been analysed at all. */
     val hasAnalysis: Boolean get() = features.isNotEmpty()
