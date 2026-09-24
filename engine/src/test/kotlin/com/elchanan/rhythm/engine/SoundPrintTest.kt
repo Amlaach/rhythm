@@ -177,9 +177,9 @@ class CatalogueInTheEngineTest {
     }
 
     @Test fun theCatalogueSpeaksTheUsersWordsSoTheDefaultRuleApplies() {
-        // The default rule is "חסידי, ישראלי". The catalogue used to say
-        // "פופ ישראלי", which the rule never matched.
-        val rule = Styles.Separations.parse(Styles.DEFAULT_SEPARATIONS)
+        // The rule "חסידי, ישראלי" (the default until it became empty). The
+        // catalogue used to say "פופ ישראלי", which the rule never matched.
+        val rule = Styles.Separations.parse(Styles.HASIDIC_ISRAELI)
         assertTrue(rule.clash(listOf(ArtistStyles.HASIDIC), listOf(ArtistStyles.ISRAELI_POP)))
         assertTrue(ArtistStyles.ISRAELI_POP in Styles.SUGGESTED)
     }

@@ -498,6 +498,12 @@ internal fun TagFixScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+                    // This one only, as on the phone - uncertain or not, since
+                    // it was picked by hand.
+                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { editing = proposal }) { Text("ערוך", color = TextSecondary) }
+                        TextButton(onClick = { onApply(listOf(proposal), true) }) { Text("החל", color = Accent) }
+                    }
                 }
             }
         }
