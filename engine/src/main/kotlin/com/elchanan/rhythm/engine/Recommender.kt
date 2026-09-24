@@ -636,7 +636,7 @@ class Recommender(
 
     /** The piece each song is a version of, ignoring who performed it. */
     private val pieceKeyById: Map<Long, String> =
-        songs.associate { it.id to Versions.pieceKey(it.title) }
+        songs.associate { it.id to Versions.pieceKey(it.title, it.artistName) }
 
     /**
      * True when two tracks are the same song in different clothes.

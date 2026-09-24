@@ -42,9 +42,40 @@ object Versions {
         RegexOption.IGNORE_CASE
     )
 
-    /** The song as written, with nothing in it that identifies a performance. */
-    fun pieceKey(title: String): String =
-        Names.normalizeKey(NOISE.replace(title, " "))
+    /** A track number in front: "01 - ", "1. ", "Track 3 - ". */
+    private val TRACK_NUMBER = Regex("""^\s*(track\s*)?\d{1,3}\s*[-–—.)_]\s*""", RegexOption.IGNORE_CASE)
+
+    /** How a video names itself, bracketed or not: "Official Video", "קליפ רשמי". */
+    private val VIDEO_WORDS = Regex(
+        """official\s+(music\s+|lyric\s+)?(video|audio)|lyric\s+video|\blyrics\b|\b(hd|hq|4k)\b|הקליפ\s+הרשמי|קליפ\s+רשמי""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** Where a title is joined to something else: "ישי ריבו - תוכו רצוף אהבה". */
+    private val JOIN = Regex("""\s+[-–—|]\s+""")
+
+    /**
+     * The song as written, with nothing in it that identifies a performance.
+     *
+     * Also without what a download adds to a title, since the same song from
+     * two places was two songs: a track number in front, "(קליפ רשמי)" or
+     * "Official Video", and - given the song's [artist] - the singer's own
+     * name joined on before or after it, "ישי ריבו - תוכו רצוף אהבה".
+     */
+    fun pieceKey(title: String, artist: String? = null): String {
+        var text = VIDEO_WORDS.replace(NOISE.replace(title, " "), " ")
+        text = TRACK_NUMBER.replace(text, "")
+        if (artist != null) {
+            val singer = Names.credits(artist).mapTo(HashSet()) { Names.normalizeKey(it) } +
+                Names.normalizeKey(Names.primaryArtist(artist))
+            val parts = JOIN.split(text).filter { it.isNotBlank() }
+            if (parts.size > 1) {
+                val kept = parts.filter { Names.normalizeKey(it) !in singer }
+                if (kept.isNotEmpty()) text = kept.joinToString(" ")
+            }
+        }
+        return Names.normalizeKey(text)
+    }
 
     /**
      * Whether two artist fields name the same performer.
@@ -73,6 +104,11 @@ object Versions {
         // two ways. The trailing space is what keeps it from also swallowing
         // "אבי" into "אביתר".
         if (a.startsWith("$b ") || b.startsWith("$a ")) return true
+        // Hebrew spellings of one singer, and the same singer in English.
+        val pa = Names.primaryArtist(left)
+        val pb = Names.primaryArtist(right)
+        if (ArtistMerge.looseKey(pa) == ArtistMerge.looseKey(pb)) return true
+        if (Transliteration.sameName(pa, pb) || Transliteration.sameName(pb, pa)) return true
         return ArtistMerge.oneLetterApart(a, b)
     }
 
@@ -91,7 +127,7 @@ object Versions {
         songs: List<SongEntity>,
         playCount: (Long) -> Int = { 0 }
     ): Map<Long, VersionType> {
-        val byPiece = songs.groupBy { pieceKey(it.title) }
+        val byPiece = songs.groupBy { pieceKey(it.title, it.artistName) }
         val out = HashMap<Long, VersionType>(songs.size)
 
         for ((_, group) in byPiece) {
@@ -144,7 +180,7 @@ object Versions {
         types: Map<Long, VersionType>,
         wanted: Set<VersionType> = setOf(VersionType.COVER, VersionType.REMIX)
     ): List<SongEntity> {
-        val byPiece = songs.groupBy { pieceKey(it.title) }
+        val byPiece = songs.groupBy { pieceKey(it.title, it.artistName) }
         val out = ArrayList<SongEntity>()
         for ((key, group) in byPiece) {
             if (key.isBlank() || group.size < 2) continue
@@ -180,7 +216,7 @@ object Versions {
     ): List<List<SongEntity>> {
         val out = ArrayList<List<SongEntity>>()
         val byPieceAndKind = songs.groupBy { song ->
-            pieceKey(song.title) + "|" + types[song.id]?.name.orEmpty()
+            pieceKey(song.title, song.artistName) + "|" + types[song.id]?.name.orEmpty()
         }
         for ((key, group) in byPieceAndKind) {
             if (group.size < 2 || key.startsWith("|")) continue
