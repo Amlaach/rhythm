@@ -408,11 +408,29 @@ class Recommender(
      * Only the words the user wrote. The measured tokens that [tokensFor] adds
      * - tempo, mode, decade - are for scoring similarity, and a rule about
      * what not to mix is about what the user called things.
+     *
+     * The artist's words stay where the song's own tags do not answer the
+     * same question. Typed on one song, "שמח" says how it feels, not that it
+     * is no longer English - but [stylesOf] lets a typed tag replace the
+     * artist's, so that one song lost "אנגלית" and slipped into every mix
+     * the rule "רק אנגלית" was meant to keep it out of. A song tagged with a
+     * genre of its own still overrides its artist's genre.
      */
     private val declaredStyles: Map<Long, List<String>> = if (separations.isEmpty) {
         emptyMap()
     } else {
-        songs.associate { song -> song.id to stylesOf(song) }
+        songs.associate { song -> song.id to separationStyles(song) }
+    }
+
+    private fun separationStyles(song: SongEntity): List<String> {
+        val inForce = stylesOf(song)
+        val own = stats[song.id]
+        if (own == null || own.stylesAuto == 1) return inForce
+        val songStyles = Styles.parse(own.styles)
+        if (songStyles.isEmpty()) return inForce
+        val unanswered = Styles.parse(artists[song.artistKey]?.styles.orEmpty())
+            .filter { Styles.familyOf(it) != null && !Styles.answers(it, songStyles) }
+        return if (unanswered.isEmpty()) inForce else (inForce + unanswered).distinct()
     }
 
     /** True when these two must not appear in the same generated list. */
