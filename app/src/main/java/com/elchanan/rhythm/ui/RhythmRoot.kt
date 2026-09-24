@@ -1,5 +1,9 @@
 package com.elchanan.rhythm.ui
 
+import androidx.compose.material3.NavigationBarDefaults
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
@@ -580,7 +584,21 @@ private fun RhythmBottomBar(
         containerColor = Color.Transparent,
         // Compact mode: a lower bar. Icons and labels stay; the air around
         // them is what a small screen cannot spare.
-        modifier = Modifier.fillMaxWidth().then(if (Display.compact) Modifier.height(62.dp) else Modifier)
+        //
+        // The 62dp are the tabs' own. They used to include the room the
+        // system keeps for its navigation buttons, which the bar pads itself
+        // by: with three-button navigation - most Samsungs - that is 48dp,
+        // more in compact mode's smaller units, and the icons were left a few
+        // dp and spilled up over the mini player. The system's room is now
+        // added outside the 62, as it is without compact mode.
+        windowInsets = if (Display.compact) WindowInsets(0, 0, 0, 0) else NavigationBarDefaults.windowInsets,
+        modifier = Modifier.fillMaxWidth().then(
+            if (Display.compact) {
+                Modifier.windowInsetsPadding(WindowInsets.navigationBars).height(62.dp)
+            } else {
+                Modifier
+            }
+        )
     ) {
         val tabs = if (Display.foldersTab) {
             TABS.flatMap { if (it.route == Routes.LIBRARY) listOf(it, FOLDERS_TAB) else listOf(it) }

@@ -50,6 +50,7 @@ class MainActivity : ComponentActivity() {
         UiLanguage.code = prefs.language
         Display.compact = prefs.compactMode
         Display.foldersTab = prefs.foldersTab
+        Display.textScale = prefs.textScale
 
         setContent {
             RhythmTheme {
@@ -57,9 +58,13 @@ class MainActivity : ComponentActivity() {
                 // Compact mode: the whole app one size smaller, by scaling the
                 // density everything is measured in. The layouts are the same
                 // layouts; nothing is rearranged or hidden, it all just fits.
+                // The text size setting rides on the same density, in its
+                // font scale only, so text grows or shrinks and nothing else.
                 val base = LocalDensity.current
                 val density = if (Display.compact) {
-                    Density(base.density * Display.COMPACT_SIZE, base.fontScale * Display.COMPACT_TEXT)
+                    Density(base.density * Display.COMPACT_SIZE, base.fontScale * Display.COMPACT_TEXT * Display.textScale)
+                } else if (Display.textScale != 1f) {
+                    Density(base.density, base.fontScale * Display.textScale)
                 } else {
                     base
                 }

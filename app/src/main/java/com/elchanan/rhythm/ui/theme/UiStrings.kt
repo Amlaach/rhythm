@@ -1887,6 +1887,12 @@ object UiStrings {
         "ההורדה נכשלה. אפשר לנסות שוב מאוחר יותר" to "The download failed. You can try again later",
         "ההתקנה נכשלה" to "The installation failed",
         "העדכון בוטל" to "The update was cancelled",
-        "העדכון לא מתאים לגרסה המותקנת" to "The update does not match the installed version"
+        "העדכון לא מתאים לגרסה המותקנת" to "The update does not match the installed version",
+        "גודל הטקסט" to "Text size",
+        "רק הכתב באפליקציה גדל או קטן. שאר התצוגה ושאר האפליקציות בטלפון לא משתנים" to "Only the text in the app grows or shrinks. The rest of the layout and the phone's other apps stay as they are",
+        "קטן" to "Small",
+        "רגיל" to "Normal",
+        "גדול" to "Large",
+        "גדול מאוד" to "Extra large"
     )
 }
