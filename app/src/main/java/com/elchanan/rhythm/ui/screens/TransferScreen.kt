@@ -1,5 +1,13 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.Surface1
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -88,6 +96,30 @@ fun TransferScreen(vm: MainViewModel, onBack: () -> Unit) {
     }
 
     SettingsScaffold(title = "ייבוא וייצוא", onBack = onBack) {
+        // Everything below waits while the library is being read - an import
+        // matched against a song table that is being rewritten would miss
+        // songs. Said here, because buttons that are simply grey read as
+        // broken; copying a file onto the phone is often what starts a scan.
+        if (busy) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = gutter, vertical = 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Surface1)
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Accent)
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        "הספרייה נסרקת עכשיו. הכפתורים יחזרו לפעול כשהסריקה תסתיים",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
         item {
             Row(
                 modifier = Modifier.fillMaxWidth().clickable(enabled = !busy) { analysisLauncher.launch(arrayOf("*/*")) }.padding(horizontal = gutter, vertical = 10.dp),

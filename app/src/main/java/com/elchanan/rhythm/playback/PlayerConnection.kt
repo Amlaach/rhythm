@@ -184,6 +184,19 @@ class PlayerConnection(
         }
     }
 
+    /** Whether the player is playing, for the screens that step it aside and back. */
+    val isPlaying: Boolean get() = controller?.isPlaying == true
+
+    fun pause() {
+        controller?.pause()
+    }
+
+    fun resume() {
+        val c = controller ?: return
+        if (c.playbackState == Player.STATE_IDLE) c.prepare()
+        c.play()
+    }
+
     fun togglePlayPause() {
         val c = controller ?: return
         if (c.isPlaying) c.pause() else {
@@ -227,6 +240,17 @@ class PlayerConnection(
         if (index in 0 until c.mediaItemCount) {
             c.seekTo(index, 0L)
             c.play()
+        }
+    }
+
+    /** Every entry of [ids] still to come, leaving the one playing where it is. */
+    fun removeUpcoming(ids: Set<Long>) {
+        val c = controller ?: return
+        val current = c.currentMediaItemIndex
+        for (i in c.mediaItemCount - 1 downTo 0) {
+            if (i == current) continue
+            val id = c.getMediaItemAt(i).mediaId.toLongOrNull() ?: continue
+            if (id in ids) c.removeMediaItem(i)
         }
     }
 

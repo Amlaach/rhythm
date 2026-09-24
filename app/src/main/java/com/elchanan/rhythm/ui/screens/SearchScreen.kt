@@ -1,5 +1,11 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Row
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.foundation.background
@@ -55,7 +61,8 @@ import com.elchanan.rhythm.ui.components.rememberMetrics
 fun SearchScreen(
     vm: MainViewModel,
     onOpenArtist: () -> Unit,
-    onOpenDetail: () -> Unit
+    onOpenDetail: () -> Unit,
+    onBack: (() -> Unit)? = null
 ) {
     val query by vm.searchQuery.collectAsStateWithLifecycle()
     val results by vm.searchResults.collectAsStateWithLifecycle()
@@ -67,14 +74,33 @@ fun SearchScreen(
     val topPad = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val gutter = rememberMetrics().gutter
 
+    // Opened from the magnifier at the top of the home screen, so it is
+    // there to be typed into: the field takes the focus and the keyboard
+    // comes up without a second tap.
+    val focus = remember { FocusRequester() }
+    // Only when there is nothing typed yet: coming back from a result to
+    // the list of results should not throw the keyboard up again.
+    LaunchedEffect(Unit) { if (query.isBlank()) runCatching { focus.requestFocus() } }
+
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = topPad)
+                .padding(start = if (onBack != null) 4.dp else gutter, end = gutter, top = 10.dp, bottom = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+        if (onBack != null) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = localized("חזור"), tint = TextSecondary)
+            }
+        }
         TextField(
             value = query,
             onValueChange = { vm.onSearchQuery(it) },
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = topPad)
-                .padding(horizontal = gutter, vertical = 10.dp),
+                .weight(1f)
+                .focusRequester(focus),
             placeholder = { Text("חיפוש שיר, אמן או אלבום", color = TextSecondary) },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = TextSecondary) },
             trailingIcon = {
@@ -96,6 +122,7 @@ fun SearchScreen(
                 unfocusedTextColor = MaterialTheme.colorScheme.onBackground
             )
         )
+        }
 
         if (query.isBlank()) {
             val styles = library.artists

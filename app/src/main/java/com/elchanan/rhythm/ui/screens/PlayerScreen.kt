@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.platform.LocalConfiguration
 import com.elchanan.rhythm.ui.components.DialogBody
 import com.elchanan.rhythm.ui.components.fitHeight
@@ -657,6 +658,13 @@ fun PlayerScreen(
                                 onClick = { bookmarksOpen = true }
                             )
                         }
+                        if (placement(PlayerAction.HIDE) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.VisibilityOff,
+                                label = "הסתר",
+                                onClick = { vm.hideSongs(listOf(song)) }
+                            )
+                        }
                     }
 
                     Spacer(Modifier.height(6.dp))
@@ -684,6 +692,28 @@ fun PlayerScreen(
                             )
                         }
                     }
+                    }
+                    // The singer's stars, when the listener put them on the
+                    // player. Labelled, like the song's, so the two rows are
+                    // never read as each other.
+                    val artist = library.artists.firstOrNull { it.key == song.artistKey }
+                    if (artist != null && placement(PlayerAction.ARTIST_RATING) == ActionPlacement.BUTTON) {
+                        Row(
+                            modifier = Modifier.padding(top = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "דירוג האמן",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = TextSecondary
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            StarRow(
+                                rating = artist.rating,
+                                onRate = { vm.rateArtist(artist.key, artist.displayName, it, artist.styles, artist.note) },
+                                size = 20
+                            )
+                        }
                     }
 
                     Spacer(Modifier.height(6.dp))
@@ -951,7 +981,9 @@ fun PlayerScreen(
             onShowLyrics = {
                 showLyrics = true
                 showQueue = false
-            }
+            },
+            showArtistRating = placement(PlayerAction.ARTIST_RATING) != ActionPlacement.HIDDEN,
+            showHide = placement(PlayerAction.HIDE) != ActionPlacement.HIDDEN
         )
     }
 }
@@ -1193,6 +1225,13 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
     var showSavePlaylist by remember { mutableStateOf(false) }
     var playlistName by remember { mutableStateOf("") }
     val songs = state.queueIds.mapNotNull { library.songsById[it] }
+    val keys = remember(songs) {
+        val seen = HashMap<Long, Int>()
+        songs.map { song ->
+            val n = seen.merge(song.id, 1, Int::plus)!!
+            if (n == 1) "${song.id}" else "${song.id}#$n"
+        }
+    }
 
     // the first entry after the current one that the radio appended by itself
     val autoStart = remember(songs, autoIds, state.queueIndex) {
@@ -1286,8 +1325,10 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
 
         // Keyed by song, so a removal moves the rows that remain instead of
         // leaving swipe offsets and drag state attached to whatever slid into
-        // that position.
-        itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
+        // that position. And by which time the song comes in the queue: "play
+        // next" on a song already in it puts it there twice, and two rows
+        // with one key closed the app.
+        itemsIndexed(songs, key = { index, _ -> keys[index] }) { index, song ->
             if (index == state.queueIndex + 1 && index != autoStart) {
                 QueueHeader("הבא בתור")
             }

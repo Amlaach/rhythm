@@ -200,7 +200,7 @@ fun AlgorithmSettingsScreen(
                 TuningSlider(
                     label = "מניעת חזרתיות",
                     value = repeatGuard / 2f,
-                    hint = "ככל שגבוה יותר, שיר שהתנגן לאחרונה ירד בדירוג",
+                    hint = "ככל שגבוה יותר, שיר שהתנגן לאחרונה ירד בדירוג. מעל האמצע הוא גם נשאר למטה יותר זמן, עד שבוע בקצה",
                     onChange = { repeatGuard = it * 2f },
                     onDone = { vm.updateTuning(repeatGuard = repeatGuard) }
                 )

@@ -144,6 +144,21 @@ class Prefs(context: Context) {
      * was closed. It comes back only when there are more than that - new
      * downloads - and not for the same ones again.
      */
+    /** Tastes played to their end or scrolled past, for the chorus finder's hit rate. */
+    var hookTastes: Int
+        get() = sp.getInt("hook_tastes", 0)
+        set(value) = sp.edit { putInt("hook_tastes", value) }
+
+    /** Tastes the listener said did not start on the chorus. */
+    var hookMisses: Int
+        get() = sp.getInt("hook_misses", 0)
+        set(value) = sp.edit { putInt("hook_misses", value) }
+
+    /** Whether "search is here now" has been shown and closed. */
+    var searchHintSeen: Boolean
+        get() = sp.getBoolean("search_hint_seen", false)
+        set(value) = sp.edit { putBoolean("search_hint_seen", value) }
+
     var tagFixBannerDismissedAt: Int
         get() = sp.getInt(KEY_TAG_FIX_BANNER, 0)
         set(value) = sp.edit { putInt(KEY_TAG_FIX_BANNER, value) }
@@ -464,6 +479,22 @@ class Prefs(context: Context) {
     var libraryFirstTab: String
         get() = sp.getString(KEY_LIBRARY_TAB, "PLAYLISTS").orEmpty().ifBlank { "PLAYLISTS" }
         set(value) = sp.edit { putString(KEY_LIBRARY_TAB, value) }
+
+    /**
+     * Songs the listener hid from the player: gone from every list, search and
+     * recommendation, as if deleted, while the file and everything learned
+     * about it stay. Brought back from the library settings.
+     */
+    var hiddenSongs: Set<Long>
+        get() = sp.getString("hidden_songs", "").orEmpty()
+            .split(',')
+            .mapNotNullTo(LinkedHashSet()) { it.trim().toLongOrNull() }
+        set(value) = sp.edit { putString("hidden_songs", value.joinToString(",")) }
+
+    /** Name songs by their file rather than by their tags. See FileTitles. */
+    var titlesFromFiles: Boolean
+        get() = sp.getBoolean("titles_from_files", false)
+        set(value) = sp.edit { putBoolean("titles_from_files", value) }
 
     /**
      * Collapse songs that are the same recording stored twice.

@@ -48,7 +48,41 @@ class MusicRepository(
     val prefs: Prefs
 ) {
 
-    val songs: Flow<List<SongEntity>> = dao.observeSongs()
+    /**
+     * What the listener changed about how the library is shown: the songs
+     * they hid, and whether songs go by their file names. Held here so every
+     * list is rebuilt the moment either changes.
+     */
+    private val display = kotlinx.coroutines.flow.MutableStateFlow(prefs.hiddenSongs to prefs.titlesFromFiles)
+
+    /** The songs as the app shows them: without the hidden ones, named as asked. */
+    val songs: Flow<List<SongEntity>> =
+        kotlinx.coroutines.flow.combine(dao.observeSongs(), display) { all, (hidden, fromFiles) ->
+            shown(all, hidden, fromFiles)
+        }
+
+    private fun shown(all: List<SongEntity>, hidden: Set<Long>, fromFiles: Boolean): List<SongEntity> {
+        val kept = if (hidden.isEmpty()) all else all.filter { it.id !in hidden }
+        return if (fromFiles) FileTitles.apply(kept) else kept
+    }
+
+    fun setHidden(ids: Collection<Long>, hidden: Boolean) {
+        val next = if (hidden) prefs.hiddenSongs + ids else prefs.hiddenSongs - ids.toSet()
+        prefs.hiddenSongs = next
+        display.value = next to display.value.second
+    }
+
+    fun setTitlesFromFiles(enabled: Boolean) {
+        prefs.titlesFromFiles = enabled
+        display.value = display.value.first to enabled
+    }
+
+    /** The hidden songs, as their tags name them, for the list they are brought back from. */
+    suspend fun hiddenSongs(): List<SongEntity> = withContext(Dispatchers.IO) {
+        val hidden = prefs.hiddenSongs
+        if (hidden.isEmpty()) emptyList() else dao.allSongs().filter { it.id in hidden }
+    }
+
     val stats: Flow<List<SongStatsEntity>> = dao.observeStats()
     val artists: Flow<List<ArtistEntity>> = dao.observeArtists()
     val playlists: Flow<List<PlaylistEntity>> = dao.observePlaylists()
@@ -107,7 +141,18 @@ class MusicRepository(
      */
     private val scanLock = kotlinx.coroutines.sync.Mutex()
 
-    suspend fun rescan(): Int = withContext(Dispatchers.IO) { scanLock.withLock { rescanLocked() } }
+    suspend fun rescan(): Int = withContext(Dispatchers.IO) {
+        scanLock.withLock {
+            // Counted whether it got to the end or not: the screens wait on
+            // this count to stop looking busy, and a scan that failed left
+            // import and export greyed out for a quarter of an hour.
+            try {
+                rescanLocked()
+            } finally {
+                _scans.value = _scans.value + 1
+            }
+        }
+    }
 
     private suspend fun rescanLocked(): Int {
         val excluded = prefs.excludedFolders.map { it.lowercase() }
@@ -325,7 +370,6 @@ class MusicRepository(
             rehomeArtistProfiles(found.mapNotNull { song -> rawKey[song.id]?.let { it to song.artistKey } })
         }
         prefs.lastScanAt = System.currentTimeMillis()
-        _scans.value = _scans.value + 1
         // The songs still filed under storage that is not attached count as
         // part of the library, because they are: they come back the moment
         // the card does, with everything that was learned about them intact.
@@ -955,7 +999,10 @@ class MusicRepository(
         // engine was never told, so search - which runs through the engine -
         // went on listing both copies, and hiding duplicates looked like it
         // worked everywhere except the one place people check it.
-        val allSongs = dao.allSongs().let { all ->
+        // Hidden songs are not offered anywhere, and songs named by their
+        // files are named so here too - search and every shelf run through
+        // this. Neither changes anything while the listener has not asked.
+        val allSongs = shown(dao.allSongs(), prefs.hiddenSongs, prefs.titlesFromFiles).let { all ->
             if (!prefs.hideDuplicates) all else {
                 val types = Versions.classify(all) { id -> statsById[id]?.playCount ?: 0 }
                 Versions.withoutDuplicates(all, types)

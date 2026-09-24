@@ -18,7 +18,8 @@ import kotlin.math.ln
  * padding and nothing else:
  *  - the picture is not square to begin with (real sleeves nearly always are);
  *  - the bars are along its long sides, on both of them, and about equally
- *    wide (padding is centred; a composition rarely is);
+ *    wide (padding is centred; a composition rarely is) - or, in a 4:3
+ *    thumbnail, black above and below a video frame, which is letterboxing;
  *  - each bar is one flat colour, top to bottom;
  *  - what is left is closer to square than what there was.
  * Anything else is left exactly as it is.
@@ -49,12 +50,7 @@ object ArtTrim {
         val aspect = width.toDouble() / height
         if (aspect in 0.9..1.11) return null
         return if (width > height) {
-            val left = bar(width, { i, s -> pixels[s * width + i] }, height, fromEnd = false)
-            val right = bar(width, { i, s -> pixels[s * width + i] }, height, fromEnd = true)
-            if (!padding(left, right, width)) return null
-            val kept = width - left - right
-            if (!squarer(kept.toDouble() / height, aspect)) return null
-            intArrayOf(left, 0, width - right, height)
+            pillars(pixels, width, height, aspect) ?: letterboxed(pixels, width, height)
         } else {
             val top = bar(height, { i, s -> pixels[i * width + s] }, width, fromEnd = false)
             val bottom = bar(height, { i, s -> pixels[i * width + s] }, width, fromEnd = true)
@@ -64,6 +60,49 @@ object ArtTrim {
             intArrayOf(0, top, width, height - bottom)
         }
     }
+
+    /** Flat bars down both sides of a wide picture: a sleeve padded out to a video frame. */
+    private fun pillars(pixels: IntArray, width: Int, height: Int, aspect: Double): IntArray? {
+        val left = bar(width, { i, s -> pixels[s * width + i] }, height, fromEnd = false)
+        val right = bar(width, { i, s -> pixels[s * width + i] }, height, fromEnd = true)
+        if (!padding(left, right, width)) return null
+        val kept = width - left - right
+        if (!squarer(kept.toDouble() / height, aspect)) return null
+        return intArrayOf(left, 0, width - right, height)
+    }
+
+    /**
+     * Black bars above and below a video frame, in a 4:3 picture: the
+     * thumbnail video sites hand out most often (YouTube's "hqdefault" is a
+     * 16:9 frame letterboxed into 480 x 360). Cut only when the bars are
+     * black, as letterboxing is, and what is left is the shape of a video -
+     * a cover with dark bands of its own is not cut into some other shape.
+     * The frame left may itself be a sleeve padded out at its sides, and
+     * then those bars go too.
+     */
+    private fun letterboxed(pixels: IntArray, width: Int, height: Int): IntArray? {
+        val at = { i: Int, s: Int -> pixels[i * width + s] }
+        val top = bar(height, at, width, fromEnd = false)
+        val bottom = bar(height, at, width, fromEnd = true)
+        if (!padding(top, bottom, height)) return null
+        if (!dark(average(0, at, width, maxOf(1, width / 96))) ||
+            !dark(average(height - 1, at, width, maxOf(1, width / 96)))
+        ) return null
+        val kept = height - top - bottom
+        val frame = width.toDouble() / kept
+        if (frame !in VIDEO) return null
+        val inner = IntArray(width * kept)
+        System.arraycopy(pixels, top * width, inner, 0, width * kept)
+        val sides = pillars(inner, width, kept, frame)
+            ?: return intArrayOf(0, top, width, height - bottom)
+        return intArrayOf(sides[0], top, sides[2], top + kept)
+    }
+
+    /** The shapes a video frame comes in, from 16:10 to a little past 16:9. */
+    private val VIDEO = 1.55..1.95
+
+    private fun dark(colour: Int): Boolean =
+        ((colour shr 16) and 0xFF) <= 48 && ((colour shr 8) and 0xFF) <= 48 && (colour and 0xFF) <= 48
 
     /**
      * How many lines from one edge are flat bar. [at] gives the pixel at

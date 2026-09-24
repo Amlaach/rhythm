@@ -1,5 +1,9 @@
 package com.elchanan.rhythm.ui.theme
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -102,5 +106,77 @@ fun CaptionedIconButton(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+/**
+ * A bubble just under the control it is placed beside, with an arrow at that
+ * control, and a button that closes it. For telling someone once that
+ * something has moved: put it in a Box with the control it points at.
+ */
+@Composable
+fun PointingHint(title: String, body: String, onDone: () -> Unit) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val position = androidx.compose.runtime.remember {
+        BelowAnchor(with(density) { 4.dp.roundToPx() }, with(density) { 12.dp.roundToPx() })
+    }
+    androidx.compose.ui.window.Popup(popupPositionProvider = position, onDismissRequest = onDone) {
+        Column {
+            // Placed by absolute offset: in Hebrew a plain offset would mirror
+            // the arrow away from the control it points at.
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier
+                    .absoluteOffset { androidx.compose.ui.unit.IntOffset(position.arrowX - with(density) { 8.dp.roundToPx() }, 0) }
+                    .size(16.dp, 8.dp)
+                    .drawBehind {
+                        val path = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(size.width / 2, 0f)
+                            lineTo(size.width, size.height)
+                            lineTo(0f, size.height)
+                            close()
+                        }
+                        drawPath(path, Accent)
+                    }
+            )
+            Row(
+                modifier = Modifier
+                    .widthIn(max = 300.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Accent)
+                    .padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f, fill = false)) {
+                    Text(title, style = MaterialTheme.typography.titleSmall, color = Color.White)
+                    Text(body, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.9f))
+                }
+                Spacer(Modifier.width(4.dp))
+                androidx.compose.material3.TextButton(onClick = onDone) {
+                    Text("הבנתי", style = MaterialTheme.typography.labelLarge, color = Color.White)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Just under the control it points at, kept a margin inside the window, with
+ * where the control's middle falls inside the bubble for the arrow to use.
+ */
+private class BelowAnchor(private val gap: Int, private val margin: Int) :
+    androidx.compose.ui.window.PopupPositionProvider {
+    var arrowX by androidx.compose.runtime.mutableIntStateOf(0)
+
+    override fun calculatePosition(
+        anchorBounds: androidx.compose.ui.unit.IntRect,
+        windowSize: androidx.compose.ui.unit.IntSize,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        popupContentSize: androidx.compose.ui.unit.IntSize
+    ): androidx.compose.ui.unit.IntOffset {
+        val centre = anchorBounds.left + anchorBounds.width / 2
+        val maxX = (windowSize.width - popupContentSize.width - margin).coerceAtLeast(margin)
+        val x = (centre - popupContentSize.width / 2).coerceIn(margin, maxX)
+        arrowX = centre - x
+        return androidx.compose.ui.unit.IntOffset(x, anchorBounds.bottom + gap)
     }
 }

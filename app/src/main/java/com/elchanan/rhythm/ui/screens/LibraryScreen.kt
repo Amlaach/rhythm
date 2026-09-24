@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.material.icons.filled.VisibilityOff
 import com.elchanan.rhythm.ui.components.DialogBody
 import com.elchanan.rhythm.ui.components.fitHeight
 import com.elchanan.rhythm.ui.theme.localized
@@ -863,6 +864,11 @@ internal fun SelectionBar(vm: MainViewModel) {
                     onClick = { moreOpen = false; vm.shareSongs(songs); onClear() }
                 )
                 DropdownMenuItem(
+                    text = { Text("הסתר מהנגן") },
+                    leadingIcon = { Icon(Icons.Filled.VisibilityOff, contentDescription = null) },
+                    onClick = { moreOpen = false; vm.hideSongs(songs); onClear() }
+                )
+                DropdownMenuItem(
                     text = { Text("מחק", color = Color_Error) },
                     leadingIcon = {
                         Icon(Icons.Filled.Delete, contentDescription = null, tint = Color_Error)
@@ -1180,7 +1186,7 @@ private fun FolderTreeTab(
                             if (all.isNotEmpty()) vm.playList(all, 0, here.name)
                         })
                         Chip(label = "ערבב", selected = false, onClick = {
-                            vm.shuffleList(Folders.allSongs(here))
+                            vm.shuffleList(Folders.allSongs(here), here.name)
                         })
                         Chip(label = "תייג סגנון", selected = false, onClick = { tagging = here })
                         Chip(label = "דרג", selected = false, onClick = { rating = here })

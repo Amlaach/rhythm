@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.foundation.layout.padding
 import com.elchanan.rhythm.ui.components.fitHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -142,6 +143,17 @@ internal fun SongEditDialog(
                     .verticalScroll(rememberScrollState())
             ) {
                 if (single != null) Field("שם השיר", title) { title = it }
+                // For tags that came wrong from a download: the name the file
+                // was saved under, which is usually the one that is right.
+                val fromFile = single?.let { com.elchanan.rhythm.data.FileTitles.of(it.path) }
+                if (fromFile != null && fromFile != title.trim()) {
+                    androidx.compose.material3.TextButton(
+                        onClick = { title = fromFile },
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    ) {
+                        Text("משם הקובץ: $fromFile", maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    }
+                }
                 Field("אמן", artist) { artist = it }
                 Field("אלבום", album) { album = it }
                 Field("אמן האלבום", albumArtist) { albumArtist = it }

@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.material.icons.filled.VisibilityOff
 import com.elchanan.rhythm.ui.components.DialogBody
 import com.elchanan.rhythm.ui.components.fitHeight
 import androidx.compose.foundation.clickable
@@ -102,7 +103,13 @@ fun SongOptionsSheet(
     /** The player's own volume, when the listener put it in this menu rather than on the player. */
     onVolume: (() -> Unit)? = null,
     /** Set by the player so lyrics open its synced panel, not the editor. */
-    onShowLyrics: (() -> Unit)? = null
+    onShowLyrics: (() -> Unit)? = null,
+    /**
+     * The player's own say over two rows, from its arrangement: hidden there,
+     * they are left out of its menu whatever the song menu's arrangement is.
+     */
+    showArtistRating: Boolean = true,
+    showHide: Boolean = true
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val gutter = rememberMetrics().gutter
@@ -222,7 +229,35 @@ fun SongOptionsSheet(
             // which until they do is the order below: the things people open
             // this menu for first, browsing after, the destructive last.
             val arranged = remember { SongMenu.shown(vm.prefs.songMenu) }
+            val artist = library.artists.firstOrNull { it.key == song.artistKey }
             for (item in arranged) when (item) {
+                // The singer's stars, where the song's own are: rating the
+                // artist used to mean leaving for the ratings tab.
+                SongMenuItem.ARTIST_RATING -> if (artist != null && showArtistRating) {
+                    Column(modifier = Modifier.padding(horizontal = gutter, vertical = 6.dp)) {
+                        Text("דירוג האמן", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            text = artist.displayName,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            maxLines = 1
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        StarRow(
+                            rating = artist.rating,
+                            onRate = { vm.rateArtist(artist.key, artist.displayName, it, artist.styles, artist.note) },
+                            size = 26
+                        )
+                    }
+                }
+                // As if deleted, without deleting: gone from every list and
+                // search, brought back from the library settings.
+                SongMenuItem.HIDE -> if (showHide) {
+                    OptionRow(Icons.Filled.VisibilityOff, "הסתר מהנגן") {
+                        vm.hideSongs(listOf(song))
+                        onDismiss()
+                    }
+                }
                 // Queueing the song that is already playing means nothing, so
                 // the player's own menu leaves those two out.
                 SongMenuItem.PLAY_NEXT -> if (!forCurrentSong) {
@@ -829,17 +864,23 @@ private fun MoodDialog(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(mood.label, style = MaterialTheme.typography.titleSmall)
-                            val auto = reading?.get(mood)
+                            val read = reading
+                            val auto = read?.get(mood)
+                            // What the reading says, yes or no, kept in sight
+                            // after a mark too: it is how one follows whether
+                            // the reading is learning, and "זוהה" alone did not
+                            // say what had been found.
                             Text(
                                 when {
-                                    said != null -> "סימנת בעצמך"
-                                    reading == null -> "…"
-                                    reading!!.isEmpty() -> "השיר עוד לא נותח"
-                                    auto == true -> "זוהה אוטומטית"
-                                    else -> "לא זוהה"
+                                    read == null -> if (said != null) "סימנת בעצמך" else "…"
+                                    read.isEmpty() -> if (said != null) "סימנת בעצמך" else "השיר עוד לא נותח"
+                                    said != null && auto == true -> "סימנת בעצמך · הזיהוי האוטומטי: כן"
+                                    said != null -> "סימנת בעצמך · הזיהוי האוטומטי: לא"
+                                    auto == true -> "הזיהוי האוטומטי: כן"
+                                    else -> "הזיהוי האוטומטי: לא"
                                 },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TextTertiary
+                                color = if (auto == true) Accent else TextTertiary
                             )
                         }
                         Chip("כן", selected = said == true) {

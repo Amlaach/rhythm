@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.desktop
 
+import androidx.compose.material.icons.filled.VisibilityOff
 import com.elchanan.rhythm.ui.theme.Surface3
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.drawBehind
@@ -1599,7 +1600,13 @@ internal fun SongOptionsDialog(
     onVocal: (Boolean) -> Unit = {},
     /** What the audio reading says about each mood, the listener's own marks on this song left out. */
     moodReading: suspend () -> Map<Mood, Boolean> = { emptyMap() },
-    onMoodMark: (Mood, Boolean?) -> Unit = { _, _ -> }
+    onMoodMark: (Mood, Boolean?) -> Unit = { _, _ -> },
+    /** The singer's stars, as the phone's menu has them; null leaves them out. */
+    artistName: String? = null,
+    artistRating: Int = 0,
+    onRateArtist: (Int) -> Unit = {},
+    /** "Hide from the player"; null leaves the row out. */
+    onHide: (() -> Unit)? = null
 ) {
     var picking by remember { mutableStateOf(false) }
     var moodOpen by remember { mutableStateOf(false) }
@@ -1758,6 +1765,18 @@ internal fun SongOptionsDialog(
                 Spacer(Modifier.height(6.dp))
                 StarRow(rating = stat?.rating ?: 0, onRate = onRate, size = 26)
                 Spacer(Modifier.height(14.dp))
+                if (artistName != null) {
+                    Text(
+                        "דירוג האמן · $artistName",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    StarRow(rating = artistRating, onRate = onRateArtist, size = 26)
+                    Spacer(Modifier.height(14.dp))
+                }
                 OptionRow(Icons.AutoMirrored.Filled.PlaylistAdd, "הוספה לרשימה") { picking = true }
                 OptionRow(Icons.Filled.SkipNext, "נגן אחרי הנוכחי") {
                     onPlayNext()
@@ -1831,6 +1850,13 @@ internal fun SongOptionsDialog(
                         confirmReset = true
                     }
                 }
+                // As if deleted, without deleting: back from the library settings.
+                if (onHide != null) {
+                    OptionRow(Icons.Filled.VisibilityOff, "הסתר מהנגן") {
+                        onHide()
+                        onDismiss()
+                    }
+                }
                 OptionRow(Icons.Filled.Delete, "מחק את הקובץ מהמחשב", tint = Color_Error) {
                     confirmDelete = true
                 }
@@ -1880,16 +1906,21 @@ private fun MoodDialog(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(mood.label, style = MaterialTheme.typography.titleSmall)
                             val reading = auto
+                            val found = reading?.get(mood) == true
+                            // Yes or no, and still shown after a mark: how one
+                            // follows whether the reading is learning. The phone
+                            // says the same.
                             Text(
                                 when {
-                                    mine != null -> "סימנת בעצמך"
-                                    reading == null -> "…"
-                                    reading.isEmpty() -> "השיר עוד לא נותח"
-                                    reading[mood] == true -> "זוהה אוטומטית"
-                                    else -> "לא זוהה"
+                                    reading == null -> if (mine != null) "סימנת בעצמך" else "…"
+                                    reading.isEmpty() -> if (mine != null) "סימנת בעצמך" else "השיר עוד לא נותח"
+                                    mine != null && found -> "סימנת בעצמך · הזיהוי האוטומטי: כן"
+                                    mine != null -> "סימנת בעצמך · הזיהוי האוטומטי: לא"
+                                    found -> "הזיהוי האוטומטי: כן"
+                                    else -> "הזיהוי האוטומטי: לא"
                                 },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TextTertiary
+                                color = if (found) Accent else TextTertiary
                             )
                         }
                         Chip("כן", selected = mine == true) {

@@ -66,6 +66,26 @@ private val MEDLEY_MARKERS = Regex(
     RegexOption.IGNORE_CASE
 )
 
+/**
+ * How far a song heard [hours] ago is pushed down, at the repeat-avoidance
+ * setting [guard] (0 to 2, 1 by default).
+ *
+ * Up to the middle of the slider it is what it always was: the push fades
+ * over a few hours, so a song from yesterday is almost free again. Past the
+ * middle the slider also holds the full push for longer before it fades - a
+ * week at the far end - because someone who turns it right up means "not
+ * again this week", and a stronger push that is gone by tomorrow did not do
+ * that. At 1 and below the arithmetic is exactly the old one.
+ */
+fun repeatPenalty(guard: Float, hours: Double): Double {
+    val hold = if (guard > 1f) (guard - 1f).toDouble() * REPEAT_HOLD_HOURS else 0.0
+    val faded = if (hold > 0.0) maxOf(0.0, hours - hold) else hours
+    return 2.6 * guard * exp(-faded / 9.0)
+}
+
+/** How long the far end of the repeat-avoidance slider holds a song down. */
+const val REPEAT_HOLD_HOURS = 7.0 * 24
+
 fun isMedley(title: String): Boolean = MEDLEY_MARKERS.containsMatchIn(title)
 
 fun isLiveRecording(title: String): Boolean {
@@ -1326,7 +1346,7 @@ class Recommender(
         score += 0.75 * timeFit(st)
         score += 0.45 * dayFit(st)
         score += 0.6 * sessionFit(song.id)
-        score -= 2.6 * tuning.repeatGuard * exp(-hoursSince(st?.lastPlayedAt ?: 0L) / 9.0)
+        score -= repeatPenalty(tuning.repeatGuard, hoursSince(st?.lastPlayedAt ?: 0L))
         score += 0.35 * exp(-daysSince(song.dateAddedSec * 1000L) / 21.0)
         if (untouched(song.id)) score += 1.1 * effectiveDiscovery
 
@@ -1479,7 +1499,7 @@ class Recommender(
         out.add(
             ScoreTerm(
                 "מניעת חזרתיות",
-                -2.6 * tuning.repeatGuard * exp(-hours / 9.0),
+                -repeatPenalty(tuning.repeatGuard, hours),
                 if (hours > 100_000) "לא הושמע לאחרונה" else "הושמע לפני ${hours.toInt()} שעות"
             )
         )

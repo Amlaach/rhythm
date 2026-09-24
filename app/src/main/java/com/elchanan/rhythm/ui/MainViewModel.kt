@@ -55,6 +55,8 @@ import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.engine.SignalCalibration
 import com.elchanan.rhythm.engine.SignalWeights
 import com.elchanan.rhythm.engine.Spoken
+import com.elchanan.rhythm.engine.isMedley
+import com.elchanan.rhythm.playback.HookFinder
 import com.elchanan.rhythm.engine.StyleLearner
 import com.elchanan.rhythm.engine.StyleLearning
 import com.elchanan.rhythm.engine.StyleTraining
@@ -747,8 +749,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         markStarted()
     }
 
-    fun shuffleList(songs: List<SongEntity>) {
+    fun shuffleList(songs: List<SongEntity>, source: String? = null) {
         if (songs.isEmpty()) return
+        // Named like any other start, so the queue says what it came from
+        // when shuffled too - a mood shuffled from its screen said nothing,
+        // or still named whatever had played before it.
+        QueueMeta.reset()
+        QueueMeta.setSource(source ?: _detail.value?.title)
         player.playShuffled(songs)
         markStarted()
     }
@@ -759,6 +766,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val e = engine ?: repo.buildRecommender().also { engine = it }
             val list = withContext(Dispatchers.Default) { e.radio(song, 40) }
             QueueMeta.reset()
+            QueueMeta.setSource("רדיו: ${song.title}")
             QueueMeta.markAuto(list.drop(1).map { it.id })
             // From the song that is playing, it simply carries on.
             if (!player.continueFromCurrent(list)) {
@@ -1108,6 +1116,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 songs = list,
                 key = "mix:seed:${song.id}"
             )
+            if (andPlay) {
+                QueueMeta.reset()
+                QueueMeta.setSource("מיקס: ${song.title}")
+            }
             if (andPlay && !player.continueFromCurrent(list)) {
                 player.play(list, 0)
                 markStarted()
@@ -1766,6 +1778,132 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // -----------------------------------------------------------------------
+    // samples: a taste of each song, from its chorus, one after another
+    // -----------------------------------------------------------------------
+
+    private val _samples = MutableStateFlow<List<SongEntity>?>(null)
+
+    /** The songs to taste, in order; null while they are being chosen. */
+    val samples: StateFlow<List<SongEntity>?> = _samples.asStateFlow()
+
+    /**
+     * What to taste, and in what order.
+     *
+     * For finding songs in the library, so the ones never played come first,
+     * each group in the order the engine likes them for this listener, with a
+     * little shuffle so the same few do not open every time. Left out: what
+     * was disliked, medleys and anything over six minutes - a taste of the
+     * fourth tune of a set is no taste of it - lectures, and vocal-only songs
+     * outside their season, as everywhere else.
+     */
+    fun buildSamples() {
+        viewModelScope.launch {
+            val built = samplesFor(library.value.songs)
+            // The ones already tasted this time go to the end: coming back
+            // to the tastes starts on something new, not on what was just
+            // scrolled past.
+            val (fresh, tasted) = built.partition { it.id !in tastedIds }
+            _samples.value = fresh + tasted
+        }
+    }
+
+    /**
+     * The order is chosen once per library and kept, so the choruses found
+     * ahead of time are the ones the tastes then open with.
+     */
+    private var samplesCache: Pair<Long, List<SongEntity>>? = null
+    private val tastedIds = HashSet<Long>()
+
+    /**
+     * Which library the order was chosen for: the songs in it, not the list
+     * object, which is made again on every like and play.
+     */
+    private fun librarySignature(songs: List<SongEntity>): Long =
+        songs.fold(songs.size.toLong()) { acc, s -> acc * 31 + s.id }
+
+    fun noteTasted(songId: Long) {
+        tastedIds.add(songId)
+    }
+
+    private suspend fun samplesFor(songs: List<SongEntity>): List<SongEntity> {
+        val signature = librarySignature(songs)
+        samplesCache?.let { (forLibrary, list) -> if (forLibrary == signature) return list }
+        val list = chooseSamples()
+        samplesCache = signature to list
+        return list
+    }
+
+    /**
+     * A few moments after the app opens, the first tastes' choruses are found
+     * in the background, on a thread that gives way to everything else, so
+     * the tastes open straight on a chorus. Once per run of the app.
+     */
+    private var tastesWarmed = false
+
+    fun warmTastes() {
+        if (tastesWarmed) return
+        tastesWarmed = true
+        viewModelScope.launch {
+            delay(TASTES_WARM_DELAY_MS)
+            val songs = library.value.songs
+            if (songs.isEmpty()) return@launch
+            val first = samplesFor(songs).take(TASTES_AHEAD)
+            HookFinder.prefetch(getApplication(), first)
+        }
+    }
+
+    private suspend fun chooseSamples(): List<SongEntity> {
+        return run {
+            val lib = library.value
+            val stats = lib.stats
+            val features = runCatching { repo.featureMap() }.getOrDefault(emptyMap())
+            val e = engine ?: runCatching { repo.buildRecommender() }.getOrNull()?.also { engine = it }
+            val inSeason = season != null
+            withContext(Dispatchers.Default) {
+                val pool = lib.songs.filter { song ->
+                    val feature = features[song.id]
+                    song.durationMs in SAMPLE_MIN_MS..SAMPLE_MAX_MS &&
+                        !isMedley(song.title) &&
+                        (stats[song.id]?.liked ?: 0) != -1 &&
+                        (inSeason || !isVocal(song, feature)) &&
+                        !Spoken.isSpoken(
+                            song, feature,
+                            feature?.tags?.let { AudioTags.pick(it, AudioTags.SPEECH_INDICES) },
+                            stats[song.id]?.spoken ?: -1
+                        )
+                }
+                val scores = pool.associate { it.id to (e?.totalScore(it) ?: 0.0) }
+                val spread = scores.values.let { v ->
+                    val mean = v.average().takeIf { !it.isNaN() } ?: 0.0
+                    kotlin.math.sqrt(v.sumOf { (it - mean) * (it - mean) } / maxOf(1, v.size))
+                }
+                val random = kotlin.random.Random(System.nanoTime())
+                val jittered = pool.associate { it.id to (scores.getValue(it.id) + random.nextDouble() * 0.5 * spread) }
+                val (unheard, heard) = pool.partition { (stats[it.id]?.playCount ?: 0) == 0 }
+                (unheard.sortedByDescending { jittered.getValue(it.id) } +
+                    heard.sortedByDescending { jittered.getValue(it.id) }).take(SAMPLE_LIMIT)
+            }
+        }
+    }
+
+    /**
+     * How often the taste really started on the chorus, from the listener's
+     * "not the chorus": tastes heard, and how many of them were marked.
+     */
+    private val _hookMisses = MutableStateFlow(prefs.hookTastes to prefs.hookMisses)
+    val hookAccuracy: StateFlow<Pair<Int, Int>> = _hookMisses.asStateFlow()
+
+    fun noteTasteHeard() {
+        prefs.hookTastes = prefs.hookTastes + 1
+        _hookMisses.value = prefs.hookTastes to prefs.hookMisses
+    }
+
+    fun noteNotTheChorus() {
+        prefs.hookMisses = prefs.hookMisses + 1
+        _hookMisses.value = prefs.hookTastes to prefs.hookMisses
+    }
+
+    // -----------------------------------------------------------------------
     // Hebrew spellings for names written in English letters
     // -----------------------------------------------------------------------
 
@@ -1993,6 +2131,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun dismissTagFixBanner() {
         prefs.tagFixBannerDismissedAt = _tagFixPending.value
         _tagFixDismissedAt.value = _tagFixPending.value
+    }
+
+    /** "Search is here now", pointing at the magnifier, until it is closed. */
+    private val _searchHintVisible = MutableStateFlow(!repo.prefs.searchHintSeen)
+    val searchHintVisible: StateFlow<Boolean> = _searchHintVisible.asStateFlow()
+
+    fun dismissSearchHint() {
+        if (!_searchHintVisible.value) return
+        prefs.searchHintSeen = true
+        _searchHintVisible.value = false
     }
 
     fun dismissTagTip() {
@@ -2261,6 +2409,52 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Switching a shelf on or off rebuilds the feed so the change is immediate. */
     fun setHomeShelves(keys: Set<String>) {
         prefs.homeShelves = keys
+        refreshFeed()
+    }
+
+    /**
+     * "Hide from the player": the song is gone from every list, search and
+     * shelf, and from what is still to come in the queue, as if deleted - but
+     * the file and everything learned about it stay, and it comes back from
+     * the library settings.
+     */
+    fun hideSongs(songs: List<SongEntity>) {
+        if (songs.isEmpty()) return
+        val ids = songs.mapTo(HashSet()) { it.id }
+        repo.setHidden(ids, true)
+        // The song playing is moved on from, not left: the player finds what
+        // it shows in the library, and a hidden song is no longer there.
+        val playing = player.state.value.currentSongId
+        if (playing != null && playing in ids) {
+            val q = player.state.value
+            val hasNext = q.queueIds.drop(q.queueIndex + 1).any { it !in ids }
+            if (hasNext) player.next() else player.stop()
+        }
+        player.removeUpcoming(ids)
+        _selection.value = _selection.value - ids
+        refreshHiddenSongs()
+        refreshFeed()
+        _message.value = if (songs.size == 1) "הוסתר מהנגן: ${songs[0].title}" else "${songs.size} שירים הוסתרו מהנגן"
+    }
+
+    fun unhideSongs(ids: Collection<Long>) {
+        if (ids.isEmpty()) return
+        repo.setHidden(ids, false)
+        refreshHiddenSongs()
+        refreshFeed()
+        _message.value = if (ids.size == 1) "השיר חזר לנגן" else "${ids.size} שירים חזרו לנגן"
+    }
+
+    private val _hiddenSongs = MutableStateFlow<List<SongEntity>>(emptyList())
+    val hiddenSongs: StateFlow<List<SongEntity>> = _hiddenSongs.asStateFlow()
+
+    fun refreshHiddenSongs() {
+        viewModelScope.launch { _hiddenSongs.value = repo.hiddenSongs() }
+    }
+
+    /** Songs named by their files instead of their tags, everywhere. */
+    fun setTitlesFromFiles(enabled: Boolean) {
+        repo.setTitlesFromFiles(enabled)
         refreshFeed()
     }
 
@@ -2561,3 +2755,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             ArtistEntity(it.key, it.displayName, it.rating, it.styles, it.note, 0L)
         }
 }
+
+/** A taste is only for songs between these lengths: long files are medleys and sets. */
+private const val SAMPLE_MIN_MS = 45_000L
+private const val SAMPLE_MAX_MS = 6 * 60_000L
+
+/** Enough to scroll through for a long while; more is chosen again next time. */
+private const val SAMPLE_LIMIT = 300
+
+/** How long after the app opens the first tastes are prepared - after the opening, not during it. */
+private const val TASTES_WARM_DELAY_MS = 12_000L
+
+/** How many choruses are found ahead: at the start, and past the one being tasted. */
+internal const val TASTES_AHEAD = 10

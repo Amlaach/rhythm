@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -62,6 +63,10 @@ fun LibrarySettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     var foldersOpen by remember { mutableStateOf(false) }
     var musicFoldersOpen by remember { mutableStateOf(false) }
     var musicFolders by remember { mutableStateOf(vm.prefs.musicFolders) }
+    var titlesFromFiles by remember { mutableStateOf(vm.prefs.titlesFromFiles) }
+    var hiddenOpen by remember { mutableStateOf(false) }
+    val hidden by vm.hiddenSongs.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(Unit) { vm.refreshHiddenSongs() }
 
     SettingsScaffold(title = "ספרייה וסריקה", onBack = onBack) {
         item {
@@ -186,6 +191,49 @@ fun LibrarySettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
 
         item {
             Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = gutter, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("שם הקובץ במקום שם השיר", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "לשירים שהתגיות שלהם שגויות: כל שיר ייקרא בשם הקובץ שלו, " +
+                            "בכל מקום באפליקציה. הקבצים עצמם לא משתנים",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+                Switch(
+                    checked = titlesFromFiles,
+                    onCheckedChange = {
+                        titlesFromFiles = it
+                        vm.setTitlesFromFiles(it)
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Accent,
+                        checkedTrackColor = Accent.copy(alpha = 0.4f)
+                    )
+                )
+            }
+        }
+
+        // Only once something was hidden: an empty list behind a door is a
+        // door to nowhere.
+        if (hidden.isNotEmpty()) {
+            item {
+                SettingsDoor(
+                    icon = androidx.compose.material.icons.Icons.Filled.VisibilityOff,
+                    title = "שירים מוסתרים (${hidden.size})",
+                    subtitle = "שירים שהסתרת מהנגן. אפשר להחזיר אותם מכאן",
+                    onClick = { hiddenOpen = true }
+                )
+            }
+        }
+
+        item {
+            Row(
                 modifier = Modifier.padding(horizontal = gutter, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -294,6 +342,14 @@ fun LibrarySettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
         )
     }
 
+    if (hiddenOpen) {
+        HiddenSongsDialog(
+            songs = hidden,
+            onRestore = { vm.unhideSongs(it) },
+            onDismiss = { hiddenOpen = false }
+        )
+    }
+
     if (foldersOpen) {
         FolderDialog(
             initial = vm.prefs.excludedFolders,
@@ -305,4 +361,62 @@ fun LibrarySettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             }
         )
     }
+}
+
+/**
+ * The songs hidden from the player, each with its way back. Named by their
+ * tags, as they were when they were hidden.
+ */
+@Composable
+private fun HiddenSongsDialog(
+    songs: List<com.elchanan.rhythm.data.db.SongEntity>,
+    onRestore: (List<Long>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    // Closed by itself once the last one is back: nothing is left to show.
+    androidx.compose.runtime.LaunchedEffect(songs.isEmpty()) { if (songs.isEmpty()) onDismiss() }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("שירים מוסתרים") },
+        text = {
+            com.elchanan.rhythm.ui.components.DialogBody {
+                Column {
+                    for (song in songs) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    song.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    song.artistName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
+                            androidx.compose.material3.TextButton(onClick = { onRestore(listOf(song.id)) }) {
+                                Text("החזר", color = Accent)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { onRestore(songs.map { it.id }); onDismiss() }) {
+                Text("החזר הכל", color = Accent)
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("סגור", color = TextSecondary) }
+        }
+    )
 }

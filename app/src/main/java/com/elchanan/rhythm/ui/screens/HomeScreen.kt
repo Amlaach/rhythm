@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.theme.PointingHint
+import androidx.compose.material.icons.filled.Search
 import com.elchanan.rhythm.ui.components.DialogBody
 import com.elchanan.rhythm.ui.theme.localized
 
@@ -31,8 +33,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Autorenew
-import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GraphicEq
@@ -121,7 +121,8 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     onOpenRatings: () -> Unit = {},
     onOpenRecap: () -> Unit = {},
-    onOpenTagFix: () -> Unit = {}
+    onOpenTagFix: () -> Unit = {},
+    onOpenSearch: () -> Unit = {}
 ) {
     val library by vm.library.collectAsStateWithLifecycle()
     val feed by vm.feed.collectAsStateWithLifecycle()
@@ -129,6 +130,7 @@ fun HomeScreen(
     val analysis by vm.analysisProgress.collectAsStateWithLifecycle()
 
     val tagTipVisible by vm.tagTipVisible.collectAsStateWithLifecycle()
+    val searchHint by vm.searchHintVisible.collectAsStateWithLifecycle()
     val tagFixPending by vm.tagFixPending.collectAsStateWithLifecycle()
     LaunchedEffect(library.songs) { vm.refreshTagFixPending() }
     val tagFixDismissedAt by vm.tagFixDismissedAt.collectAsStateWithLifecycle()
@@ -198,8 +200,9 @@ fun HomeScreen(
             ) {
                 HomeTopBar(
                     padding = statusPadding,
-                    onRefresh = { vm.refreshFeed(reshuffle = true) },
-                    onRecap = onOpenRecap,
+                    onSearch = onOpenSearch,
+                    searchHint = searchHint,
+                    onSearchHintDone = { vm.dismissSearchHint() },
                     onSettings = onOpenSettings,
                     onQueue = if (vm.prefs.homeQueueButton && hasQueue) {
                         { vm.openQueue() }
@@ -249,143 +252,147 @@ fun HomeScreen(
                 }
             )
 
-            else -> LazyColumn(
-                state = feedState,
-                contentPadding = PaddingValues(bottom = 40.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                if (!pinMoods) {
-                    item {
-                        MoodChipRow(onPick = { mood -> vm.openMood(mood) { onOpenDetail() } })
+            // Pulled down from the top, the feed is built again - the refresh
+            // that used to be a button up here, where the room went to search.
+            else -> PullToRefreshFeed(onRefresh = { vm.refreshFeed(reshuffle = true) }) {
+                LazyColumn(
+                    state = feedState,
+                    contentPadding = PaddingValues(bottom = 40.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (!pinMoods) {
+                        item {
+                            MoodChipRow(onPick = { mood -> vm.openMood(mood) { onOpenDetail() } })
+                        }
                     }
-                }
 
-                item { GreetingCard(library.songs.size, library.artists.count { it.rating > 0 }) }
+                    item { GreetingCard(library.songs.size, library.artists.count { it.rating > 0 }) }
 
-                // One-off pointer to the tag repair tool. Shown ahead of the other
-                // nudges because a library filed under a single artist makes every
-                // one of them meaningless.
-                val allOnOneArtist = tagTipVisible && library.artists.size <= 2 && library.songs.size >= 8
-                // Corrections waiting in the tag fixer - names jammed into the
-                // title, a site's signature, quotes around a name. Shown until
-                // closed, and back only when new ones arrive; the tool shows
-                // every change before anything is applied.
-                if (!allOnOneArtist && tagFixPending > 0 && tagFixPending > tagFixDismissedAt) {
-                    item {
-                        Banner(
-                            icon = Icons.Filled.Sell,
-                            title = "$tagFixPending שירים עם תגיות שאפשר לתקן",
-                            body = "שם האמן בתוך שם השיר, שם של אתר הורדות ועוד. " +
-                                "כל שינוי מוצג לפני שמחילים אותו",
-                            action = "לתיקון",
-                            onClick = onOpenTagFix,
-                            onDismiss = { vm.dismissTagFixBanner() }
-                        )
+                    // One-off pointer to the tag repair tool. Shown ahead of the other
+                    // nudges because a library filed under a single artist makes every
+                    // one of them meaningless.
+                    val allOnOneArtist = tagTipVisible && library.artists.size <= 2 && library.songs.size >= 8
+                    // Corrections waiting in the tag fixer - names jammed into the
+                    // title, a site's signature, quotes around a name. Shown until
+                    // closed, and back only when new ones arrive; the tool shows
+                    // every change before anything is applied.
+                    if (!allOnOneArtist && tagFixPending > 0 && tagFixPending > tagFixDismissedAt) {
+                        item {
+                            Banner(
+                                icon = Icons.Filled.Sell,
+                                title = "$tagFixPending שירים עם תגיות שאפשר לתקן",
+                                body = "שם האמן בתוך שם השיר, שם של אתר הורדות ועוד. " +
+                                    "כל שינוי מוצג לפני שמחילים אותו",
+                                action = "לתיקון",
+                                onClick = onOpenTagFix,
+                                onDismiss = { vm.dismissTagFixBanner() }
+                            )
+                        }
                     }
-                }
-                if (allOnOneArtist) {
-                    item {
-                        Banner(
-                            icon = Icons.Filled.Sell,
-                            title = "כל השירים רשומים על אמן אחד",
-                            body = "התגיות בקבצים שהורדו מהאינטרנט לרוב שגויות. " +
-                                "בהגדרות יש תיקון אוטומטי שמפריד את שם האמן משם השיר",
-                            action = "להגדרות",
-                            onClick = { vm.dismissTagTip(); onOpenSettings() },
-                            onDismiss = { vm.dismissTagTip() }
-                        )
+                    if (allOnOneArtist) {
+                        item {
+                            Banner(
+                                icon = Icons.Filled.Sell,
+                                title = "כל השירים רשומים על אמן אחד",
+                                body = "התגיות בקבצים שהורדו מהאינטרנט לרוב שגויות. " +
+                                    "בהגדרות יש תיקון אוטומטי שמפריד את שם האמן משם השיר",
+                                action = "להגדרות",
+                                onClick = { vm.dismissTagTip(); onOpenSettings() },
+                                onDismiss = { vm.dismissTagTip() }
+                            )
+                        }
                     }
-                }
 
-                // one nudge at a time, and only while it is still relevant
-                item {
-                    val unrated = library.artists.count { it.rating == 0 }
-                    when {
-                        analysis.running -> Banner(
-                            icon = Icons.Filled.GraphicEq,
-                            title = "מנתח את הספרייה",
-                            body = "${analysis.done} מתוך ${analysis.total} · ${analysis.currentTitle.orEmpty()}",
-                            action = "עצור",
-                            onClick = { vm.stopAnalysis() }
-                        )
-
-                        // Everything left is on storage that is not attached.
-                        // Offering "analyse" there invites a press that does
-                        // nothing visible, which is exactly what was reported.
-                        analysis.remaining > 0 && analysis.unreachable >= analysis.remaining -> Banner(
-                            icon = Icons.Filled.GraphicEq,
-                            title = "${analysis.remaining} שירים לא נגישים כרגע",
-                            body = "הקבצים בכרטיס זיכרון או בכונן שלא מחובר. הם ינותחו כשיחוברו",
-                            action = "נסה שוב",
-                            onClick = { vm.startAnalysis() }
-                        )
-
-                        analysis.remaining > 0 && analysis.total > 0 -> Banner(
-                            icon = Icons.Filled.GraphicEq,
-                            title = "${analysis.remaining} שירים עוד לא נותחו",
-                            body = "ניתוח הקצב והגוון משפר את הרדיו ואת המיקסים",
-                            action = "נתח",
-                            onClick = { vm.startAnalysis() }
-                        )
-
-                        ratingTipVisible && unrated > 0 &&
-                            library.artists.count { it.rating > 0 } < 12 -> Banner(
-                            icon = Icons.Filled.Star,
-                            title = "$unrated אמנים עוד לא מדורגים",
-                            body = "כמה דירוגים משנים את הפיד יותר מכל דבר אחר",
-                            action = "דרג",
-                            onClick = onOpenRatings,
-                            onDismiss = { vm.dismissRatingTip() }
-                        )
-
-                        else -> Unit
-                    }
-                }
-
-                items(feed, key = { it.id }) { section ->
-                    FeedSectionView(
-                        section = section,
-                        vm = vm,
-                        onOpenDetail = onOpenDetail,
-                        onMore = { sheetSong = it }
-                    )
-                }
-
-                // Only worth a shelf once there is something to browse. A library
-                // of singles collapses into a single folder-named album, and one
-                // lone tile reads as a bug rather than a section.
-                // Folders filed as albums - "Download", "Music" - stay off it.
-                val shelfAlbums = library.albums.filterNot { isFolderNamedAlbum(it.name, it.songs) }
-                if (shelfAlbums.size >= 3) {
+                    // one nudge at a time, and only while it is still relevant
                     item {
-                        AlbumShelf(
+                        val unrated = library.artists.count { it.rating == 0 }
+                        when {
+                            analysis.running -> Banner(
+                                icon = Icons.Filled.GraphicEq,
+                                title = "מנתח את הספרייה",
+                                body = "${analysis.done} מתוך ${analysis.total} · ${analysis.currentTitle.orEmpty()}",
+                                action = "עצור",
+                                onClick = { vm.stopAnalysis() }
+                            )
+
+                            // Everything left is on storage that is not attached.
+                            // Offering "analyse" there invites a press that does
+                            // nothing visible, which is exactly what was reported.
+                            analysis.remaining > 0 && analysis.unreachable >= analysis.remaining -> Banner(
+                                icon = Icons.Filled.GraphicEq,
+                                title = "${analysis.remaining} שירים לא נגישים כרגע",
+                                body = "הקבצים בכרטיס זיכרון או בכונן שלא מחובר. הם ינותחו כשיחוברו",
+                                action = "נסה שוב",
+                                onClick = { vm.startAnalysis() }
+                            )
+
+                            analysis.remaining > 0 && analysis.total > 0 -> Banner(
+                                icon = Icons.Filled.GraphicEq,
+                                title = "${analysis.remaining} שירים עוד לא נותחו",
+                                body = "ניתוח הקצב והגוון משפר את הרדיו ואת המיקסים",
+                                action = "נתח",
+                                onClick = { vm.startAnalysis() }
+                            )
+
+                            ratingTipVisible && unrated > 0 &&
+                                library.artists.count { it.rating > 0 } < 12 -> Banner(
+                                icon = Icons.Filled.Star,
+                                title = "$unrated אמנים עוד לא מדורגים",
+                                body = "כמה דירוגים משנים את הפיד יותר מכל דבר אחר",
+                                action = "דרג",
+                                onClick = onOpenRatings,
+                                onDismiss = { vm.dismissRatingTip() }
+                            )
+
+                            else -> Unit
+                        }
+                    }
+
+                    items(feed, key = { it.id }) { section ->
+                        FeedSectionView(
+                            section = section,
                             vm = vm,
-                            albums = shelfAlbums,
-                            onOpen = { album ->
-                                vm.openList(
-                                    album.name,
-                                    album.artistName,
-                                    album.songs,
-                                    "album:${album.albumId}"
-                                )
-                                onOpenDetail()
-                            }
+                            onOpenDetail = onOpenDetail,
+                            onMore = { sheetSong = it }
                         )
                     }
-                }
 
-                if (feed.isEmpty()) {
-                    item {
-                        EmptyState(
-                            title = "בונה את הפיד",
-                            body = "רגע אחד, מחשב דירוגים.",
-                            action = {
-                                Button(
-                                    onClick = { vm.refreshFeed(true) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                                ) { Text("רענון") }
-                            }
-                        )
+                    // Only worth a shelf once there is something to browse. A library
+                    // of singles collapses into a single folder-named album, and one
+                    // lone tile reads as a bug rather than a section.
+                    // Folders filed as albums - "Download", "Music" - stay off it.
+                    val shelfAlbums = library.albums.filterNot { isFolderNamedAlbum(it.name, it.songs) }
+                    if (shelfAlbums.size >= 3) {
+                        item {
+                            AlbumShelf(
+                                vm = vm,
+                                albums = shelfAlbums,
+                                onOpen = { album ->
+                                    vm.openList(
+                                        album.name,
+                                        album.artistName,
+                                        album.songs,
+                                        "album:${album.albumId}"
+                                    )
+                                    onOpenDetail()
+                                }
+                            )
+                        }
+                    }
+
+                    if (feed.isEmpty()) {
+                        item {
+                            EmptyState(
+                                title = "בונה את הפיד",
+                                body = "רגע אחד, מחשב דירוגים.",
+                                action = {
+                                    Button(
+                                        onClick = { vm.refreshFeed(true) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                                    ) { Text("רענון") }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -481,7 +488,7 @@ private fun AlbumCardMenu(vm: MainViewModel, album: AlbumInfo, modifier: Modifie
             DropdownMenuItem(
                 text = { Text("נגן") },
                 leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                onClick = { open = false; vm.playList(album.songs) }
+                onClick = { open = false; vm.playList(album.songs, source = album.name) }
             )
             DropdownMenuItem(
                 text = { Text("הוסף לתור") },
@@ -583,8 +590,9 @@ private fun MoodChipRow(onPick: (Mood) -> Unit) {
 @Composable
 private fun HomeTopBar(
     padding: androidx.compose.ui.unit.Dp,
-    onRefresh: () -> Unit,
-    onRecap: () -> Unit,
+    onSearch: () -> Unit,
+    searchHint: Boolean,
+    onSearchHintDone: () -> Unit,
     onSettings: () -> Unit,
     onQueue: (() -> Unit)?
 ) {
@@ -603,22 +611,57 @@ private fun HomeTopBar(
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.weight(1f)
         )
-        // Bare icons, as the owner prefers up here; each still names itself
-        // to TalkBack.
+        // Bare icons, as the owner prefers up here, and few of them: search,
+        // the queue for those who asked for it, and settings. The refresh is
+        // a pull on the feed now, and the recap is in the settings - a row
+        // of five glyphs did not fit a narrow phone.
         if (onQueue != null) {
             IconButton(onClick = onQueue) {
                 Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = localized("התור"), tint = TextSecondary)
             }
         }
-        IconButton(onClick = onRefresh) {
-            Icon(Icons.Filled.Autorenew, contentDescription = localized("רענון"), tint = TextSecondary)
-        }
-        IconButton(onClick = onRecap) {
-            Icon(Icons.Filled.BarChart, contentDescription = localized("הסיכום שלך"), tint = TextSecondary)
+        Box {
+            IconButton(onClick = { onSearchHintDone(); onSearch() }) {
+                Icon(Icons.Filled.Search, contentDescription = localized("חיפוש"), tint = TextPrimary)
+            }
+            // Once, pointing at it: it moved here from the tabs, and a tab
+            // that is simply gone reads as a feature that is gone.
+            if (searchHint) {
+                PointingHint(
+                    title = "החיפוש עבר לכאן",
+                    body = "ובמקומו למטה: טעימות משירי הספרייה",
+                    onDone = onSearchHintDone
+                )
+            }
         }
         IconButton(onClick = onSettings) {
             Icon(Icons.Filled.Settings, contentDescription = localized("הגדרות"), tint = TextSecondary)
         }
+    }
+}
+
+/** The feed, rebuilt when it is pulled down from the top. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun PullToRefreshFeed(onRefresh: () -> Unit, content: @Composable () -> Unit) {
+    val state = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+    if (state.isRefreshing) {
+        LaunchedEffect(true) {
+            onRefresh()
+            // The feed is rebuilt in the background; the spinner stays long
+            // enough to be seen to have done something.
+            kotlinx.coroutines.delay(900)
+            state.endRefresh()
+        }
+    }
+    Box(modifier = Modifier.fillMaxSize().nestedScroll(state.nestedScrollConnection)) {
+        content()
+        androidx.compose.material3.pulltorefresh.PullToRefreshContainer(
+            state = state,
+            modifier = Modifier.align(Alignment.TopCenter),
+            containerColor = Surface2,
+            contentColor = Accent
+        )
     }
 }
 
@@ -736,7 +779,7 @@ private fun FeedSectionView(
                 title = section.title,
                 subtitle = section.subtitle,
                 actionLabel = "נגן הכל",
-                onAction = { vm.playList(section.songs) }
+                onAction = { vm.playList(section.songs, source = section.title) }
             )
             // Two shelves share this kind, and each gets the shape that does
             // its own job. Speed dial is the handful you keep returning to, and
@@ -751,7 +794,7 @@ private fun FeedSectionView(
                     gutter = gutter,
                     onPlay = { song ->
                         val index = section.songs.indexOf(song)
-                        vm.playList(section.songs, if (index >= 0) index else 0)
+                        vm.playList(section.songs, if (index >= 0) index else 0, source = section.title)
                     },
                     onMore = onMore
                 )
@@ -783,7 +826,8 @@ private fun FeedSectionView(
                                             val index = section.songs.indexOf(song)
                                             vm.playList(
                                                 section.songs,
-                                                if (index >= 0) index else 0
+                                                if (index >= 0) index else 0,
+                                                source = section.title
                                             )
                                         }
                                     },
@@ -809,7 +853,7 @@ private fun FeedSectionView(
                             vm.openMix(mix)
                             onOpenDetail()
                         },
-                        onPlay = { vm.playList(mix.songs) },
+                        onPlay = { vm.playList(mix.songs, source = mix.title) },
                         covers = collageSongs(mix.songs).map { it.id to it.albumId }
                     )
                 }
@@ -841,7 +885,7 @@ private fun FeedSectionView(
                                 vm.toggleSelect(song.id)
                             } else {
                                 val index = section.songs.indexOf(song)
-                                vm.playList(section.songs, if (index >= 0) index else 0)
+                                vm.playList(section.songs, if (index >= 0) index else 0, source = section.title)
                             }
                         },
                         onMore = { onMore(song) }
