@@ -64,9 +64,9 @@ import com.elchanan.rhythm.engine.SectionKind
 import com.elchanan.rhythm.engine.ShelfKind
 import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.AppBackground
-import com.elchanan.rhythm.ui.theme.CaptionedIconButton
 import com.elchanan.rhythm.ui.theme.HeaderMid
 import com.elchanan.rhythm.ui.theme.collageSongs
+import com.elchanan.rhythm.ui.theme.isFolderNamedAlbum
 import com.elchanan.rhythm.ui.theme.HeaderWarm
 import com.elchanan.rhythm.ui.theme.RhythmMark
 import com.elchanan.rhythm.ui.theme.Surface2
@@ -262,12 +262,14 @@ internal fun HomeScreen(
             // Only worth a shelf once there is something to browse. A library
             // of singles collapses into one folder-named album, and a lone
             // tile reads as a bug rather than a section.
-            if (albums.size >= 3) {
+            // Folders filed as albums - "Download", "Music" - stay off it.
+            val shelfAlbums = albums.filterNot { isFolderNamedAlbum(it.name, it.songs) }
+            if (shelfAlbums.size >= 3) {
                 item {
                     Column {
                         SectionHeader("אלבומים בשבילך", "מתוך הספרייה שלך")
                         LazyRow(contentPadding = PaddingValues(horizontal = GUTTER)) {
-                            items(albums.take(20), key = { it.albumId }) { album ->
+                            items(shelfAlbums.take(20), key = { it.albumId }) { album ->
                                 Column(
                                     modifier = Modifier
                                         .width(CARD)
@@ -345,10 +347,15 @@ private fun HomeTopBar(
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.weight(1f)
         )
-        // Each with its name under it, so none has to be guessed at.
-        CaptionedIconButton(Icons.Filled.Autorenew, "רענון", onRefresh)
-        CaptionedIconButton(Icons.Filled.BarChart, "סיכום", onRecap)
-        CaptionedIconButton(Icons.Filled.Settings, "הגדרות", onSettings)
+        IconButton(onClick = onRefresh) {
+            Icon(Icons.Filled.Autorenew, contentDescription = localized("רענון"), tint = TextSecondary)
+        }
+        IconButton(onClick = onRecap) {
+            Icon(Icons.Filled.BarChart, contentDescription = localized("הסיכום שלך"), tint = TextSecondary)
+        }
+        IconButton(onClick = onSettings) {
+            Icon(Icons.Filled.Settings, contentDescription = localized("הגדרות"), tint = TextSecondary)
+        }
     }
 }
 

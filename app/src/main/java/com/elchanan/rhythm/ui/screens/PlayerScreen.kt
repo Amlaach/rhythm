@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.components.DialogBody
+import com.elchanan.rhythm.ui.components.fitHeight
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.animation.core.Animatable
@@ -46,6 +48,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -425,404 +428,429 @@ fun PlayerScreen(
             }
             }
 
-            if (showQueue) {
-                QueueList(vm = vm, modifier = Modifier.weight(1f))
-            } else if (showLyrics) {
-                LyricsView(
-                    vm = vm,
-                    song = song,
-                    positionMs = state.positionMs,
-                    modifier = Modifier.weight(1f)
-                )
-            } else {
-                Column(
-                    modifier = Modifier
-                        // Without this the column wraps the cover, and a wrapped
-                        // column parks at the parent's start edge - the right, in RTL -
-                        // so centring it never takes effect.
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .padding(horizontal = 28.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                    Artwork(
-                        songId = song.id,
-                        albumId = song.albumId,
-                        seed = song.artistKey,
-                        // An explicit square. `fillMaxWidth().aspectRatio(1f)` asks
-                        // for a box as tall as the window is wide, which in landscape
-                        // is far taller than the space it was given - and since a
-                        // Column does not clip, it simply drew over the header and
-                        // swallowed the close button.
-                        // The one place the whole picture matters more than a
-                        // filled square: this is the cover being looked at,
-                        // not a tile identifying a row.
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .size(metrics.artworkMax)
-                            .pointerInput(song.id) {
-                                var drag = 0f
-                                detectHorizontalDragGestures(
-                                    onDragEnd = {
-                                        // RTL: dragging right goes forward.
-                                        if (drag > 70f) vm.player.next()
-                                        else if (drag < -70f) vm.player.previous()
-                                        drag = 0f
-                                    }
-                                ) { _, amount -> drag += amount }
-                            }
-                            // Tapping the sleeve stops and starts it, or opens
-                            // it full size - whichever the listener chose. The
-                            // artwork is the biggest thing on the screen and
-                            // the easiest thing to hit without looking.
-                            .pointerInput(song.id, artworkTap) {
-                                if (artworkTap == ArtworkTap.NONE) return@pointerInput
-                                detectTapGestures(onTap = {
-                                    if (artworkTap == ArtworkTap.ZOOM) {
-                                        zoomed = true
-                                    } else {
-                                        val wasPlaying = vm.player.state.value.isPlaying
-                                        vm.player.togglePlayPause()
-                                        pulseIcon = if (wasPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow
-                                        pulseScope.launch {
-                                            pulse.snapTo(1f)
-                                            pulse.animateTo(0f, tween(durationMillis = 700))
-                                        }
-                                    }
-                                })
-                            },
-                        corner = 20
+            // A wide, short window - a tablet or a phone on its side - puts
+            // the cover beside the controls instead of above them. Stacked,
+            // the cover had to shrink to a stamp to leave the transport room
+            // under it, with the sides of the screen standing empty.
+            val twoPane = metrics.twoPane
+            val mediaArea: @Composable (Modifier) -> Unit = { area ->
+                if (showQueue) {
+                    QueueList(vm = vm, modifier = area)
+                } else if (showLyrics) {
+                    LyricsView(
+                        vm = vm,
+                        song = song,
+                        positionMs = state.positionMs,
+                        modifier = area
                     )
-                    if (pulse.value > 0f) {
-                        Box(
+                } else {
+                    Column(
+                        // The caller fills the width with it: without that the
+                        // column wraps the cover, and a wrapped column parks at
+                        // the parent's start edge - the right, in RTL - so
+                        // centring it never takes effect.
+                        modifier = area.padding(horizontal = 28.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                        Artwork(
+                            songId = song.id,
+                            albumId = song.albumId,
+                            seed = song.artistKey,
+                            // An explicit square. `fillMaxWidth().aspectRatio(1f)` asks
+                            // for a box as tall as the window is wide, which in landscape
+                            // is far taller than the space it was given - and since a
+                            // Column does not clip, it simply drew over the header and
+                            // swallowed the close button.
+                            // The one place the whole picture matters more than a
+                            // filled square: this is the cover being looked at,
+                            // not a tile identifying a row.
+                            contentScale = ContentScale.Fit,
                             modifier = Modifier
-                                .size(76.dp)
-                                .graphicsLayer {
-                                    alpha = pulse.value
-                                    // Grows a little as it fades, as YouTube's does.
-                                    val grow = 1.25f - 0.25f * pulse.value
-                                    scaleX = grow
-                                    scaleY = grow
+                                .size(if (twoPane) metrics.paneArtwork else metrics.artworkMax)
+                                .pointerInput(song.id) {
+                                    var drag = 0f
+                                    detectHorizontalDragGestures(
+                                        onDragEnd = {
+                                            // RTL: dragging right goes forward.
+                                            if (drag > 70f) vm.player.next()
+                                            else if (drag < -70f) vm.player.previous()
+                                            drag = 0f
+                                        }
+                                    ) { _, amount -> drag += amount }
                                 }
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.45f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(pulseIcon, contentDescription = null, tint = Color.White, modifier = Modifier.size(44.dp))
+                                // Tapping the sleeve stops and starts it, or opens
+                                // it full size - whichever the listener chose. The
+                                // artwork is the biggest thing on the screen and
+                                // the easiest thing to hit without looking.
+                                .pointerInput(song.id, artworkTap) {
+                                    if (artworkTap == ArtworkTap.NONE) return@pointerInput
+                                    detectTapGestures(onTap = {
+                                        if (artworkTap == ArtworkTap.ZOOM) {
+                                            zoomed = true
+                                        } else {
+                                            val wasPlaying = vm.player.state.value.isPlaying
+                                            vm.player.togglePlayPause()
+                                            pulseIcon = if (wasPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow
+                                            pulseScope.launch {
+                                                pulse.snapTo(1f)
+                                                pulse.animateTo(0f, tween(durationMillis = 700))
+                                            }
+                                        }
+                                    })
+                                },
+                            corner = 20
+                        )
+                        if (pulse.value > 0f) {
+                            Box(
+                                modifier = Modifier
+                                    .size(76.dp)
+                                    .graphicsLayer {
+                                        alpha = pulse.value
+                                        // Grows a little as it fades, as YouTube's does.
+                                        val grow = 1.25f - 0.25f * pulse.value
+                                        scaleX = grow
+                                        scaleY = grow
+                                    }
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.45f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(pulseIcon, contentDescription = null, tint = Color.White, modifier = Modifier.size(44.dp))
+                            }
                         }
-                    }
+                        }
                     }
                 }
             }
+            val controls: @Composable (Modifier) -> Unit = { controlsModifier ->
+                Column(modifier = controlsModifier.padding(horizontal = 24.dp)) {
+                    // With the queue open everything except the transport steps
+                    // aside, so the list gets nearly the whole sheet. The controls
+                    // stay: browsing a queue and pausing go together.
+                    if (!showQueue) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                song.title,
+                                style = MaterialTheme.typography.titleLarge,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            // The artist line leads to the song's folder, where
+                            // the rest of what it came with is.
+                            Text(
+                                song.artistName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondary,
+                                maxLines = 1,
+                                modifier = Modifier.clickable { vm.openFolder(song.folder) }
+                            )
+                        }
+                        // Beside the name, where every music app keeps them: the
+                        // two taps that teach the app the most are the ones that
+                        // should never be looked for.
+                        if (placement(PlayerAction.LIKE) == ActionPlacement.BUTTON) {
+                            LikeButtons(
+                                liked = liked,
+                                onLike = { vm.like(song.id) },
+                                onDislike = { vm.dislike(song.id) },
+                                size = 26
+                            )
+                        }
+                    }
 
-            Column(modifier = Modifier.padding(horizontal = 24.dp)) {
-                // With the queue open everything except the transport steps
-                // aside, so the list gets nearly the whole sheet. The controls
-                // stay: browsing a queue and pausing go together.
-                if (!showQueue) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Spacer(Modifier.height(8.dp))
+                    // What you can do to the song that is playing, on one line.
+                    // It scrolls sideways rather than wrapping or clipping, so a
+                    // narrow phone can still reach the last button.
+                    //
+                    // Each one says what it is. A row of bare icons - a waveform,
+                    // sparkles, a radio - left people guessing, and a control you
+                    // have to guess at is one you do not feel in charge of.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (placement(PlayerAction.MIX) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.AutoAwesome,
+                                label = "מיקס",
+                                onClick = { vm.createMix(song, andPlay = true) }
+                            )
+                        }
+                        if (placement(PlayerAction.RADIO) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.Radio,
+                                label = "רדיו",
+                                onClick = { vm.startRadio(song) }
+                            )
+                        }
+                        if (placement(PlayerAction.ADD_TO_PLAYLIST) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.AutoMirrored.Filled.PlaylistAdd,
+                                label = "לרשימה",
+                                onClick = { optionsOpen = true }
+                            )
+                        }
+                        if (placement(PlayerAction.DETAILS) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.Info,
+                                label = "פרטים",
+                                onClick = { detailsOpen = true }
+                            )
+                        }
+                        if (placement(PlayerAction.SPEED) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.Speed,
+                                label = "מהירות",
+                                onClick = { speedOpen = true }
+                            )
+                        }
+                        if (placement(PlayerAction.WHY) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.Insights,
+                                label = "למה הומלץ",
+                                onClick = { whyOpen = true }
+                            )
+                        }
+                        if (placement(PlayerAction.EQUALIZER) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.GraphicEq,
+                                label = "אקולייזר",
+                                onClick = onOpenEqualizer
+                            )
+                        }
+                        if (placement(PlayerAction.VOLUME) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.AutoMirrored.Filled.VolumeUp,
+                                label = "עוצמה",
+                                active = AppVolume.position < 1f,
+                                onClick = { volumeOpen = true }
+                            )
+                        }
+                        if (placement(PlayerAction.BOOKMARK) == ActionPlacement.BUTTON) {
+                            ActionPill(
+                                icon = Icons.Filled.BookmarkBorder,
+                                label = "סימניות",
+                                onClick = { bookmarksOpen = true }
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(6.dp))
+                    if (placement(PlayerAction.RATING) == ActionPlacement.BUTTON) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Without this the stars sit directly under the artist line and
+                        // read as a rating of the artist, which is a different thing the
+                        // app also offers.
                         Text(
-                            song.title,
-                            style = MaterialTheme.typography.titleLarge,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                            text = "דירוג השיר",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = TextSecondary
                         )
-                        // The artist line leads to the song's folder, where
-                        // the rest of what it came with is.
-                        Text(
-                            song.artistName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary,
-                            maxLines = 1,
-                            modifier = Modifier.clickable { vm.openFolder(song.folder) }
-                        )
+                        Spacer(Modifier.width(8.dp))
+                        StarRow(rating = rating, onRate = { vm.rateSong(song.id, it) }, size = 20)
+                        Spacer(Modifier.width(10.dp))
+                        if (feature != null) {
+                            Text(
+                                // Key only. The modal estimate drives the engine but
+                                // reads as jargon on screen - "אהבה רבה" beside a pop
+                                // track means nothing to someone just playing music.
+                                text = tempoAndKey(feature.bpm.toInt(), feature.musicalKey, feature.mode),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = TextSecondary
+                            )
+                        }
                     }
-                    // Beside the name, where every music app keeps them: the
-                    // two taps that teach the app the most are the ones that
-                    // should never be looked for.
-                    if (placement(PlayerAction.LIKE) == ActionPlacement.BUTTON) {
-                        LikeButtons(
-                            liked = liked,
-                            onLike = { vm.like(song.id) },
-                            onDislike = { vm.dislike(song.id) },
-                            size = 26
-                        )
                     }
-                }
 
-                Spacer(Modifier.height(8.dp))
-                // What you can do to the song that is playing, on one line.
-                // It scrolls sideways rather than wrapping or clipping, so a
-                // narrow phone can still reach the last button.
-                //
-                // Each one says what it is. A row of bare icons - a waveform,
-                // sparkles, a radio - left people guessing, and a control you
-                // have to guess at is one you do not feel in charge of.
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (placement(PlayerAction.MIX) == ActionPlacement.BUTTON) {
-                        ActionPill(
-                            icon = Icons.Filled.AutoAwesome,
-                            label = "מיקס",
-                            onClick = { vm.createMix(song, andPlay = true) }
-                        )
-                    }
-                    if (placement(PlayerAction.RADIO) == ActionPlacement.BUTTON) {
-                        ActionPill(
-                            icon = Icons.Filled.Radio,
-                            label = "רדיו",
-                            onClick = { vm.startRadio(song) }
-                        )
-                    }
-                    if (placement(PlayerAction.ADD_TO_PLAYLIST) == ActionPlacement.BUTTON) {
-                        ActionPill(
-                            icon = Icons.AutoMirrored.Filled.PlaylistAdd,
-                            label = "לרשימה",
-                            onClick = { optionsOpen = true }
-                        )
-                    }
-                    if (placement(PlayerAction.DETAILS) == ActionPlacement.BUTTON) {
-                        ActionPill(
-                            icon = Icons.Filled.Info,
-                            label = "פרטים",
-                            onClick = { detailsOpen = true }
-                        )
-                    }
-                    if (placement(PlayerAction.SPEED) == ActionPlacement.BUTTON) {
-                        ActionPill(
-                            icon = Icons.Filled.Speed,
-                            label = "מהירות",
-                            onClick = { speedOpen = true }
-                        )
-                    }
-                    if (placement(PlayerAction.WHY) == ActionPlacement.BUTTON) {
-                        ActionPill(
-                            icon = Icons.Filled.Insights,
-                            label = "למה הומלץ",
-                            onClick = { whyOpen = true }
-                        )
-                    }
-                    if (placement(PlayerAction.EQUALIZER) == ActionPlacement.BUTTON) {
-                        ActionPill(
-                            icon = Icons.Filled.GraphicEq,
-                            label = "אקולייזר",
-                            onClick = onOpenEqualizer
-                        )
-                    }
-                    if (placement(PlayerAction.VOLUME) == ActionPlacement.BUTTON) {
-                        ActionPill(
-                            icon = Icons.AutoMirrored.Filled.VolumeUp,
-                            label = "עוצמה",
-                            active = AppVolume.position < 1f,
-                            onClick = { volumeOpen = true }
-                        )
-                    }
-                    if (placement(PlayerAction.BOOKMARK) == ActionPlacement.BUTTON) {
-                        ActionPill(
-                            icon = Icons.Filled.BookmarkBorder,
-                            label = "סימניות",
-                            onClick = { bookmarksOpen = true }
-                        )
-                    }
-                }
+                    Spacer(Modifier.height(6.dp))
 
-                Spacer(Modifier.height(6.dp))
-                if (placement(PlayerAction.RATING) == ActionPlacement.BUTTON) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Without this the stars sit directly under the artist line and
-                    // read as a rating of the artist, which is a different thing the
-                    // app also offers.
-                    Text(
-                        text = "דירוג השיר",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = TextSecondary
+                    }
+
+                    if (resumeVisible && resumeAt != null) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Surface1)
+                                .clickable {
+                                    vm.player.seekTo(resumeAt)
+                                    resumeVisible = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "המשך מ־${formatDuration(resumeAt)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Accent
+                            )
+                            Spacer(Modifier.weight(1f))
+                            IconButton(
+                                onClick = { resumeVisible = false },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = localized("סגור"),
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    val duration = if (state.durationMs > 0) state.durationMs else song.durationMs
+                    val position = scrubbing?.times(duration)?.toLong() ?: state.positionMs
+                    // Time runs one way whatever the language, so the scrubber and the
+                    // transport keep the left-to-right reading every media player uses:
+                    // the head advances rightwards, elapsed sits under its start, and
+                    // "previous" stays on the left of "next".
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    if (!showQueue) {
+                    Slider(
+                        value = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f,
+                        onValueChange = { scrubbing = it },
+                        onValueChangeFinished = {
+                            scrubbing?.let { vm.player.seekTo((it * duration).toLong()) }
+                            scrubbing = null
+                        },
+                        colors = SliderDefaults.colors(
+                            thumbColor = Accent,
+                            activeTrackColor = Accent,
+                            inactiveTrackColor = Surface1
+                        )
                     )
-                    Spacer(Modifier.width(8.dp))
-                    StarRow(rating = rating, onRate = { vm.rateSong(song.id, it) }, size = 20)
-                    Spacer(Modifier.width(10.dp))
-                    if (feature != null) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            // Key only. The modal estimate drives the engine but
-                            // reads as jargon on screen - "אהבה רבה" beside a pop
-                            // track means nothing to someone just playing music.
-                            text = tempoAndKey(feature.bpm.toInt(), feature.musicalKey, feature.mode),
+                            formatDuration(position),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = TextSecondary
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            formatDuration(duration),
                             style = MaterialTheme.typography.labelSmall,
                             color = TextSecondary
                         )
                     }
-                }
-                }
+                    }
 
-                Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(10.dp))
 
-                }
-
-                if (resumeVisible && resumeAt != null) {
+                    // Sized to the width it has. With the ten-second buttons on, the
+                    // row is seven buttons wide, more than a small phone has, and a
+                    // row does not wrap: the last button - repeat - was pushed off
+                    // the edge and simply missing. Every button now shares what
+                    // there is, down to a size a thumb still hits.
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val seekShown = placement(PlayerAction.SEEK) == ActionPlacement.BUTTON
+                    val playSize = if (maxWidth < 340.dp) 56.dp else 66.dp
+                    val smallButtons = if (seekShown) 6 else 4
+                    val button = ((maxWidth - playSize) / smallButtons).coerceIn(36.dp, 48.dp)
+                    val skipIcon = minOf(40.dp, button - 4.dp)
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Surface1)
-                            .clickable {
-                                vm.player.seekTo(resumeAt)
-                                resumeVisible = false
-                            }
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "המשך מ־${formatDuration(resumeAt)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Accent
-                        )
-                        Spacer(Modifier.weight(1f))
-                        IconButton(
-                            onClick = { resumeVisible = false },
-                            modifier = Modifier.size(28.dp)
+                        IconButton(onClick = { vm.player.toggleShuffle() }, modifier = Modifier.size(button)) {
+                            Icon(
+                                Icons.Filled.Shuffle,
+                                contentDescription = localized("ערבוב"),
+                                tint = if (state.shuffle) Accent else TextSecondary
+                            )
+                        }
+                        if (seekShown) {
+                            IconButton(onClick = { vm.player.nudge(-10_000L) }, modifier = Modifier.size(button)) {
+                                Icon(
+                                    Icons.Filled.Replay10,
+                                    contentDescription = localized("אחורה 10 שניות"),
+                                    tint = TextSecondary
+                                )
+                            }
+                        }
+                        IconButton(onClick = { vm.player.previous() }, modifier = Modifier.size(button)) {
+                            Icon(
+                                Icons.Filled.SkipPrevious,
+                                contentDescription = localized("הקודם"),
+                                // Without an explicit tint these two inherit a colour that
+                                // is nearly the background, so they read as missing.
+                                tint = TextPrimary,
+                                modifier = Modifier.size(skipIcon)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(playSize)
+                                .clip(CircleShape)
+                                .background(Accent)
+                                .clickable { vm.player.togglePlayPause() },
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Filled.Close,
-                                contentDescription = localized("סגור"),
-                                tint = TextSecondary,
-                                modifier = Modifier.size(16.dp)
+                                if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = localized("נגן"),
+                                tint = Color.White,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+                        IconButton(onClick = { vm.player.next() }, modifier = Modifier.size(button)) {
+                            Icon(
+                                Icons.Filled.SkipNext,
+                                contentDescription = localized("הבא"),
+                                tint = TextPrimary,
+                                modifier = Modifier.size(skipIcon)
+                            )
+                        }
+                        if (seekShown) {
+                            IconButton(onClick = { vm.player.nudge(10_000L) }, modifier = Modifier.size(button)) {
+                                Icon(
+                                    Icons.Filled.Forward10,
+                                    contentDescription = localized("קדימה 10 שניות"),
+                                    tint = TextSecondary
+                                )
+                            }
+                        }
+                        IconButton(onClick = { vm.player.cycleRepeat() }, modifier = Modifier.size(button)) {
+                            Icon(
+                                if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Filled.RepeatOne
+                                else Icons.Filled.Repeat,
+                                contentDescription = localized("חזרה"),
+                                tint = if (state.repeatMode == Player.REPEAT_MODE_OFF) TextSecondary else Accent
                             )
                         }
                     }
+                    }
+                    }
+                    Spacer(Modifier.height(16.dp))
                 }
-
-                val duration = if (state.durationMs > 0) state.durationMs else song.durationMs
-                val position = scrubbing?.times(duration)?.toLong() ?: state.positionMs
-                // Time runs one way whatever the language, so the scrubber and the
-                // transport keep the left-to-right reading every media player uses:
-                // the head advances rightwards, elapsed sits under its start, and
-                // "previous" stays on the left of "next".
-                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                if (!showQueue) {
-                Slider(
-                    value = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f,
-                    onValueChange = { scrubbing = it },
-                    onValueChangeFinished = {
-                        scrubbing?.let { vm.player.seekTo((it * duration).toLong()) }
-                        scrubbing = null
-                    },
-                    colors = SliderDefaults.colors(
-                        thumbColor = Accent,
-                        activeTrackColor = Accent,
-                        inactiveTrackColor = Surface1
-                    )
-                )
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        formatDuration(position),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        formatDuration(duration),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary
-                    )
-                }
-                }
-
-                Spacer(Modifier.height(10.dp))
-
-                // Sized to the width it has. With the ten-second buttons on, the
-                // row is seven buttons wide, more than a small phone has, and a
-                // row does not wrap: the last button - repeat - was pushed off
-                // the edge and simply missing. Every button now shares what
-                // there is, down to a size a thumb still hits.
-                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val seekShown = placement(PlayerAction.SEEK) == ActionPlacement.BUTTON
-                val playSize = if (maxWidth < 340.dp) 56.dp else 66.dp
-                val smallButtons = if (seekShown) 6 else 4
-                val button = ((maxWidth - playSize) / smallButtons).coerceIn(36.dp, 48.dp)
-                val skipIcon = minOf(40.dp, button - 4.dp)
+            }
+            if (twoPane) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { vm.player.toggleShuffle() }, modifier = Modifier.size(button)) {
-                        Icon(
-                            Icons.Filled.Shuffle,
-                            contentDescription = localized("ערבוב"),
-                            tint = if (state.shuffle) Accent else TextSecondary
-                        )
-                    }
-                    if (seekShown) {
-                        IconButton(onClick = { vm.player.nudge(-10_000L) }, modifier = Modifier.size(button)) {
-                            Icon(
-                                Icons.Filled.Replay10,
-                                contentDescription = localized("אחורה 10 שניות"),
-                                tint = TextSecondary
-                            )
-                        }
-                    }
-                    IconButton(onClick = { vm.player.previous() }, modifier = Modifier.size(button)) {
-                        Icon(
-                            Icons.Filled.SkipPrevious,
-                            contentDescription = localized("הקודם"),
-                            // Without an explicit tint these two inherit a colour that
-                            // is nearly the background, so they read as missing.
-                            tint = TextPrimary,
-                            modifier = Modifier.size(skipIcon)
-                        )
-                    }
+                    mediaArea(Modifier.weight(0.46f).fillMaxHeight())
+                    // Centred when it fits, scrolled when a short window
+                    // cannot hold every row.
                     Box(
-                        modifier = Modifier
-                            .size(playSize)
-                            .clip(CircleShape)
-                            .background(Accent)
-                            .clickable { vm.player.togglePlayPause() },
+                        modifier = Modifier.weight(0.54f).fillMaxHeight(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = localized("נגן"),
-                            tint = Color.White,
-                            modifier = Modifier.size(34.dp)
-                        )
-                    }
-                    IconButton(onClick = { vm.player.next() }, modifier = Modifier.size(button)) {
-                        Icon(
-                            Icons.Filled.SkipNext,
-                            contentDescription = localized("הבא"),
-                            tint = TextPrimary,
-                            modifier = Modifier.size(skipIcon)
-                        )
-                    }
-                    if (seekShown) {
-                        IconButton(onClick = { vm.player.nudge(10_000L) }, modifier = Modifier.size(button)) {
-                            Icon(
-                                Icons.Filled.Forward10,
-                                contentDescription = localized("קדימה 10 שניות"),
-                                tint = TextSecondary
-                            )
-                        }
-                    }
-                    IconButton(onClick = { vm.player.cycleRepeat() }, modifier = Modifier.size(button)) {
-                        Icon(
-                            if (state.repeatMode == Player.REPEAT_MODE_ONE) Icons.Filled.RepeatOne
-                            else Icons.Filled.Repeat,
-                            contentDescription = localized("חזרה"),
-                            tint = if (state.repeatMode == Player.REPEAT_MODE_OFF) TextSecondary else Accent
-                        )
+                        controls(Modifier.verticalScroll(rememberScrollState()))
                     }
                 }
-                }
-                }
-                Spacer(Modifier.height(16.dp))
+            } else {
+                mediaArea(Modifier.fillMaxWidth().weight(1f))
+                controls(Modifier)
             }
         }
     }
@@ -923,27 +951,29 @@ private fun SongDetailsDialog(
         containerColor = Surface1,
         title = { Text("פרטי השיר") },
         text = {
-            Column(modifier = Modifier.heightIn(max = 420.dp)) {
-                DetailLine("שם", song.title)
-                DetailLine("אמן", song.artistName)
-                if (song.albumName.isNotBlank()) DetailLine("אלבום", song.albumName)
-                DetailLine("אורך", formatDuration(song.durationMs))
-                DetailLine("תיקייה", song.folder)
-                DetailLine("קובץ", song.path.substringAfterLast('/'))
-                if (feature != null) {
-                    Spacer(Modifier.height(8.dp))
-                    DetailLine("קצב", "${feature.bpm.toInt()} BPM")
-                    DetailLine(
-                        "סולם",
-                        keyText(Features.keyLabel(feature.musicalKey, feature.mode))
-                    )
-                } else {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "השיר עדיין לא נותח, אז אין קצב וסולם להציג.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
+            DialogBody {
+                Column(modifier = Modifier.heightIn(max = fitHeight(420.dp))) {
+                    DetailLine("שם", song.title)
+                    DetailLine("אמן", song.artistName)
+                    if (song.albumName.isNotBlank()) DetailLine("אלבום", song.albumName)
+                    DetailLine("אורך", formatDuration(song.durationMs))
+                    DetailLine("תיקייה", song.folder)
+                    DetailLine("קובץ", song.path.substringAfterLast('/'))
+                    if (feature != null) {
+                        Spacer(Modifier.height(8.dp))
+                        DetailLine("קצב", "${feature.bpm.toInt()} BPM")
+                        DetailLine(
+                            "סולם",
+                            keyText(Features.keyLabel(feature.musicalKey, feature.mode))
+                        )
+                    } else {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "השיר עדיין לא נותח, אז אין קצב וסולם להציג.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
                 }
             }
         },
@@ -981,29 +1011,31 @@ private fun SpeedDialog(vm: MainViewModel, onDismiss: () -> Unit) {
         containerColor = Surface1,
         title = { Text("מהירות הפעלה") },
         text = {
-            Column {
-                Text(
-                    "גובה הצליל נשמר — השיר לא נשמע גבוה או נמוך יותר.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-                Spacer(Modifier.height(10.dp))
-                options.forEach { value ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                current = value
-                                vm.player.setSpeed(value)
-                            }
-                            .padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = if (value == 1.0f) "רגילה" else "×$value",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (current == value) Accent else TextPrimary
-                        )
+            DialogBody {
+                Column {
+                    Text(
+                        "גובה הצליל נשמר — השיר לא נשמע גבוה או נמוך יותר.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    options.forEach { value ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    current = value
+                                    vm.player.setSpeed(value)
+                                }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (value == 1.0f) "רגילה" else "×$value",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = if (current == value) Accent else TextPrimary
+                            )
+                        }
                     }
                 }
             }
@@ -1024,47 +1056,49 @@ private fun VolumeDialog(vm: MainViewModel, onDismiss: () -> Unit) {
         containerColor = Surface1,
         title = { Text("עוצמת הנגן") },
         text = {
-            Column {
-                Text(
-                    "עוצמה משלו לנגן, בלי לשנות את עוצמת הטלפון — שיחה, סרטון או ניווט נשארים כמו שהיו.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-                Spacer(Modifier.height(14.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.VolumeDown,
-                        contentDescription = null,
-                        tint = TextSecondary,
-                        modifier = Modifier.size(20.dp)
+            DialogBody {
+                Column {
+                    Text(
+                        "עוצמה משלו לנגן, בלי לשנות את עוצמת הטלפון — שיחה, סרטון או ניווט נשארים כמו שהיו.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
                     )
-                    Slider(
-                        value = level,
-                        onValueChange = {
-                            level = it
-                            AppVolume.set(it)
-                        },
-                        onValueChangeFinished = { vm.prefs.appVolume = level },
-                        colors = SliderDefaults.colors(
-                            thumbColor = Accent,
-                            activeTrackColor = Accent,
-                            inactiveTrackColor = Accent.copy(alpha = 0.2f)
-                        ),
-                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
-                    )
-                    Icon(
-                        Icons.AutoMirrored.Filled.VolumeUp,
-                        contentDescription = null,
-                        tint = TextSecondary,
-                        modifier = Modifier.size(20.dp)
+                    Spacer(Modifier.height(14.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.VolumeDown,
+                            contentDescription = null,
+                            tint = TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Slider(
+                            value = level,
+                            onValueChange = {
+                                level = it
+                                AppVolume.set(it)
+                            },
+                            onValueChangeFinished = { vm.prefs.appVolume = level },
+                            colors = SliderDefaults.colors(
+                                thumbColor = Accent,
+                                activeTrackColor = Accent,
+                                inactiveTrackColor = Accent.copy(alpha = 0.2f)
+                            ),
+                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+                        )
+                        Icon(
+                            Icons.AutoMirrored.Filled.VolumeUp,
+                            contentDescription = null,
+                            tint = TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Text(
+                        "${(level * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = TextSecondary,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
                 }
-                Text(
-                    "${(level * 100).roundToInt()}%",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = TextSecondary,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
-                )
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }
@@ -1089,33 +1123,35 @@ private fun SleepDialog(vm: MainViewModel, onDismiss: () -> Unit) {
         containerColor = Surface1,
         title = { Text("טיימר שינה") },
         text = {
-            Column {
-                if (armed != null) {
+            DialogBody {
+                Column {
+                    if (armed != null) {
+                        Text(
+                            "נשארו ${(armed / 60000).toInt()} דקות",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Accent
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    listOf(15, 30, 45, 60, 90).forEach { minutes ->
+                        Text(
+                            text = "בעוד $minutes דקות",
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { vm.sleepIn(minutes); onDismiss() }
+                                .padding(vertical = 10.dp)
+                        )
+                    }
                     Text(
-                        "נשארו ${(armed / 60000).toInt()} דקות",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Accent
-                    )
-                    Spacer(Modifier.height(8.dp))
-                }
-                listOf(15, 30, 45, 60, 90).forEach { minutes ->
-                    Text(
-                        text = "בעוד $minutes דקות",
+                        text = "בסוף השיר הנוכחי",
                         style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { vm.sleepIn(minutes); onDismiss() }
+                            .clickable { vm.sleepAfterTrack(); onDismiss() }
                             .padding(vertical = 10.dp)
                     )
                 }
-                Text(
-                    text = "בסוף השיר הנוכחי",
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { vm.sleepAfterTrack(); onDismiss() }
-                        .padding(vertical = 10.dp)
-                )
             }
         },
         confirmButton = {
@@ -1170,13 +1206,15 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
             onDismissRequest = { showSavePlaylist = false },
             title = { Text("שמירת תור כפלייליסט") },
             text = {
-                OutlinedTextField(
-                    value = playlistName,
-                    onValueChange = { playlistName = it },
-                    label = { Text("שם הפלייליסט") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                DialogBody {
+                    OutlinedTextField(
+                        value = playlistName,
+                        onValueChange = { playlistName = it },
+                        label = { Text("שם הפלייליסט") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             },
             confirmButton = {
                 TextButton(

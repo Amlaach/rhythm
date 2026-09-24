@@ -1738,6 +1738,8 @@ object UiStrings {
         "דירוגים" to "Ratings",
         "שירים שעוד לא שמעת" to "Songs you haven't heard yet",
         "מאמנים שנתת להם 4 כוכבים ומעלה" to "From artists you gave 4 stars or more",
-        "שירים שנשמעים דומה" to "Songs that sound alike"
+        "שירים שנשמעים דומה" to "Songs that sound alike",
+        "הזנה" to "Import",
+        "גיבוי" to "Backup"
     )
 }

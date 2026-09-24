@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.components.DialogBody
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.foundation.clickable
@@ -131,11 +132,13 @@ fun AlgorithmSettingsScreen(
                 onDismissRequest = { confirmReset = false },
                 title = { Text("לאפס את הכוונונים?") },
                 text = {
-                    Text(
-                        "כל הפסים במסך הזה יחזרו למקום שבו הם מגיעים בהתקנה חדשה: " +
-                            "גילוי, משקלי האמנים, הסגנונות והסאונד, מניעת החזרתיות, " +
-                            "ומתי שיר נספר כהשמעה. הלייקים, ההיסטוריה והסגנונות שלך לא משתנים."
-                    )
+                    DialogBody {
+                        Text(
+                            "כל הפסים במסך הזה יחזרו למקום שבו הם מגיעים בהתקנה חדשה: " +
+                                "גילוי, משקלי האמנים, הסגנונות והסאונד, מניעת החזרתיות, " +
+                                "ומתי שיר נספר כהשמעה. הלייקים, ההיסטוריה והסגנונות שלך לא משתנים."
+                        )
+                    }
                 },
                 confirmButton = {
                     TextButton(onClick = {

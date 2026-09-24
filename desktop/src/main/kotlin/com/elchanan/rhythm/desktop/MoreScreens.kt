@@ -483,20 +483,22 @@ internal fun TagFixScreen(
             containerColor = Surface1,
             title = { Text("עריכת תגיות") },
             text = {
-                Column {
-                    OutlinedTextField(
-                        value = title,
-                        onValueChange = { title = it },
-                        singleLine = true,
-                        label = { Text("שם השיר") }
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = artist,
-                        onValueChange = { artist = it },
-                        singleLine = true,
-                        label = { Text("שם האמן") }
-                    )
+                DialogBody {
+                    Column {
+                        OutlinedTextField(
+                            value = title,
+                            onValueChange = { title = it },
+                            singleLine = true,
+                            label = { Text("שם השיר") }
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = artist,
+                            onValueChange = { artist = it },
+                            singleLine = true,
+                            label = { Text("שם האמן") }
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -616,12 +618,14 @@ internal fun BookmarksDialog(
             containerColor = Surface1,
             title = { Text("סימנייה ב־${formatDuration(positionMs)}") },
             text = {
-                OutlinedTextField(
-                    value = label,
-                    onValueChange = { label = it },
-                    singleLine = true,
-                    label = { Text("על מה מדובר כאן") }
-                )
+                DialogBody {
+                    OutlinedTextField(
+                        value = label,
+                        onValueChange = { label = it },
+                        singleLine = true,
+                        label = { Text("על מה מדובר כאן") }
+                    )
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -742,34 +746,36 @@ internal fun SleepDialog(
         containerColor = Surface1,
         title = { Text("טיימר שינה") },
         text = {
-            Column {
-                val state = when {
-                    afterTrack -> "ייעצר בסוף השיר הנוכחי"
-                    armedMs != null -> "ייעצר בעוד ${formatDuration(armedMs)}"
-                    else -> "לא פעיל"
-                }
-                Text(state, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                Spacer(Modifier.height(10.dp))
-                for (minutes in listOf(15, 30, 45, 60, 90)) {
+            DialogBody {
+                Column {
+                    val state = when {
+                        afterTrack -> "ייעצר בסוף השיר הנוכחי"
+                        armedMs != null -> "ייעצר בעוד ${formatDuration(armedMs)}"
+                        else -> "לא פעיל"
+                    }
+                    Text(state, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    Spacer(Modifier.height(10.dp))
+                    for (minutes in listOf(15, 30, 45, 60, 90)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onMinutes(minutes)
+                                    onDismiss()
+                                }
+                                .padding(vertical = 10.dp)
+                        ) { Text("בעוד $minutes דקות") }
+                    }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                onMinutes(minutes)
+                                onAfterTrack()
                                 onDismiss()
                             }
                             .padding(vertical = 10.dp)
-                    ) { Text("בעוד $minutes דקות") }
+                    ) { Text("בסוף השיר הנוכחי") }
                 }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            onAfterTrack()
-                            onDismiss()
-                        }
-                        .padding(vertical = 10.dp)
-                ) { Text("בסוף השיר הנוכחי") }
             }
         },
         confirmButton = {

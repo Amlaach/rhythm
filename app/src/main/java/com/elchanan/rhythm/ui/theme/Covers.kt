@@ -34,3 +34,25 @@ fun collageSongs(songs: List<SongEntity>, count: Int = 4): List<SongEntity> {
     }
     return out
 }
+
+/**
+ * An "album" that is really a folder: a file with no album tag is filed by the
+ * system under the name of the folder it sits in, so a phone's downloads turn
+ * into an album called "Download" and its music folder into one called
+ * "Music". On a shelf of albums picked for you they read as noise.
+ */
+fun isFolderNamedAlbum(name: String, songs: List<SongEntity>): Boolean {
+    val key = name.trim().lowercase()
+    if (key.isEmpty() || key in GENERIC_ALBUMS) return true
+    if (songs.isEmpty()) return false
+    val fromFolder = songs.count { song ->
+        song.folder.trimEnd('/', '\\').substringAfterLast('/').substringAfterLast('\\').trim().lowercase() == key
+    }
+    return fromFolder * 2 > songs.size
+}
+
+private val GENERIC_ALBUMS = setOf(
+    "music", "download", "downloads", "audio", "songs", "media", "sounds", "unknown", "<unknown>",
+    "unknown album", "bluetooth", "whatsapp audio", "telegram audio", "recordings",
+    "מוזיקה", "הורדות", "שירים", "ללא אלבום", "אלבום לא ידוע"
+)

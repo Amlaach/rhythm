@@ -116,3 +116,17 @@ User reports that point to this issue:
   jshell over the typecheck tree's classes instead.
 - Desktop rows and stats carry the same columns as the phone's; the desktop
   `Store` adds missing columns by itself from its DDL.
+
+## Screen sizes (narrow phones, tablets, phones on their side)
+
+- `ui/components/Responsive.kt` `rememberMetrics()` is the one place that
+  reads the window: `isNarrow` (<380dp), `isCompact` (<600dp), `isShort`
+  (<520dp tall), `twoPane` (>=600dp and wider than tall). Use it instead of
+  fixed sizes.
+- `twoPane`: the player puts the cover beside the controls; the tabs become
+  a side rail (`RhythmRoot`). Non-home screens keep a 900dp reading width.
+  The desktop player and screens do the same by the window's own size.
+- Every dialog's `text` goes through `DialogBody { }` (phone: Responsive.kt,
+  desktop: Components.kt), which caps it to about half the window and
+  scrolls. Never put a LazyColumn inside it.
+- The owner wants the home top bar as bare icons, no captions.

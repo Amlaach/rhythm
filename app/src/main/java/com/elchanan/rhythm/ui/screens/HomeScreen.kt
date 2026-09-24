@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.components.DialogBody
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -99,9 +100,9 @@ import com.elchanan.rhythm.ui.theme.Accent
 import com.elchanan.rhythm.ui.theme.Accent2
 import com.elchanan.rhythm.ui.theme.AppBackground
 import com.elchanan.rhythm.ui.theme.Bg
-import com.elchanan.rhythm.ui.theme.CaptionedIconButton
 import com.elchanan.rhythm.ui.theme.HeaderMid
 import com.elchanan.rhythm.ui.theme.collageSongs
+import com.elchanan.rhythm.ui.theme.isFolderNamedAlbum
 import com.elchanan.rhythm.ui.theme.HeaderWarm
 import com.elchanan.rhythm.ui.theme.RhythmMark
 import com.elchanan.rhythm.ui.theme.Surface1
@@ -147,7 +148,11 @@ fun HomeScreen(
     // The header - the mark, the name and the buttons - can step aside while
     // the feed scrolls down and come back the moment it scrolls up, for those
     // who chose it: the feed gets the room, and the buttons are one flick away.
-    val collapseHeader = remember { vm.prefs.collapseHomeHeader }
+    // A short window - a phone on its side, a tablet in landscape - does it
+    // regardless: there the header and the chips took half the height and
+    // left the feed a strip.
+    val shortWindow = rememberMetrics().isShort
+    val collapseHeader = remember(shortWindow) { vm.prefs.collapseHomeHeader || shortWindow }
     var headerShown by remember { mutableStateOf(true) }
     val headerScroll = remember {
         object : NestedScrollConnection {
@@ -327,11 +332,13 @@ fun HomeScreen(
                 // Only worth a shelf once there is something to browse. A library
                 // of singles collapses into a single folder-named album, and one
                 // lone tile reads as a bug rather than a section.
-                if (library.albums.size >= 3) {
+                // Folders filed as albums - "Download", "Music" - stay off it.
+                val shelfAlbums = library.albums.filterNot { isFolderNamedAlbum(it.name, it.songs) }
+                if (shelfAlbums.size >= 3) {
                     item {
                         AlbumShelf(
                             vm = vm,
-                            albums = library.albums,
+                            albums = shelfAlbums,
                             onOpen = { album ->
                                 vm.openList(
                                     album.name,
@@ -389,39 +396,37 @@ private fun AlbumShelf(vm: MainViewModel, albums: List<AlbumInfo>, onOpen: (Albu
                         .clickable { onOpen(album) }
                         .padding(horizontal = 4.dp, vertical = 4.dp)
                 ) {
-                    // The cover and its menu share a box so the three dots can
-                    // sit in the corner of the artwork. Everywhere else the
-                    // menu is reached by long press, but a shelf that scrolls
-                    // sideways cannot spare a long press - it is how you flick
-                    // through it - so here it is a button you can see.
-                    Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
-                        Artwork(
-                            songId = album.songs.firstOrNull()?.id ?: -1L,
-                            albumId = album.albumId,
-                            seed = album.name,
-                            modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-                            corner = 12
-                        )
-                        AlbumCardMenu(
-                            vm = vm,
-                            album = album,
-                            modifier = Modifier.align(Alignment.TopEnd)
-                        )
-                    }
+                    Artwork(
+                        songId = album.songs.firstOrNull()?.id ?: -1L,
+                        albumId = album.albumId,
+                        seed = album.name,
+                        modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                        corner = 12
+                    )
                     Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = album.name,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "${album.songs.size} שירים",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                        maxLines = 1
-                    )
+                    // The menu beside the name, as on every song card. A
+                    // shelf that scrolls sideways cannot spare a long press -
+                    // it is how you flick through it - so it is a button you
+                    // can see; in a dark disc on the corner of the cover it
+                    // looked like part of the picture rather than of the card.
+                    Row(verticalAlignment = Alignment.Top) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = album.name,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${album.songs.size} שירים",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                maxLines = 1
+                            )
+                        }
+                        AlbumCardMenu(vm = vm, album = album)
+                    }
                 }
             }
         }
@@ -442,20 +447,11 @@ private fun AlbumCardMenu(vm: MainViewModel, album: AlbumInfo, modifier: Modifie
     var playlistOpen by remember { mutableStateOf(false) }
 
     Box(modifier = modifier) {
-        // A dark disc behind the dots, because a cover can be any colour and
-        // white dots vanish on a pale one.
-        IconButton(
-            onClick = { open = true },
-            modifier = Modifier
-                .padding(4.dp)
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.45f))
-        ) {
+        IconButton(onClick = { open = true }, modifier = Modifier.size(32.dp)) {
             Icon(
                 Icons.Filled.MoreVert,
                 contentDescription = localized("אפשרויות אלבום"),
-                tint = Color.White,
+                tint = TextSecondary,
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -508,22 +504,24 @@ private fun AlbumPlaylistDialog(vm: MainViewModel, album: AlbumInfo, onDismiss: 
         containerColor = Surface1,
         title = { Text("הוספה לרשימה") },
         text = {
-            Column {
-                if (playlists.isEmpty()) {
-                    Text("אין עדיין רשימות", color = TextSecondary)
-                }
-                playlists.forEach { info ->
-                    Text(
-                        text = info.playlist.name,
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                vm.bulkAddToPlaylist(info.playlist.id, ids)
-                                onDismiss()
-                            }
-                            .padding(vertical = 11.dp)
-                    )
+            DialogBody {
+                Column {
+                    if (playlists.isEmpty()) {
+                        Text("אין עדיין רשימות", color = TextSecondary)
+                    }
+                    playlists.forEach { info ->
+                        Text(
+                            text = info.playlist.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    vm.bulkAddToPlaylist(info.playlist.id, ids)
+                                    onDismiss()
+                                }
+                                .padding(vertical = 11.dp)
+                        )
+                    }
                 }
             }
         },
@@ -583,14 +581,22 @@ private fun HomeTopBar(
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.weight(1f)
         )
-        // Each with its name under it: four bare glyphs up here - a list, two
-        // arrows, a chart, a cog - left people guessing which was which.
+        // Bare icons, as the owner prefers up here; each still names itself
+        // to TalkBack.
         if (onQueue != null) {
-            CaptionedIconButton(Icons.AutoMirrored.Filled.QueueMusic, "תור", onQueue)
+            IconButton(onClick = onQueue) {
+                Icon(Icons.AutoMirrored.Filled.QueueMusic, contentDescription = localized("התור"), tint = TextSecondary)
+            }
         }
-        CaptionedIconButton(Icons.Filled.Autorenew, "רענון", onRefresh)
-        CaptionedIconButton(Icons.Filled.BarChart, "סיכום", onRecap)
-        CaptionedIconButton(Icons.Filled.Settings, "הגדרות", onSettings)
+        IconButton(onClick = onRefresh) {
+            Icon(Icons.Filled.Autorenew, contentDescription = localized("רענון"), tint = TextSecondary)
+        }
+        IconButton(onClick = onRecap) {
+            Icon(Icons.Filled.BarChart, contentDescription = localized("הסיכום שלך"), tint = TextSecondary)
+        }
+        IconButton(onClick = onSettings) {
+            Icon(Icons.Filled.Settings, contentDescription = localized("הגדרות"), tint = TextSecondary)
+        }
     }
 }
 

@@ -1,6 +1,12 @@
 package com.elchanan.rhythm.ui.components
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
@@ -28,7 +34,19 @@ data class Metrics(
     val artworkMax: Dp,
     /** Reading width for list content, so text does not span a whole tablet. */
     val contentMax: Dp,
-    val isCompact: Boolean
+    val isCompact: Boolean,
+    /**
+     * A window wider than it is tall, with room for two columns: a tablet, or
+     * a phone on its side. The player puts the cover beside the controls
+     * there rather than above them.
+     */
+    val twoPane: Boolean = false,
+    /** The cover's size when it has a pane of its own. */
+    val paneArtwork: Dp = 0.dp,
+    /** A window with little height to spare, where headers step aside sooner. */
+    val isShort: Boolean = false,
+    /** A small phone, around 320-380dp, where every label has to be short. */
+    val isNarrow: Boolean = false
 )
 
 @Composable
@@ -56,8 +74,14 @@ fun rememberMetrics(): Metrics {
         // shelf you cannot tell scrolls is a shelf nobody scrolls.
         val minCard = if (width < 380) 118f else 140f
         val minMix = if (width < 380) 140f else 165f
+        // And no taller than a short window can show beside the rest of the
+        // page: sized by the width alone, a shelf on a landscape tablet or a
+        // phone on its side was a wall of covers filling the whole height,
+        // one shelf per screen. There more cards sit side by side instead.
         val card = ((width - gutter * 2) / 2.4f).coerceIn(minCard, 210f)
+            .coerceAtMost(maxOf(112f, height * 0.32f))
         val mix = ((width - gutter * 2) / 2.1f).coerceIn(minMix, 260f)
+            .coerceAtMost(maxOf(132f, height * 0.38f))
 
         // In landscape the limit is the height, not the width: the cover has to
         // leave room for the header, the title, the scrubber and the transport row,
@@ -75,6 +99,11 @@ fun rememberMetrics(): Metrics {
             .coerceAtMost(minOf(width - gutter * 2, (height * 0.46f).toInt()))
             .coerceAtMost(400)
 
+        val twoPane = width >= 600 && width > height * 1.15f
+        // Its own half of the window, less the player's header above it and
+        // some air around it.
+        val paneArtwork = minOf(height - 150, (width * 0.46f).toInt() - 56).coerceIn(120, 520)
+
         Metrics(
             gutter = gutter.dp,
             cardWidth = card.dp,
@@ -86,7 +115,11 @@ fun rememberMetrics(): Metrics {
             },
             artworkMax = artwork.dp,
             contentMax = 1040.dp,
-            isCompact = width < 600
+            isCompact = width < 600,
+            twoPane = twoPane,
+            paneArtwork = paneArtwork.dp,
+            isShort = height < 520,
+            isNarrow = width < 380
         )
     }
 }
@@ -101,4 +134,31 @@ fun rememberMetrics(): Metrics {
 fun quickPickColumnWidth(): Dp {
     val width = LocalConfiguration.current.screenWidthDp
     return remember(width) { (width * 0.88f).coerceIn(280f, 420f).dp }
+}
+
+/**
+ * How tall a dialog's content may be: what it would like, but never more than
+ * about half of the window. A dialog sized for a phone held upright ran off a
+ * phone on its side, and whatever did not fit - often the part being asked
+ * about - was simply cut away.
+ */
+@Composable
+fun fitHeight(preferred: Dp): Dp {
+    val height = LocalConfiguration.current.screenHeightDp
+    return minOf(preferred, (height * 0.55f).dp).coerceAtLeast(140.dp)
+}
+
+/**
+ * A dialog's content, scrolling when the window is too short for it rather
+ * than cut off. Every dialog's text goes through here, so none of them has to
+ * guess the height of the screen it will be shown on.
+ */
+@Composable
+fun DialogBody(preferred: Dp = 480.dp, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .heightIn(max = fitHeight(preferred))
+            .verticalScroll(rememberScrollState()),
+        content = content
+    )
 }

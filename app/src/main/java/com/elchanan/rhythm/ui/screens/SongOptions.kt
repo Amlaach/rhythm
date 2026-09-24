@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.components.DialogBody
+import com.elchanan.rhythm.ui.components.fitHeight
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -346,11 +348,13 @@ fun SongOptionsSheet(
             containerColor = Surface1,
             title = { Text("למחוק את הקובץ?") },
             text = {
-                Text(
-                    "\"${song.title}\" יימחק מהמכשיר עצמו, לא רק מהאפליקציה. " +
-                        "אי אפשר לבטל את זה.",
-                    color = TextSecondary
-                )
+                DialogBody {
+                    Text(
+                        "\"${song.title}\" יימחק מהמכשיר עצמו, לא רק מהאפליקציה. " +
+                            "אי אפשר לבטל את זה.",
+                        color = TextSecondary
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
@@ -375,11 +379,13 @@ fun SongOptionsSheet(
             containerColor = Surface1,
             title = { Text("לאפס את ההשמעות?") },
             text = {
-                Text(
-                    "מספר ההשמעות של \"${song.title}\" יתאפס, והשיר ייעלם מ\"הושמעו לאחרונה\". " +
-                        "הלייק, הדירוג והתגיות נשארים.",
-                    color = TextSecondary
-                )
+                DialogBody {
+                    Text(
+                        "מספר ההשמעות של \"${song.title}\" יתאפס, והשיר ייעלם מ\"הושמעו לאחרונה\". " +
+                            "הלייק, הדירוג והתגיות נשארים.",
+                        color = TextSecondary
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
@@ -405,12 +411,14 @@ fun SongOptionsSheet(
             containerColor = Surface1,
             title = { Text("רשימה חדשה") },
             text = {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    singleLine = true,
-                    placeholder = { Text("שם הרשימה") }
-                )
+                DialogBody {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        singleLine = true,
+                        placeholder = { Text("שם הרשימה") }
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
@@ -476,7 +484,7 @@ private fun CapoDialog(feature: AudioFeatureEntity?, onDismiss: () -> Unit) {
         text = {
             Column(
                 modifier = Modifier
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = fitHeight(420.dp))
                     .verticalScroll(rememberScrollState())
             ) {
                 if (key !in 0..11) {
@@ -661,7 +669,7 @@ private fun SongTagDialog(
         containerColor = Surface1,
         title = { Text("תגיות לשיר הזה") },
         text = {
-            Column(modifier = Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState())) {
+            Column(modifier = Modifier.heightIn(max = fitHeight(340.dp)).verticalScroll(rememberScrollState())) {
                 Text(
                     "תגית על שיר בודד מחליפה את תגיות האמן עבורו בלבד.",
                     style = MaterialTheme.typography.bodySmall,
@@ -723,33 +731,35 @@ fun GenreDialog(
         containerColor = Surface1,
         title = { Text(if (count == 1) "ז'אנר" else "ז'אנר ל-$count שירים") },
         text = {
-            Column {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    singleLine = true,
-                    placeholder = { Text("למשל: חסידי") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(10.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Styles.SUGGESTED.take(14).forEach { style ->
-                        Chip(
-                            label = style,
-                            selected = text.equals(style, ignoreCase = true),
-                            onClick = { text = style }
-                        )
+            DialogBody {
+                Column {
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        singleLine = true,
+                        placeholder = { Text("למשל: חסידי") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Styles.SUGGESTED.take(14).forEach { style ->
+                            Chip(
+                                label = style,
+                                selected = text.equals(style, ignoreCase = true),
+                                onClick = { text = style }
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "השארה ריקה מנקה את הז'אנר וחוזרת למה שכתוב בקובץ.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextTertiary
+                    )
                 }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "השארה ריקה מנקה את הז'אנר וחוזרת למה שכתוב בקובץ.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextTertiary
-                )
             }
         },
         confirmButton = {

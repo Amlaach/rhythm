@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.components.DialogBody
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.foundation.background
@@ -95,20 +96,22 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
             containerColor = Surface1,
             title = { Text("עריכת תגיות") },
             text = {
-                Column {
-                    OutlinedTextField(
-                        value = title,
-                        onValueChange = { title = it },
-                        singleLine = true,
-                        label = { Text("שם השיר") }
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = artist,
-                        onValueChange = { artist = it },
-                        singleLine = true,
-                        label = { Text("שם האמן") }
-                    )
+                DialogBody {
+                    Column {
+                        OutlinedTextField(
+                            value = title,
+                            onValueChange = { title = it },
+                            singleLine = true,
+                            label = { Text("שם השיר") }
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = artist,
+                            onValueChange = { artist = it },
+                            singleLine = true,
+                            label = { Text("שם האמן") }
+                        )
+                    }
                 }
             },
             confirmButton = {

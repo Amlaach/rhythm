@@ -1436,14 +1436,16 @@ private fun LineListDialog(
         containerColor = Surface1,
         title = { Text(title) },
         text = {
-            Column {
-                Text(hint, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 220.dp)
-                )
+            DialogBody {
+                Column {
+                    Text(hint, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 220.dp)
+                    )
+                }
             }
         },
         confirmButton = {

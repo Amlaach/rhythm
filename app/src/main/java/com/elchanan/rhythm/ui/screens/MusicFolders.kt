@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.components.fitHeight
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -97,7 +98,7 @@ internal fun MusicFoldersDialog(
         containerColor = Surface1,
         title = { Text("תיקייה ראשית") },
         text = {
-            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
+            Column(modifier = Modifier.fillMaxWidth().heightIn(max = fitHeight(440.dp)).verticalScroll(rememberScrollState())) {
                 Text(
                     "מאילו תיקיות האפליקציה מביאה את המוזיקה, כולל כל התיקיות שבתוכן. " +
                         "בלי תיקייה נבחרת נסרק כל המכשיר. שיר שנשאר בחוץ רק מוסתר — " +

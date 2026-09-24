@@ -1,5 +1,7 @@
 package com.elchanan.rhythm.ui.screens
 
+import com.elchanan.rhythm.ui.components.DialogBody
+import com.elchanan.rhythm.ui.components.fitHeight
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -188,63 +190,65 @@ fun LyricsEditorDialog(vm: MainViewModel, song: SongEntity, onDismiss: () -> Uni
         containerColor = Surface1,
         title = { Text(if (syncing) "סנכרון שורות" else "מילות השיר") },
         text = {
-            if (!syncing) {
-                Column(modifier = Modifier.heightIn(max = 380.dp)) {
-                    Text(
-                        "אפשר להדביק כאן טקסט רגיל, או קובץ LRC שלם עם חותמות זמן.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = text,
-                        onValueChange = { text = it },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 280.dp)
-                    )
-                }
-            } else {
-                Column(modifier = Modifier.heightIn(max = 380.dp)) {
-                    Text(
-                        "השיר מתנגן — לחיצה על \"סמן\" מצמידה את הזמן הנוכחי לשורה המסומנת.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        text = lines.getOrNull(stampIndex) ?: "הסתיים",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Accent,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Surface1)
-                            .padding(12.dp),
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "${stampIndex} מתוך ${lines.size} שורות סומנו",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = TextSecondary
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = {
-                                val line = lines.getOrNull(stampIndex) ?: return@Button
-                                stamps.value = stamps.value + LyricLine(playerState.positionMs, line)
-                                stampIndex++
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Accent)
-                        ) { Text("סמן") }
-                        OutlinedButton(onClick = {
-                            if (stampIndex > 0) {
-                                stampIndex--
-                                stamps.value = stamps.value.dropLast(1)
+            DialogBody {
+                if (!syncing) {
+                    Column(modifier = Modifier.heightIn(max = fitHeight(380.dp))) {
+                        Text(
+                            "אפשר להדביק כאן טקסט רגיל, או קובץ LRC שלם עם חותמות זמן.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = text,
+                            onValueChange = { text = it },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 280.dp)
+                        )
+                    }
+                } else {
+                    Column(modifier = Modifier.heightIn(max = fitHeight(380.dp))) {
+                        Text(
+                            "השיר מתנגן — לחיצה על \"סמן\" מצמידה את הזמן הנוכחי לשורה המסומנת.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = lines.getOrNull(stampIndex) ?: "הסתיים",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Accent,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Surface1)
+                                .padding(12.dp),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "${stampIndex} מתוך ${lines.size} שורות סומנו",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = TextSecondary
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    val line = lines.getOrNull(stampIndex) ?: return@Button
+                                    stamps.value = stamps.value + LyricLine(playerState.positionMs, line)
+                                    stampIndex++
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Accent)
+                            ) { Text("סמן") }
+                            OutlinedButton(onClick = {
+                                if (stampIndex > 0) {
+                                    stampIndex--
+                                    stamps.value = stamps.value.dropLast(1)
+                                }
+                            }) { Text("אחורה") }
+                            OutlinedButton(onClick = { vm.player.togglePlayPause() }) {
+                                Text(if (playerState.isPlaying) "עצור" else "נגן")
                             }
-                        }) { Text("אחורה") }
-                        OutlinedButton(onClick = { vm.player.togglePlayPause() }) {
-                            Text(if (playerState.isPlaying) "עצור" else "נגן")
                         }
                     }
                 }
