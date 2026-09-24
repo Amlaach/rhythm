@@ -68,6 +68,7 @@ import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.playback.HookFinder
 import com.elchanan.rhythm.playback.MediaItems
 import com.elchanan.rhythm.ui.MainViewModel
+import com.elchanan.rhythm.ui.TASTES_AHEAD
 import com.elchanan.rhythm.ui.components.Artwork
 import com.elchanan.rhythm.ui.components.EmptyState
 import com.elchanan.rhythm.ui.components.rememberArtworkColors
@@ -157,9 +158,13 @@ fun SamplesScreen(vm: MainViewModel, onBack: () -> Unit) {
                     finding = HookFinder.cached(context, song.id) == null
                     val start = HookFinder.find(context, song)
                     finding = false
-                    for (ahead in 1..2) {
-                        list.getOrNull(pager.settledPage + ahead)?.let { next -> scope.launch { HookFinder.find(context, next) } }
-                    }
+                    // The next ten, one at a time on a background thread, so
+                    // swiping on lands straight on a chorus.
+                    HookFinder.prefetch(
+                        context,
+                        list.subList(minOf(pager.settledPage + 1, list.size), minOf(pager.settledPage + 1 + TASTES_AHEAD, list.size))
+                    )
+                    vm.noteTasted(song.id)
                     exo.setMediaItem(
                         MediaItem.Builder()
                             .setUri(MediaItems.songUri(song.id))

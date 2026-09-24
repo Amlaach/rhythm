@@ -7,8 +7,16 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import com.elchanan.rhythm.data.db.SongEntity
 import com.elchanan.rhythm.engine.Hook
+import android.os.Process
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.Executors
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -59,15 +67,50 @@ object HookFinder {
      */
     suspend fun find(context: Context, song: SongEntity): Long {
         cached(context, song.id)?.let { return it }
-        val found = withContext(Dispatchers.IO) {
-            runCatching { scan(context, song) }.getOrNull()
-        }
+        return withContext(Dispatchers.IO) { findNow(context, song) }
+    }
+
+    /** [find], on the calling thread. */
+    private fun findNow(context: Context, song: SongEntity): Long {
+        cached(context, song.id)?.let { return it }
+        val found = runCatching { scan(context, song) }.getOrNull()
         val ms = found?.let { (it * 1000).toLong() } ?: (song.durationMs / 3)
         synchronized(lock) {
             load(context)[song.id] = ms
             runCatching { file(context).appendText("${song.id}=$ms\n") }
         }
         return ms
+    }
+
+    /**
+     * One thread of its own, at background priority, for choruses found
+     * ahead of time: the first tastes a few moments after the app opens, and
+     * the next ten while someone is tasting. It gives way to everything the
+     * listener is doing, and works through one song at a time.
+     */
+    private val ahead = Executors.newSingleThreadExecutor { job ->
+        Thread({
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+            job.run()
+        }, "hooks").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
+
+    private val aheadScope = CoroutineScope(SupervisorJob() + ahead)
+    private var aheadJob: Job? = null
+
+    /**
+     * Finds the choruses of [songs], in order, before they are needed. A new
+     * call replaces the one before: what matters is always what is next now.
+     */
+    fun prefetch(context: Context, songs: List<SongEntity>) {
+        val app = context.applicationContext
+        aheadJob?.cancel()
+        aheadJob = aheadScope.launch {
+            for (song in songs) {
+                if (!isActive) break
+                if (cached(app, song.id) == null) findNow(app, song)
+            }
+        }
     }
 
     private fun scan(context: Context, song: SongEntity): Double? {

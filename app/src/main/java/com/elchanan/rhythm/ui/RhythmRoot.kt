@@ -163,6 +163,12 @@ fun RhythmRoot(
         if (hasPermission) vm.scanOnLaunch()
     }
 
+    // The first tastes, prepared a few moments after the library is there -
+    // never during the opening itself.
+    LaunchedEffect(library.loaded) {
+        if (library.loaded) vm.warmTastes()
+    }
+
     // bring the previous session's queue back once both sides are ready
     LaunchedEffect(library.loaded, playerState.connected) {
         vm.restoreQueueIfNeeded()

@@ -56,6 +56,7 @@ import com.elchanan.rhythm.engine.SignalCalibration
 import com.elchanan.rhythm.engine.SignalWeights
 import com.elchanan.rhythm.engine.Spoken
 import com.elchanan.rhythm.engine.isMedley
+import com.elchanan.rhythm.playback.HookFinder
 import com.elchanan.rhythm.engine.StyleLearner
 import com.elchanan.rhythm.engine.StyleLearning
 import com.elchanan.rhythm.engine.StyleTraining
@@ -1786,14 +1787,69 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * outside their season, as everywhere else.
      */
     fun buildSamples() {
-        _samples.value = null
         viewModelScope.launch {
+            val built = samplesFor(library.value.songs)
+            // The ones already tasted this time go to the end: coming back
+            // to the tastes starts on something new, not on what was just
+            // scrolled past.
+            val (fresh, tasted) = built.partition { it.id !in tastedIds }
+            _samples.value = fresh + tasted
+        }
+    }
+
+    /**
+     * The order is chosen once per library and kept, so the choruses found
+     * ahead of time are the ones the tastes then open with.
+     */
+    private var samplesCache: Pair<Long, List<SongEntity>>? = null
+    private val tastedIds = HashSet<Long>()
+
+    /**
+     * Which library the order was chosen for: the songs in it, not the list
+     * object, which is made again on every like and play.
+     */
+    private fun librarySignature(songs: List<SongEntity>): Long =
+        songs.fold(songs.size.toLong()) { acc, s -> acc * 31 + s.id }
+
+    fun noteTasted(songId: Long) {
+        tastedIds.add(songId)
+    }
+
+    private suspend fun samplesFor(songs: List<SongEntity>): List<SongEntity> {
+        val signature = librarySignature(songs)
+        samplesCache?.let { (forLibrary, list) -> if (forLibrary == signature) return list }
+        val list = chooseSamples()
+        samplesCache = signature to list
+        return list
+    }
+
+    /**
+     * A few moments after the app opens, the first tastes' choruses are found
+     * in the background, on a thread that gives way to everything else, so
+     * the tastes open straight on a chorus. Once per run of the app.
+     */
+    private var tastesWarmed = false
+
+    fun warmTastes() {
+        if (tastesWarmed) return
+        tastesWarmed = true
+        viewModelScope.launch {
+            delay(TASTES_WARM_DELAY_MS)
+            val songs = library.value.songs
+            if (songs.isEmpty()) return@launch
+            val first = samplesFor(songs).take(TASTES_AHEAD)
+            HookFinder.prefetch(getApplication(), first)
+        }
+    }
+
+    private suspend fun chooseSamples(): List<SongEntity> {
+        return run {
             val lib = library.value
             val stats = lib.stats
             val features = runCatching { repo.featureMap() }.getOrDefault(emptyMap())
             val e = engine ?: runCatching { repo.buildRecommender() }.getOrNull()?.also { engine = it }
             val inSeason = season != null
-            _samples.value = withContext(Dispatchers.Default) {
+            withContext(Dispatchers.Default) {
                 val pool = lib.songs.filter { song ->
                     val feature = features[song.id]
                     song.durationMs in SAMPLE_MIN_MS..SAMPLE_MAX_MS &&
@@ -2640,3 +2696,9 @@ private const val SAMPLE_MAX_MS = 6 * 60_000L
 
 /** Enough to scroll through for a long while; more is chosen again next time. */
 private const val SAMPLE_LIMIT = 300
+
+/** How long after the app opens the first tastes are prepared - after the opening, not during it. */
+private const val TASTES_WARM_DELAY_MS = 12_000L
+
+/** How many choruses are found ahead: at the start, and past the one being tasted. */
+internal const val TASTES_AHEAD = 10
