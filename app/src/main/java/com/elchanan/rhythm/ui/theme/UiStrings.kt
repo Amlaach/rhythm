@@ -1760,6 +1760,18 @@ object UiStrings {
         "בחר הכל" to "Select all",
         "החל על \${chosen.size}" to "Apply to \${chosen.size}",
         "אמנים (\${artists.size})" to "Artists (\${artists.size})",
-        "שירים (\${titles.size})" to "Songs (\${titles.size})"
+        "שירים (\${titles.size})" to "Songs (\${titles.size})",
+        "איות שמות" to "Name spelling",
+        "לעברית" to "To Hebrew",
+        "לאנגלית" to "To English",
+        "שמות של אמנים ושירים שכתובים בעברית, ואיך הם נכתבים באותיות אנגליות. זו הצעה בלבד, אז שום דבר לא מסומן מראש. סמן את מה שנכון, ואפשר ללחוץ על הצעה כדי לתקן את האיות לפני שמחילים." to "Artist and song names written in Hebrew, and how they are spelled in English letters. These are only suggestions, so nothing is ticked in advance. Tick what is right; tap a suggestion to correct its spelling before applying.",
+        "שמות של אמנים ושירים שכתובים בעברית, ואיך הם נכתבים באותיות אנגליות. זו הצעה בלבד, אז שום דבר לא מסומן מראש. לחיצה על הצעה מאפשרת לתקן את האיות." to "Artist and song names written in Hebrew, and how they are spelled in English letters. These are only suggestions, so nothing is ticked in advance. Click a suggestion to correct its spelling.",
+        "אין כרגע שמות בעברית שנמצא להם איות באנגלית." to "No Hebrew names with an English-letter spelling were found right now.",
+        "האיות באנגלית" to "English spelling",
+        "\$tagFixPending שירים עם תגיות שאפשר לתקן" to "\$tagFixPending songs with tags that can be fixed",
+        "שם האמן בתוך שם השיר, שם של אתר הורדות ועוד. כל שינוי מוצג לפני שמחילים אותו" to "The artist inside the song name, a download site's name and more. Every change is shown before it is applied",
+        "לתיקון" to "Fix",
+        "הצעות לאיות שמות של אמנים ושירים בעברית או באנגלית" to "Suggested spellings of artist and song names in Hebrew or English",
+        "כל הפסים במסך הזה יחזרו למקום שבו הם מגיעים בהתקנה חדשה: גילוי, משקלי האמנים, הסגנונות והסאונד, מניעת החזרתיות, ומתי שיר נספר כהשמעה. הלייקים, ההיסטוריה והסגנונות שלך לא משתנים." to "Every slider on this screen goes back to where it is on a new install: discovery, the artist weights, styles and sound, repetition avoidance, and when a song counts as played. Your likes, history and styles do not change."
     )
 }

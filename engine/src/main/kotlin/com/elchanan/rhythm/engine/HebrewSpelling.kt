@@ -26,18 +26,20 @@ object HebrewSpelling {
     enum class Field { ARTIST, TITLE }
 
     /**
-     * One offer: [songIds] carry [latin] in [field], and [hebrew] is how it
-     * would be spelled. [fromLibrary] when the spelling was found written
-     * that way elsewhere in the library rather than put together word by word.
+     * One offer: [songIds] carry [original] in [field], and [proposed] is how
+     * it would be spelled in the other script. [fromLibrary] when the spelling
+     * was found written that way elsewhere in the library rather than put
+     * together word by word.
      */
     data class Suggestion(
         val field: Field,
-        val latin: String,
-        val hebrew: String,
+        val original: String,
+        val proposed: String,
         val songIds: List<Long>,
         val fromLibrary: Boolean
     )
 
+    /** Hebrew spellings for names in Latin letters. */
     fun suggest(songs: List<SongEntity>): List<Suggestion> {
         val vocabulary = Vocabulary(songs)
         val out = ArrayList<Suggestion>()
@@ -84,6 +86,157 @@ object HebrewSpelling {
         }
         return out
     }
+
+    /**
+     * The other way: Latin spellings for names written in Hebrew, for those
+     * who read the app in English. "נפתלי קמפה" is "Naftali Kempeh".
+     *
+     * The same two sources in the same order - the library's own Latin
+     * spelling of that artist or song first, then word by word from the
+     * dictionary and the Latin words the library uses - and the same rule:
+     * every word recognised, or nothing offered.
+     */
+    fun suggestLatin(songs: List<SongEntity>): List<Suggestion> {
+        val vocabulary = LatinVocabulary(songs)
+        val out = ArrayList<Suggestion>()
+
+        val latinArtists = songs.map { it.artistName.trim() }
+            .filter { latinOnly(it) }
+            .groupingBy { it }.eachCount()
+        songs.filter { hebrewOnly(it.artistName) }
+            .groupBy { it.artistName.trim() }
+            .forEach { (hebrew, carriers) ->
+                val fromLibrary = latinArtists.entries
+                    .filter { Transliteration.sameName(hebrew, it.key) }
+                    .maxByOrNull { it.value }?.key
+                val latin = fromLibrary ?: romanizeCredits(hebrew, vocabulary)
+                if (latin != null && latin != hebrew) {
+                    out.add(Suggestion(Field.ARTIST, hebrew, latin, carriers.map { it.id }, fromLibrary != null))
+                }
+            }
+
+        val latinTitles = HashMap<String, MutableList<SongEntity>>()
+        for (s in songs) {
+            val main = mainPart(s.title).first
+            if (latinOnly(main)) for (key in latinKeys(main)) latinTitles.getOrPut(key) { ArrayList() }.add(s)
+        }
+        for (s in songs) {
+            if (!hebrewOnly(s.title)) continue
+            val (main, rest) = mainPart(s.title)
+            if (main.isBlank()) continue
+            val twin = latinTitles[canonicalHebrew(main)].orEmpty()
+                .filter { Transliteration.sameName(main, mainPart(it.title).first) }
+                .sortedByDescending { if (it.artistKey == s.artistKey) 1 else 0 }
+                .firstOrNull()
+            val fromLibrary = twin?.let { mainPart(it.title).first.trim() }
+            val latin = fromLibrary ?: romanizePhrase(main, vocabulary) ?: continue
+            val full = (latin + rest).trim()
+            if (full != s.title.trim()) out.add(Suggestion(Field.TITLE, s.title, full, listOf(s.id), fromLibrary != null))
+        }
+        return out
+    }
+
+    /** Hebrew letters and no Latin ones. */
+    private fun hebrewOnly(text: String) = Transliteration.hasHebrew(text) && !Transliteration.hasLatin(text)
+
+    private fun romanizeCredits(raw: String, vocabulary: LatinVocabulary): String? {
+        val parts = HEBREW_CREDIT_SEPARATOR.split(raw)
+        val separators = HEBREW_CREDIT_SEPARATOR.findAll(raw).map { it.value }.toList()
+        val spelled = parts.map { romanizePhrase(it, vocabulary) ?: return null }
+        return buildString {
+            spelled.forEachIndexed { i, p ->
+                append(p)
+                if (i < separators.size) append(separators[i])
+            }
+        }
+    }
+
+    private val HEBREW_CREDIT_SEPARATOR = Regex("""\s*(,|&|\+)\s*""")
+
+    /** A whole Hebrew name in Latin letters, or null when any word of it is not recognised. */
+    internal fun romanizePhrase(text: String, vocabulary: LatinVocabulary? = null): String? {
+        val words = text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (words.isEmpty()) return null
+        LATIN_PHRASES[words.joinToString(" ") { it.filter { c -> c.isLetter() } }]?.let { return it }
+        return words.map { romanizeWord(it, vocabulary) ?: return null }.joinToString(" ")
+    }
+
+    private fun romanizeWord(raw: String, vocabulary: LatinVocabulary?): String? {
+        val lead = raw.takeWhile { !it.isLetterOrDigit() }
+        val tail = raw.takeLastWhile { !it.isLetterOrDigit() }
+        val core = raw.substring(lead.length, raw.length - tail.length)
+        if (core.isEmpty() || core.all { it.isDigit() }) return raw
+        val word = core.filter { it.isLetter() }
+        fun whole(w: String) = LATIN_WORDS[w] ?: vocabulary?.find(w)
+        whole(word)?.let { return lead + capital(it) + tail }
+        // A prefix letter on the front: המקדש is "Hamikdash", בשמחה "B'simcha".
+        val letter = word.firstOrNull() ?: return null
+        val prefix = HEBREW_PREFIXES[letter]
+        if (prefix != null && word.length >= 3) {
+            whole(word.substring(1))?.let { rest -> return lead + capital(prefix + rest) + tail }
+        }
+        return null
+    }
+
+    private fun capital(word: String) = word.replaceFirstChar { it.titlecase(Locale.ROOT) }
+
+    /** How a prefix letter is usually written in front of a word. */
+    private val HEBREW_PREFIXES = mapOf(
+        'ה' to "ha", 'ו' to "ve", 'ב' to "b'", 'ל' to "l'", 'כ' to "k'", 'מ' to "mi", 'ש' to "she"
+    )
+
+    /** The dictionary the other way round: each word's first spelling in [WORDS]. */
+    private val LATIN_WORDS: Map<String, String> by lazy {
+        val out = LinkedHashMap<String, String>()
+        for ((spellings, hebrew) in WORD_ROWS) out.putIfAbsent(hebrew, spellings.substringBefore('|'))
+        out
+    }
+
+    private val LATIN_PHRASES: Map<String, String> by lazy {
+        val out = LinkedHashMap<String, String>()
+        for ((spellings, hebrew) in PHRASE_ROWS) {
+            out.putIfAbsent(hebrew.filter { it.isLetter() || it == ' ' },
+                spellings.substringBefore('|').split(' ').joinToString(" ") { capital(it) })
+        }
+        out
+    }
+
+    /**
+     * The Latin words the library already uses, by their consonants, for
+     * names the dictionary does not know - a surname like קמפה spelled
+     * "Kempeh" in the library's other copies.
+     */
+    class LatinVocabulary(songs: List<SongEntity>) {
+        private val byKey = HashMap<String, HashMap<String, Int>>()
+
+        init {
+            for (s in songs) {
+                for (field in listOf(s.title, s.artistName, s.albumName)) {
+                    for (w in LATIN_WORD.findAll(field)) {
+                        val word = w.value
+                        if (word.length < 3) continue
+                        for (key in latinKeys(word)) {
+                            byKey.getOrPut(key) { HashMap() }.merge(word, 1, Int::plus)
+                        }
+                    }
+                }
+            }
+        }
+
+        fun find(hebrew: String): String? {
+            val found = HashMap<String, Int>()
+            for (key in hebrewKeys(hebrew)) {
+                if (key.length < 3) continue
+                byKey[key]?.forEach { (w, n) -> found.merge(w, n, ::maxOf) }
+            }
+            val ranked = found.entries.sortedByDescending { it.value }
+            val best = ranked.firstOrNull() ?: return null
+            val next = ranked.getOrNull(1)
+            return if (next == null || best.value >= next.value * 3) best.key else null
+        }
+    }
+
+    private val LATIN_WORD = Regex("""[A-Za-z']+""")
 
     /** Latin letters and no Hebrew: the names this is for. */
     private fun latinOnly(text: String) = Transliteration.hasLatin(text) && !Transliteration.hasHebrew(text)
@@ -227,7 +380,9 @@ object HebrewSpelling {
     )
 
     /** Whole names that are better known than their words. */
-    private val PHRASES: Map<String, String> = table(
+    private val PHRASES: Map<String, String> by lazy { table(*PHRASE_ROWS) }
+
+    private val PHRASE_ROWS: Array<Pair<String, String>> = arrayOf(
         "lecha dodi|lcha dodi|lecho dodi" to "לכה דודי",
         "adon olam|adon oilam|adon olom" to "אדון עולם",
         "shalom aleichem|sholom aleichem|shalom alechem|sholem aleichem" to "שלום עליכם",
@@ -249,7 +404,9 @@ object HebrewSpelling {
      * The words Jewish music is made of, in the ways they are spelled in
      * English letters - Sephardi and Ashkenazi alike.
      */
-    private val WORDS: Map<String, String> = table(
+    private val WORDS: Map<String, String> by lazy { table(*WORD_ROWS) }
+
+    private val WORD_ROWS: Array<Pair<String, String>> = arrayOf(
         "ki" to "כי", "shel" to "של", "al" to "על", "im" to "אם", "ein|eyn" to "אין", "od" to "עוד",
         "hu" to "הוא", "hi" to "היא", "ata|atah|ato" to "אתה", "ani" to "אני", "mi" to "מי", "ma|mah" to "מה",
         "gam" to "גם", "ze|zeh" to "זה", "kan" to "כאן", "am" to "עם", "yom" to "יום",

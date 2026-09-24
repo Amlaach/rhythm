@@ -383,7 +383,8 @@ fun RhythmRoot(
                                 onOpenDetail = { navController.navigate(Routes.DETAIL) },
                                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                                 onOpenRatings = { navController.navigate(Routes.RATINGS) },
-                                onOpenRecap = { navController.navigate(Routes.RECAP) }
+                                onOpenRecap = { navController.navigate(Routes.RECAP) },
+                                onOpenTagFix = { navController.navigate(Routes.TAGS) }
                             )
                         }
                         composable(Routes.SEARCH) {

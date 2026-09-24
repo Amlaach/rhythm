@@ -46,10 +46,12 @@ import com.elchanan.rhythm.ui.theme.Text
 import com.elchanan.rhythm.ui.theme.TextPrimary
 import com.elchanan.rhythm.ui.theme.TextSecondary
 import com.elchanan.rhythm.ui.theme.localized
+import com.elchanan.rhythm.ui.theme.UiLanguage
+import com.elchanan.rhythm.ui.components.Chip
 
 /**
- * Hebrew spellings for artists and songs written in English letters, offered
- * one by one.
+ * Spellings for artists and songs in the other script - Hebrew for names in
+ * English letters, or English letters for Hebrew names - offered one by one.
  *
  * Offered, never applied by themselves: some songs really are called
  * something in English, and only the listener knows which. Nothing starts
@@ -59,26 +61,40 @@ import com.elchanan.rhythm.ui.theme.localized
 fun HebrewNamesScreen(vm: MainViewModel, onBack: () -> Unit) {
     val suggestions by vm.hebrewSuggestions.collectAsStateWithLifecycle()
     val library by vm.library.collectAsStateWithLifecycle()
-    LaunchedEffect(library.songs) { vm.buildHebrewSuggestions() }
+    // Which way: English letters to Hebrew, or Hebrew to English letters - the
+    // second first for someone reading the app in English.
+    var toLatin by remember { mutableStateOf(UiLanguage.english) }
+    LaunchedEffect(library.songs, toLatin) { vm.buildHebrewSuggestions(toLatin) }
     val gutter = rememberMetrics().gutter
 
     // What is ticked, by offer, with the spelling as it will be used - the
     // listener may have changed it.
     val chosen = remember { mutableStateMapOf<String, String>() }
     var editing by remember { mutableStateOf<HebrewSpelling.Suggestion?>(null) }
-    fun keyOf(s: HebrewSpelling.Suggestion) = "${s.field}:${s.latin}:${s.songIds.first()}"
+    fun keyOf(s: HebrewSpelling.Suggestion) = "${s.field}:${s.original}:${s.songIds.first()}"
 
     val all = suggestions.orEmpty()
     val artists = all.filter { it.field == HebrewSpelling.Field.ARTIST }
     val titles = all.filter { it.field == HebrewSpelling.Field.TITLE }
 
-    SettingsScaffold(title = "שמות בעברית", onBack = onBack) {
+    SettingsScaffold(title = "איות שמות", onBack = onBack) {
         item {
             Column(modifier = Modifier.padding(horizontal = gutter, vertical = 8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip(label = "לעברית", selected = !toLatin, onClick = { toLatin = false; chosen.clear() })
+                    Chip(label = "לאנגלית", selected = toLatin, onClick = { toLatin = true; chosen.clear() })
+                }
+                Spacer(Modifier.height(10.dp))
                 Text(
-                    "שמות של אמנים ושירים שכתובים באותיות אנגליות, ואיך הם נכתבים בעברית. " +
-                        "זו הצעה בלבד: יש שירים ששמם האמיתי באנגלית, אז שום דבר לא מסומן מראש. " +
-                        "סמן את מה שנכון, ואפשר ללחוץ על הצעה כדי לתקן את האיות לפני שמחילים.",
+                    if (toLatin) {
+                        "שמות של אמנים ושירים שכתובים בעברית, ואיך הם נכתבים באותיות אנגליות. " +
+                            "זו הצעה בלבד, אז שום דבר לא מסומן מראש. " +
+                            "סמן את מה שנכון, ואפשר ללחוץ על הצעה כדי לתקן את האיות לפני שמחילים."
+                    } else {
+                        "שמות של אמנים ושירים שכתובים באותיות אנגליות, ואיך הם נכתבים בעברית. " +
+                            "זו הצעה בלבד: יש שירים ששמם האמיתי באנגלית, אז שום דבר לא מסומן מראש. " +
+                            "סמן את מה שנכון, ואפשר ללחוץ על הצעה כדי לתקן את האיות לפני שמחילים."
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
@@ -86,7 +102,7 @@ fun HebrewNamesScreen(vm: MainViewModel, onBack: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Button(
                         onClick = {
-                            vm.applyHebrewNames(all.mapNotNull { s -> chosen[keyOf(s)]?.let { s.copy(hebrew = it) } })
+                            vm.applyHebrewNames(all.mapNotNull { s -> chosen[keyOf(s)]?.let { s.copy(proposed = it) } })
                             chosen.clear()
                         },
                         enabled = chosen.isNotEmpty(),
@@ -96,7 +112,7 @@ fun HebrewNamesScreen(vm: MainViewModel, onBack: () -> Unit) {
                     if (all.isNotEmpty()) {
                         TextButton(onClick = {
                             if (chosen.size == all.size) chosen.clear()
-                            else all.forEach { chosen[keyOf(it)] = chosen[keyOf(it)] ?: it.hebrew }
+                            else all.forEach { chosen[keyOf(it)] = chosen[keyOf(it)] ?: it.proposed }
                         }) {
                             Text(if (chosen.size == all.size) "בטל הכל" else "בחר הכל", color = TextSecondary)
                         }
@@ -110,7 +126,8 @@ fun HebrewNamesScreen(vm: MainViewModel, onBack: () -> Unit) {
             }
             all.isEmpty() -> item {
                 Text(
-                    "אין כרגע שמות באנגלית שנמצא להם איות בעברית.",
+                    if (toLatin) "אין כרגע שמות בעברית שנמצא להם איות באנגלית."
+                    else "אין כרגע שמות באנגלית שנמצא להם איות בעברית.",
                     color = TextSecondary,
                     modifier = Modifier.padding(horizontal = gutter, vertical = 16.dp)
                 )
@@ -121,7 +138,7 @@ fun HebrewNamesScreen(vm: MainViewModel, onBack: () -> Unit) {
             items(artists, key = { "a:" + keyOf(it) }) { s ->
                 SpellingRow(s, chosen[keyOf(s)], gutter,
                     detail = "${s.songIds.size} שירים",
-                    onToggle = { if (chosen.containsKey(keyOf(s))) chosen.remove(keyOf(s)) else chosen[keyOf(s)] = s.hebrew },
+                    onToggle = { if (chosen.containsKey(keyOf(s))) chosen.remove(keyOf(s)) else chosen[keyOf(s)] = s.proposed },
                     onEdit = { editing = s })
             }
         }
@@ -131,25 +148,25 @@ fun HebrewNamesScreen(vm: MainViewModel, onBack: () -> Unit) {
                 val artist = library.songsById[s.songIds.first()]?.artistName.orEmpty()
                 SpellingRow(s, chosen[keyOf(s)], gutter,
                     detail = artist,
-                    onToggle = { if (chosen.containsKey(keyOf(s))) chosen.remove(keyOf(s)) else chosen[keyOf(s)] = s.hebrew },
+                    onToggle = { if (chosen.containsKey(keyOf(s))) chosen.remove(keyOf(s)) else chosen[keyOf(s)] = s.proposed },
                     onEdit = { editing = s })
             }
         }
     }
 
     editing?.let { s ->
-        var text by remember(s) { mutableStateOf(chosen[keyOf(s)] ?: s.hebrew) }
+        var text by remember(s) { mutableStateOf(chosen[keyOf(s)] ?: s.proposed) }
         AlertDialog(
             onDismissRequest = { editing = null },
             containerColor = Surface1,
-            title = { Text(s.latin) },
+            title = { Text(s.original) },
             text = {
                 DialogBody {
                     OutlinedTextField(
                         value = text,
                         onValueChange = { text = it },
                         singleLine = true,
-                        label = { Text("האיות בעברית") }
+                        label = { Text(if (toLatin) "האיות באנגלית" else "האיות בעברית") }
                     )
                 }
             },
@@ -198,14 +215,14 @@ private fun SpellingRow(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                chosenAs ?: s.hebrew,
+                chosenAs ?: s.proposed,
                 style = MaterialTheme.typography.titleSmall,
                 color = TextPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                s.latin,
+                s.original,
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 maxLines = 1,

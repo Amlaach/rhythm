@@ -1711,6 +1711,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val changed = proposals.filter { it.changed && (it.certain || includeUncertain) }
             repo.saveOverrides(TagFixer.toOverrides(proposals, includeUncertain))
             prefs.tagTipSeen = true
+            // Dealt with: the banner may come back for the next downloads.
+            prefs.tagFixBannerDismissedAt = 0
+            _tagFixDismissedAt.value = 0
             // The shelves hold a snapshot of the songs taken when the feed was
             // built, so without this the home screen keeps showing the old
             // titles while the player shows the corrected ones.
@@ -1771,10 +1774,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** Null while they are being worked out. */
     val hebrewSuggestions: StateFlow<List<HebrewSpelling.Suggestion>?> = _hebrewSuggestions.asStateFlow()
 
-    fun buildHebrewSuggestions() {
+    /** Which way the offers go: Latin names to Hebrew, or - for English readers - Hebrew names to Latin. */
+    private var spellingToLatin = false
+
+    fun buildHebrewSuggestions(toLatin: Boolean = spellingToLatin) {
+        spellingToLatin = toLatin
+        _hebrewSuggestions.value = null
         viewModelScope.launch {
             val songs = library.value.songs
-            _hebrewSuggestions.value = withContext(Dispatchers.Default) { HebrewSpelling.suggest(songs) }
+            _hebrewSuggestions.value = withContext(Dispatchers.Default) {
+                if (toLatin) HebrewSpelling.suggestLatin(songs) else HebrewSpelling.suggest(songs)
+            }
         }
     }
 
@@ -1795,12 +1805,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     val edit = edits[id] ?: TagEdit()
                     when (s.field) {
                         HebrewSpelling.Field.ARTIST -> {
-                            existing[id] = row.copy(artistName = s.hebrew)
-                            edits[id] = edit.copy(artist = s.hebrew)
+                            existing[id] = row.copy(artistName = s.proposed)
+                            edits[id] = edit.copy(artist = s.proposed)
                         }
                         HebrewSpelling.Field.TITLE -> {
-                            existing[id] = row.copy(title = s.hebrew)
-                            edits[id] = edit.copy(title = s.hebrew)
+                            existing[id] = row.copy(title = s.proposed)
+                            edits[id] = edit.copy(title = s.proposed)
                         }
                     }
                 }
@@ -1961,6 +1971,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _ratingTipVisible = MutableStateFlow(!repo.prefs.ratingTipSeen)
     val ratingTipVisible: StateFlow<Boolean> = _ratingTipVisible.asStateFlow()
+
+    /** How many songs the tag fixer has a sure correction for; the home banner's count. */
+    private val _tagFixPending = MutableStateFlow(0)
+    val tagFixPending: StateFlow<Int> = _tagFixPending.asStateFlow()
+
+    private val _tagFixDismissedAt = MutableStateFlow(repo.prefs.tagFixBannerDismissedAt)
+    val tagFixDismissedAt: StateFlow<Int> = _tagFixDismissedAt.asStateFlow()
+
+    /** Counted off the main thread: proposing is a pass over the whole library. */
+    fun refreshTagFixPending() {
+        viewModelScope.launch {
+            val songs = library.value.songs
+            if (songs.isEmpty()) return@launch
+            _tagFixPending.value = withContext(Dispatchers.Default) {
+                TagFixer.propose(songs, dropForeign = prefs.tagStripForeign).count { it.changed && it.certain }
+            }
+        }
+    }
+
+    fun dismissTagFixBanner() {
+        prefs.tagFixBannerDismissedAt = _tagFixPending.value
+        _tagFixDismissedAt.value = _tagFixPending.value
+    }
 
     fun dismissTagTip() {
         prefs.tagTipSeen = true

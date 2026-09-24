@@ -120,7 +120,8 @@ fun HomeScreen(
     onOpenDetail: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenRatings: () -> Unit = {},
-    onOpenRecap: () -> Unit = {}
+    onOpenRecap: () -> Unit = {},
+    onOpenTagFix: () -> Unit = {}
 ) {
     val library by vm.library.collectAsStateWithLifecycle()
     val feed by vm.feed.collectAsStateWithLifecycle()
@@ -128,6 +129,9 @@ fun HomeScreen(
     val analysis by vm.analysisProgress.collectAsStateWithLifecycle()
 
     val tagTipVisible by vm.tagTipVisible.collectAsStateWithLifecycle()
+    val tagFixPending by vm.tagFixPending.collectAsStateWithLifecycle()
+    LaunchedEffect(library.songs) { vm.refreshTagFixPending() }
+    val tagFixDismissedAt by vm.tagFixDismissedAt.collectAsStateWithLifecycle()
     val ratingTipVisible by vm.ratingTipVisible.collectAsStateWithLifecycle()
 
     val statusPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -261,7 +265,25 @@ fun HomeScreen(
                 // One-off pointer to the tag repair tool. Shown ahead of the other
                 // nudges because a library filed under a single artist makes every
                 // one of them meaningless.
-                if (tagTipVisible && library.artists.size <= 2 && library.songs.size >= 8) {
+                val allOnOneArtist = tagTipVisible && library.artists.size <= 2 && library.songs.size >= 8
+                // Corrections waiting in the tag fixer - names jammed into the
+                // title, a site's signature, quotes around a name. Shown until
+                // closed, and back only when new ones arrive; the tool shows
+                // every change before anything is applied.
+                if (!allOnOneArtist && tagFixPending > 0 && tagFixPending > tagFixDismissedAt) {
+                    item {
+                        Banner(
+                            icon = Icons.Filled.Sell,
+                            title = "$tagFixPending שירים עם תגיות שאפשר לתקן",
+                            body = "שם האמן בתוך שם השיר, שם של אתר הורדות ועוד. " +
+                                "כל שינוי מוצג לפני שמחילים אותו",
+                            action = "לתיקון",
+                            onClick = onOpenTagFix,
+                            onDismiss = { vm.dismissTagFixBanner() }
+                        )
+                    }
+                }
+                if (allOnOneArtist) {
                     item {
                         Banner(
                             icon = Icons.Filled.Sell,

@@ -242,6 +242,14 @@ class Prefs(private val store: Store) {
         get() = flag("tagTipSeen", false)
         set(value) = set("tagTipSeen", value)
 
+    /**
+     * How many tag corrections were waiting when the home banner about them
+     * was closed; it comes back only when there are more - the phone's rule.
+     */
+    var tagFixBannerDismissedAt: Int
+        get() = number("tagFixBannerDismissedAt", 0)
+        set(value) = store.put("tagFixBannerDismissedAt", value.toString())
+
     /** Whether the thirty one band equaliser is doing anything. */
     var eqEnabled: Boolean
         get() = flag("eqEnabled", false)

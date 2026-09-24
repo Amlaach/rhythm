@@ -117,6 +117,10 @@ internal fun HomeScreen(
     onStopAnalysis: () -> Unit,
     onDismissTagTip: () -> Unit,
     onDismissRatingTip: () -> Unit,
+    /** Songs the tag fixer has a sure correction for, when the banner about them is to show; 0 hides it. */
+    tagFixPending: Int = 0,
+    onOpenTagFix: () -> Unit = {},
+    onDismissTagFix: () -> Unit = {},
     onPlay: (List<SongEntity>, Int) -> Unit,
     onOpenList: (DetailList) -> Unit,
     onMore: (SongEntity) -> Unit
@@ -203,6 +207,21 @@ internal fun HomeScreen(
             // A one off pointer to the tag repair tool, ahead of the rest
             // because a library filed under a single artist makes every other
             // suggestion meaningless until that is fixed.
+            // Corrections waiting in the tag fixer, until closed - and back
+            // only when new ones arrive. The phone's banner.
+            if (!(tagTipVisible && singleArtist) && tagFixPending > 0) {
+                item {
+                    Banner(
+                        icon = Icons.Filled.Sell,
+                        title = "$tagFixPending שירים עם תגיות שאפשר לתקן",
+                        body = "שם האמן בתוך שם השיר, שם של אתר הורדות ועוד. " +
+                            "כל שינוי מוצג לפני שמחילים אותו",
+                        action = "לתיקון",
+                        onClick = onOpenTagFix,
+                        onDismiss = onDismissTagFix
+                    )
+                }
+            }
             if (tagTipVisible && singleArtist) {
                 item {
                     Banner(

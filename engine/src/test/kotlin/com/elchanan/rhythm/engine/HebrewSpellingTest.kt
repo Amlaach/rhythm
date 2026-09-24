@@ -34,27 +34,27 @@ class HebrewSpellingTest {
 
     private val suggestions = HebrewSpelling.suggest(library)
     private fun title(id: Long) = suggestions.firstOrNull { it.field == HebrewSpelling.Field.TITLE && id in it.songIds }
-    private fun artist(latin: String) = suggestions.firstOrNull { it.field == HebrewSpelling.Field.ARTIST && it.latin == latin }
+    private fun artist(latin: String) = suggestions.firstOrNull { it.field == HebrewSpelling.Field.ARTIST && it.original == latin }
 
     @Test fun theArtistIsSpelledAsTheLibraryAlreadySpellsIt() {
         val s = artist("Naftali Kempeh")!!
-        assertEquals("נפתלי קמפה", s.hebrew)
+        assertEquals("נפתלי קמפה", s.proposed)
         assertTrue(s.fromLibrary)
         assertEquals(listOf(1L, 2L, 3L, 4L, 5L), s.songIds)
     }
 
     @Test fun songNamesAreSpelledWordByWord() {
-        assertEquals("בך בטחו", title(1)!!.hebrew)
-        assertEquals("כמלאך", title(2)!!.hebrew)
-        assertEquals("כי בנו", title(3)!!.hebrew)
-        assertEquals("קרבני אליך", title(4)!!.hebrew)
-        assertEquals("מנגינה של בית מדרש", title(5)!!.hebrew)
+        assertEquals("בך בטחו", title(1)!!.proposed)
+        assertEquals("כמלאך", title(2)!!.proposed)
+        assertEquals("כי בנו", title(3)!!.proposed)
+        assertEquals("קרבני אליך", title(4)!!.proposed)
+        assertEquals("מנגינה של בית מדרש", title(5)!!.proposed)
         assertFalse(title(5)!!.fromLibrary)
     }
 
     @Test fun aSongAlsoInTheLibraryInHebrewTakesThatSpelling() {
         val s = title(8)!!
-        assertEquals("תוכו רצוף אהבה", s.hebrew)
+        assertEquals("תוכו רצוף אהבה", s.proposed)
         assertTrue(s.fromLibrary)
     }
 
@@ -65,12 +65,37 @@ class HebrewSpellingTest {
     }
 
     @Test fun whatIsInBracketsIsKept() {
-        assertEquals("אדון עולם (Live)", title(11)!!.hebrew)
+        assertEquals("אדון עולם (Live)", title(11)!!.proposed)
     }
 
     @Test fun aWordNotRecognisedMeansNoOffer() {
         assertNull(HebrewSpelling.spellPhrase("Shalom Xyzzy"))
         assertEquals("שלום עליכם", HebrewSpelling.spellPhrase("Shalom Aleichem"))
         assertEquals("בשמחה", HebrewSpelling.spellPhrase("B'simcha"))
+    }
+
+    // The other way, for those who read the app in English.
+
+    private val latinSuggestions = HebrewSpelling.suggestLatin(library + listOf(
+        song(20, "מנגינה של בית מדרש", "נפתלי קמפה"),
+        song(21, "אדון עולם", "מישהו"),
+        song(22, "שיר עם מילה זרגולית", "מישהו")
+    ))
+
+    @Test fun hebrewArtistsTakeTheLibrarysLatinSpelling() {
+        val s = latinSuggestions.first { it.field == HebrewSpelling.Field.ARTIST && it.original == "נפתלי קמפה" }
+        assertEquals("Naftali Kempeh", s.proposed)
+        assertTrue(s.fromLibrary)
+    }
+
+    @Test fun hebrewTitlesAreSpelledInLatinWordByWord() {
+        val titles = latinSuggestions.filter { it.field == HebrewSpelling.Field.TITLE }.associateBy { it.songIds.single() }
+        assertEquals("Mangina Shel Beis Medrash", titles.getValue(20).proposed)
+        assertEquals("Adon Olam", titles.getValue(21).proposed)
+        // a word it does not know: nothing offered
+        assertNull(titles[22L])
+        // a Hebrew title whose Latin copy is in the library takes that spelling
+        assertEquals("Tocho Ratzuf Ahava", titles.getValue(7).proposed)
+        assertEquals("B'simcha", HebrewSpelling.romanizePhrase("בשמחה"))
     }
 }

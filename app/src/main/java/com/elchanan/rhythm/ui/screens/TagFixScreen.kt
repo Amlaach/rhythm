@@ -299,9 +299,9 @@ internal fun HebrewNamesDoor(gutter: androidx.compose.ui.unit.Dp, onOpen: () -> 
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text("שמות בעברית", style = MaterialTheme.typography.titleSmall)
+            Text("איות שמות", style = MaterialTheme.typography.titleSmall)
             Text(
-                "הצעות לאיות בעברית לאמנים ושירים שכתובים באותיות אנגליות",
+                "הצעות לאיות שמות של אמנים ושירים בעברית או באנגלית",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary
             )

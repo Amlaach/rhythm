@@ -449,9 +449,9 @@ internal fun TagFixScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("שמות בעברית", style = MaterialTheme.typography.titleSmall)
+                    Text("איות שמות", style = MaterialTheme.typography.titleSmall)
                     Text(
-                        "הצעות לאיות בעברית לאמנים ושירים שכתובים באותיות אנגליות",
+                        "הצעות לאיות שמות של אמנים ושירים בעברית או באנגלית",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
@@ -890,22 +890,35 @@ internal fun LyricsScreen(
 @Composable
 internal fun HebrewNamesScreen(
     suggestions: List<HebrewSpelling.Suggestion>?,
+    toLatin: Boolean,
+    onDirection: (Boolean) -> Unit,
     artistOf: (Long) -> String,
     onApply: (List<HebrewSpelling.Suggestion>) -> Unit,
     onBack: () -> Unit
 ) {
     val chosen = remember { mutableStateMapOf<String, String>() }
     var editing by remember { mutableStateOf<HebrewSpelling.Suggestion?>(null) }
-    fun keyOf(s: HebrewSpelling.Suggestion) = "${s.field}:${s.latin}:${s.songIds.first()}"
+    fun keyOf(s: HebrewSpelling.Suggestion) = "${s.field}:${s.original}:${s.songIds.first()}"
     val all = suggestions.orEmpty()
 
     Column(modifier = Modifier.fillMaxSize().background(AppBackground)) {
-        DetailTopBar(title = "שמות בעברית", onBack = onBack)
+        DetailTopBar(title = "איות שמות", onBack = onBack)
         Column(modifier = Modifier.padding(horizontal = GUTTER)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Chip(label = "לעברית", selected = !toLatin, onClick = { chosen.clear(); onDirection(false) })
+                Chip(label = "לאנגלית", selected = toLatin, onClick = { chosen.clear(); onDirection(true) })
+            }
+            Spacer(Modifier.height(8.dp))
             Text(
-                "שמות של אמנים ושירים שכתובים באותיות אנגליות, ואיך הם נכתבים בעברית. " +
-                    "זו הצעה בלבד: יש שירים ששמם האמיתי באנגלית, אז שום דבר לא מסומן מראש. " +
-                    "לחיצה על הצעה מאפשרת לתקן את האיות.",
+                if (toLatin) {
+                    "שמות של אמנים ושירים שכתובים בעברית, ואיך הם נכתבים באותיות אנגליות. " +
+                        "זו הצעה בלבד, אז שום דבר לא מסומן מראש. " +
+                        "לחיצה על הצעה מאפשרת לתקן את האיות."
+                } else {
+                    "שמות של אמנים ושירים שכתובים באותיות אנגליות, ואיך הם נכתבים בעברית. " +
+                        "זו הצעה בלבד: יש שירים ששמם האמיתי באנגלית, אז שום דבר לא מסומן מראש. " +
+                        "לחיצה על הצעה מאפשרת לתקן את האיות."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
             )
@@ -913,7 +926,7 @@ internal fun HebrewNamesScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(
                     onClick = {
-                        onApply(all.mapNotNull { s -> chosen[keyOf(s)]?.let { s.copy(hebrew = it) } })
+                        onApply(all.mapNotNull { s -> chosen[keyOf(s)]?.let { s.copy(proposed = it) } })
                         chosen.clear()
                     },
                     enabled = chosen.isNotEmpty(),
@@ -923,7 +936,7 @@ internal fun HebrewNamesScreen(
                 if (all.isNotEmpty()) {
                     TextButton(onClick = {
                         if (chosen.size == all.size) chosen.clear()
-                        else all.forEach { chosen[keyOf(it)] = chosen[keyOf(it)] ?: it.hebrew }
+                        else all.forEach { chosen[keyOf(it)] = chosen[keyOf(it)] ?: it.proposed }
                     }) { Text(if (chosen.size == all.size) "בטל הכל" else "בחר הכל", color = TextSecondary) }
                 }
             }
@@ -934,7 +947,8 @@ internal fun HebrewNamesScreen(
             } else if (all.isEmpty()) {
                 item {
                     Text(
-                        "אין כרגע שמות באנגלית שנמצא להם איות בעברית.",
+                        if (toLatin) "אין כרגע שמות בעברית שנמצא להם איות באנגלית."
+                        else "אין כרגע שמות באנגלית שנמצא להם איות בעברית.",
                         color = TextSecondary,
                         modifier = Modifier.padding(GUTTER)
                     )
@@ -963,8 +977,8 @@ internal fun HebrewNamesScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(ticked ?: s.hebrew, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(s.latin, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(ticked ?: s.proposed, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(s.original, style = MaterialTheme.typography.bodySmall, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val detail = if (field == HebrewSpelling.Field.ARTIST) "${s.songIds.size} שירים" else artistOf(s.songIds.first())
                             Text(
                                 detail + if (s.fromLibrary) " · כך כתוב בספרייה" else "",
@@ -974,7 +988,7 @@ internal fun HebrewNamesScreen(
                             )
                         }
                         IconButton(onClick = {
-                            if (ticked != null) chosen.remove(keyOf(s)) else chosen[keyOf(s)] = s.hebrew
+                            if (ticked != null) chosen.remove(keyOf(s)) else chosen[keyOf(s)] = s.proposed
                         }) {
                             Icon(
                                 if (ticked != null) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
@@ -989,14 +1003,14 @@ internal fun HebrewNamesScreen(
     }
 
     editing?.let { s ->
-        var text by remember(s) { mutableStateOf(chosen[keyOf(s)] ?: s.hebrew) }
+        var text by remember(s) { mutableStateOf(chosen[keyOf(s)] ?: s.proposed) }
         AlertDialog(
             onDismissRequest = { editing = null },
             containerColor = Surface1,
-            title = { Text(s.latin) },
+            title = { Text(s.original) },
             text = {
                 DialogBody {
-                    OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true, label = { Text("האיות בעברית") })
+                    OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true, label = { Text(if (toLatin) "האיות באנגלית" else "האיות בעברית") })
                 }
             },
             confirmButton = {
