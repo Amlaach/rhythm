@@ -1893,6 +1893,8 @@ object UiStrings {
         "קטן" to "Small",
         "רגיל" to "Normal",
         "גדול" to "Large",
-        "גדול מאוד" to "Extra large"
+        "גדול מאוד" to "Extra large",
+        "מה מופיע בתפריט שלוש הנקודות של כל שיר, ובאיזה סדר" to "What appears in every song's three-dot menu, and in what order",
+        "סדר" to "Arrange"
     )
 }

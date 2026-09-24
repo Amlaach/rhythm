@@ -41,7 +41,20 @@ object Updater {
     private const val MANIFEST =
         "https://github.com/a0527198150-del/rhythm/releases/latest/download/update.json"
 
-    data class Release(val versionCode: Int, val versionName: String, val url: String, val sha256: String, val size: Long)
+    /**
+     * @param availableAt when the app may offer it, in epoch milliseconds.
+     *   CI sets it two days after the release is published, so the owner's
+     *   own download page gets the first two days; 0 from a release made
+     *   before there was such a thing, which means at once.
+     */
+    data class Release(
+        val versionCode: Int,
+        val versionName: String,
+        val url: String,
+        val sha256: String,
+        val size: Long,
+        val availableAt: Long = 0L
+    )
 
     /** Whatever the installer says after the confirmation, for the screen that started it. */
     val installResult = MutableStateFlow<String?>(null)
@@ -63,25 +76,58 @@ object Updater {
     }.getOrDefault(false)
 
     /**
-     * The newest release, or null when it could not be read - offline,
-     * blocked, or anything else. Null says nothing about whether one exists.
+     * The releases update.json offers - the newest and the few before it,
+     * each with the time it may be offered - or null when it could not be
+     * read: offline, blocked, or anything else. Null says nothing about
+     * whether one exists.
      */
-    suspend fun latest(context: Context): Release? = withContext(Dispatchers.IO) {
+    suspend fun latest(context: Context): List<Release>? = withContext(Dispatchers.IO) {
         if (!online(context)) return@withContext null
         runCatching {
-            val text = get(MANIFEST, limit = 64 * 1024).toString(Charsets.UTF_8)
-            val json = JSONObject(text)
-            Release(
-                versionCode = json.getInt("versionCode"),
-                versionName = json.getString("versionName"),
-                url = json.getString("url"),
-                sha256 = json.getString("sha256").lowercase(),
-                size = json.optLong("size", -1L)
-            ).takeIf { it.url.startsWith("https://") && it.sha256.length == 64 }
+            val json = JSONObject(get(MANIFEST, limit = 64 * 1024).toString(Charsets.UTF_8))
+            val all = ArrayList<Release>()
+            releaseOf(json)?.let { all.add(it) }
+            json.optJSONArray("earlier")?.let { list ->
+                for (i in 0 until list.length()) list.optJSONObject(i)?.let { releaseOf(it) }?.let { all.add(it) }
+            }
+            all.takeIf { it.isNotEmpty() }
         }.getOrNull()
     }
 
+    private fun releaseOf(json: JSONObject): Release? = runCatching {
+        Release(
+            versionCode = json.getInt("versionCode"),
+            versionName = json.getString("versionName"),
+            url = json.getString("url"),
+            sha256 = json.getString("sha256").lowercase(),
+            size = json.optLong("size", -1L),
+            availableAt = json.optLong("availableAt", 0L)
+        ).takeIf { it.url.startsWith("https://") && it.sha256.length == 64 }
+    }.getOrNull()
+
+    /**
+     * What to offer now: the newest release that is newer than this app and
+     * whose time has come. Merged again within the two days, the one before
+     * is offered meanwhile rather than nothing.
+     */
+    fun toOffer(releases: List<Release>, now: Long = System.currentTimeMillis()): Release? =
+        releases.filter { isNewer(it) && isDue(it, now) }.maxByOrNull { it.versionCode }
+
     fun isNewer(release: Release): Boolean = release.versionCode > BuildConfig.VERSION_CODE
+
+    /** Whether the time CI set for offering it has come. */
+    fun isDue(release: Release, now: Long = System.currentTimeMillis()): Boolean = now >= release.availableAt
+
+    fun encodeAll(releases: List<Release>): String =
+        org.json.JSONArray().apply { releases.forEach { put(JSONObject(encode(it))) } }.toString()
+
+    fun decodeAll(text: String): List<Release> = runCatching {
+        if (text.isBlank()) return emptyList()
+        // One object, as the first version of this stored it, or a list.
+        if (text.trimStart().startsWith("{")) return listOfNotNull(decode(text))
+        val list = org.json.JSONArray(text)
+        (0 until list.length()).mapNotNull { decode(list.getJSONObject(it).toString()) }
+    }.getOrDefault(emptyList())
 
     fun encode(release: Release): String = JSONObject()
         .put("versionCode", release.versionCode)
@@ -89,12 +135,13 @@ object Updater {
         .put("url", release.url)
         .put("sha256", release.sha256)
         .put("size", release.size)
+        .put("availableAt", release.availableAt)
         .toString()
 
     fun decode(text: String): Release? = runCatching {
         val json = JSONObject(text)
         Release(json.getInt("versionCode"), json.getString("versionName"), json.getString("url"),
-            json.getString("sha256"), json.optLong("size", -1L))
+            json.getString("sha256"), json.optLong("size", -1L), json.optLong("availableAt", 0L))
     }.getOrNull()
 
     /**

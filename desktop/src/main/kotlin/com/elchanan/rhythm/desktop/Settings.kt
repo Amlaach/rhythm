@@ -151,6 +151,7 @@ internal fun SettingsScreen(
     var skipRecordings by remember { mutableStateOf(prefs.skipRecordings) }
     var titlesFromFiles by remember { mutableStateOf(prefs.titlesFromFiles) }
     var hiddenOpen by remember { mutableStateOf(false) }
+    var songMenuOpen by remember { mutableStateOf(false) }
     var pinMoodRow by remember { mutableStateOf(prefs.pinMoodRow) }
     var firstTab by remember { mutableStateOf(prefs.libraryFirstTab) }
     var minDuration by remember { mutableStateOf(prefs.minDurationSec.toFloat()) }
@@ -287,6 +288,13 @@ internal fun SettingsScreen(
                     pinMoodRow = it
                     prefs.pinMoodRow = it
                 }
+                ActionRow(
+                    title = "סידור תפריט השיר",
+                    subtitle = "מה מופיע בתפריט שלוש הנקודות של כל שיר, ובאיזה סדר",
+                    action = "סדר",
+                    enabled = true,
+                    primary = false
+                ) { songMenuOpen = true }
             }
 
             // The phone's page, in its order. The phone opens with importing
@@ -659,6 +667,14 @@ internal fun SettingsScreen(
             }
 
         }
+    }
+
+    if (songMenuOpen) {
+        SongMenuArrangementDialog(
+            saved = prefs.songMenu,
+            onChange = { prefs.songMenu = it },
+            onDismiss = { songMenuOpen = false }
+        )
     }
 
     if (hiddenOpen) {

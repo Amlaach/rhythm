@@ -1817,8 +1817,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // The ones already tasted this time go to the end: coming back
             // to the tastes starts on something new, not on what was just
             // scrolled past.
-            val (fresh, tasted) = built.partition { it.id !in tastedIds }
-            _samples.value = fresh + tasted
+            _samples.value = com.elchanan.rhythm.engine.Samples.tastedLast(built, tastedIds)
         }
     }
 
@@ -1874,29 +1873,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val features = runCatching { repo.featureMap() }.getOrDefault(emptyMap())
             val e = engine ?: runCatching { repo.buildRecommender() }.getOrNull()?.also { engine = it }
             val inSeason = season != null
+            // The one rule the phone and Windows share (engine Samples).
             withContext(Dispatchers.Default) {
-                val pool = lib.songs.filter { song ->
-                    val feature = features[song.id]
-                    song.durationMs in SAMPLE_MIN_MS..SAMPLE_MAX_MS &&
-                        !isMedley(song.title) &&
-                        (stats[song.id]?.liked ?: 0) != -1 &&
-                        (inSeason || !isVocal(song, feature)) &&
-                        !Spoken.isSpoken(
-                            song, feature,
-                            feature?.tags?.let { AudioTags.pick(it, AudioTags.SPEECH_INDICES) },
-                            stats[song.id]?.spoken ?: -1
-                        )
-                }
-                val scores = pool.associate { it.id to (e?.totalScore(it) ?: 0.0) }
-                val spread = scores.values.let { v ->
-                    val mean = v.average().takeIf { !it.isNaN() } ?: 0.0
-                    kotlin.math.sqrt(v.sumOf { (it - mean) * (it - mean) } / maxOf(1, v.size))
-                }
-                val random = kotlin.random.Random(System.nanoTime())
-                val jittered = pool.associate { it.id to (scores.getValue(it.id) + random.nextDouble() * 0.5 * spread) }
-                val (unheard, heard) = pool.partition { (stats[it.id]?.playCount ?: 0) == 0 }
-                (unheard.sortedByDescending { jittered.getValue(it.id) } +
-                    heard.sortedByDescending { jittered.getValue(it.id) }).take(SAMPLE_LIMIT)
+                com.elchanan.rhythm.engine.Samples.choose(
+                    songs = lib.songs,
+                    stats = stats,
+                    features = features,
+                    inSeason = inSeason,
+                    isVocal = { song, feature -> isVocal(song, feature) },
+                    score = { e?.totalScore(it) ?: 0.0 }
+                )
             }
         }
     }
@@ -2483,8 +2469,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _update = MutableStateFlow(
         UpdateState(
-            release = com.elchanan.rhythm.update.Updater.decode(repo.prefs.knownRelease)
-                ?.takeIf { com.elchanan.rhythm.update.Updater.isNewer(it) }
+            release = com.elchanan.rhythm.update.Updater.toOffer(
+                com.elchanan.rhythm.update.Updater.decodeAll(repo.prefs.knownRelease)
+            )
         )
     )
     val update: StateFlow<UpdateState> = _update.asStateFlow()
@@ -2519,11 +2506,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             repo.prefs.lastUpdateCheck = now
             repo.prefs.updatesReachable = true
             _updatesReachable.value = true
-            val newer = found.takeIf { com.elchanan.rhythm.update.Updater.isNewer(it) }
-            repo.prefs.knownRelease = newer?.let { com.elchanan.rhythm.update.Updater.encode(it) }.orEmpty()
+            val newer = found.filter { com.elchanan.rhythm.update.Updater.isNewer(it) }
+            // Kept even before their time, so the banner appears on the first
+            // launch after the two days rather than after the next check.
+            repo.prefs.knownRelease = com.elchanan.rhythm.update.Updater.encodeAll(newer)
+            // Offered only from the time CI set: the first two days of a
+            // version are the owner's own download page's.
+            val due = com.elchanan.rhythm.update.Updater.toOffer(newer)
             _update.value = UpdateState(
-                release = newer,
-                note = if (manual && newer == null) "יש לך את הגרסה האחרונה" else null
+                release = due,
+                note = if (manual && due == null) "יש לך את הגרסה האחרונה" else null
             )
         }
     }
@@ -2866,11 +2858,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 }
 
 /** A taste is only for songs between these lengths: long files are medleys and sets. */
-private const val SAMPLE_MIN_MS = 45_000L
-private const val SAMPLE_MAX_MS = 6 * 60_000L
-
-/** Enough to scroll through for a long while; more is chosen again next time. */
-private const val SAMPLE_LIMIT = 300
 
 /** How long after the app opens the first tastes are prepared - after the opening, not during it. */
 private const val TASTES_WARM_DELAY_MS = 12_000L

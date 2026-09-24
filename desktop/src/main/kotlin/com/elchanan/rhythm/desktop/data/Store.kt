@@ -55,6 +55,9 @@ class Store private constructor(private val conn: Connection) {
          * elevation on Windows, and because reinstalling should not take
          * someone's ratings with it.
          */
+        /** The folder the library lives in, for the small files kept beside it. */
+        val folder: File get() = dataDir()
+
         fun open(): Store {
             val dir = dataDir()
             dir.mkdirs()
