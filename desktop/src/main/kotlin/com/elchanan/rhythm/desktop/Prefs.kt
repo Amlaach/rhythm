@@ -261,6 +261,23 @@ class Prefs(private val store: Store) {
         get() = flag("ratingTipSeen", false)
         set(value) = set("ratingTipSeen", value)
 
+    /** The song menu's arrangement, row key to TOP / MENU / HIDDEN (see DesktopSongMenu). */
+    var songMenu: Map<String, String>
+        get() = store.get("songMenu").orEmpty().split(';').mapNotNull { pair ->
+            val eq = pair.indexOf('=')
+            if (eq > 0) pair.substring(0, eq) to pair.substring(eq + 1) else null
+        }.toMap()
+        set(value) = store.put("songMenu", value.entries.joinToString(";") { "${it.key}=${it.value}" })
+
+    /** Tastes heard, and how many were marked "not the chorus" - the phone's counters. */
+    var hookTastes: Int
+        get() = number("hookTastes", 0)
+        set(value) = store.put("hookTastes", value.toString())
+
+    var hookMisses: Int
+        get() = number("hookMisses", 0)
+        set(value) = store.put("hookMisses", value.toString())
+
     /** Whether the tag repair pointer has been turned down. */
     var tagTipSeen: Boolean
         get() = flag("tagTipSeen", false)

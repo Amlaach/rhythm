@@ -1614,7 +1614,9 @@ internal fun SongOptionsDialog(
     artistRating: Int = 0,
     onRateArtist: (Int) -> Unit = {},
     /** "Hide from the player"; null leaves the row out. */
-    onHide: (() -> Unit)? = null
+    onHide: (() -> Unit)? = null,
+    /** The listener's arrangement of the rows (see DesktopSongMenu). */
+    menuArrangement: Map<String, String> = emptyMap()
 ) {
     var picking by remember { mutableStateOf(false) }
     var moodOpen by remember { mutableStateOf(false) }
@@ -1773,100 +1775,106 @@ internal fun SongOptionsDialog(
                 Spacer(Modifier.height(6.dp))
                 StarRow(rating = stat?.rating ?: 0, onRate = onRate, size = 26)
                 Spacer(Modifier.height(14.dp))
-                if (artistName != null) {
-                    Text(
-                        "דירוג האמן · $artistName",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = TextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    StarRow(rating = artistRating, onRate = onRateArtist, size = 26)
-                    Spacer(Modifier.height(14.dp))
-                }
-                OptionRow(Icons.AutoMirrored.Filled.PlaylistAdd, "הוספה לרשימה") { picking = true }
-                OptionRow(Icons.Filled.SkipNext, "נגן אחרי הנוכחי") {
-                    onPlayNext()
-                    onDismiss()
-                }
-                OptionRow(Icons.AutoMirrored.Filled.PlaylistAddCheck, "הוסף לסוף התור") {
-                    onAddToQueue()
-                    onDismiss()
-                }
-                OptionRow(Icons.Filled.AutoAwesome, "צור מיקס מהשיר הזה") {
-                    onMix()
-                    onDismiss()
-                }
-                OptionRow(Icons.Filled.Radio, "רדיו מהשיר הזה") {
-                    onRadio()
-                    onDismiss()
-                }
-                // The ones the phone keeps in this menu rather than on the
-                // player's header, so the header stays at three icons.
-                OptionRow(Icons.Filled.FormatQuote, "מילות השיר") {
-                    onLyrics()
-                    onDismiss()
-                }
-                OptionRow(Icons.Filled.MusicNote, "אקורדים וקאפו") { capoOpen = true }
-                OptionRow(Icons.Filled.Insights, "למה זה הומלץ לי") { whyOpen = true }
-                OptionRow(Icons.Filled.LocalOffer, "תגיות סגנון לשיר") { tagsOpen = true }
-                OptionRow(Icons.Filled.Mood, "מצב הרוח של השיר") { moodOpen = true }
-                OptionRow(Icons.Filled.Bookmark, "סימניות") {
-                    onBookmarks()
-                    onDismiss()
-                }
-                OptionRow(Icons.Filled.Person, "עבור לאמן") {
-                    onOpenArtist()
-                    onDismiss()
-                }
-                OptionRow(Icons.Filled.Album, "עבור לאלבום") {
-                    onOpenAlbum()
-                    onDismiss()
-                }
+                // What only this place offers first, as on the phone.
                 if (inPlaylist != null) {
                     OptionRow(Icons.Filled.PlaylistRemove, "הסר מהרשימה") {
                         onRemoveFromPlaylist()
                         onDismiss()
                     }
                 }
-                OptionRow(Icons.Filled.LocalOffer, "שנה ז'אנר") { genreOpen = true }
-                // The detector's verdict, and a way to disagree with it.
-                // Shown as the opposite of what it currently thinks, so the
-                // row says what pressing it will do rather than what is
-                // already true.
-                val markedSpoken = stat?.spoken == 1
-                OptionRow(
-                    if (markedSpoken) Icons.Filled.MusicNote else Icons.Filled.RecordVoiceOver,
-                    if (markedSpoken) "זה בעצם מוזיקה" else "סמן כהרצאה או שיעור"
-                ) {
-                    onSpoken(!markedSpoken)
-                    onDismiss()
-                }
-                // Vocal-only: shown as the opposite of the current verdict,
-                // like the speech row above. The phone's row.
-                OptionRow(
-                    Icons.Filled.MusicNote,
-                    if (vocalNow) "זה לא ווקאלי" else "סמן כווקאלי (לספירה ולשלושת השבועות)"
-                ) {
-                    onVocal(!vocalNow)
-                    onDismiss()
-                }
-                // Only worth offering when there is something to clear.
-                if ((stat?.playCount ?: 0) > 0) {
-                    OptionRow(Icons.Filled.RestartAlt, "אפס את מספר ההשמעות") {
-                        confirmReset = true
+                // The rest in the order the listener arranged (Home &
+                // display), which until they do is the order this menu
+                // always had.
+                for (item in DesktopSongMenu.shown(menuArrangement)) when (item) {
+                    DesktopMenuItem.ARTIST_RATING -> if (artistName != null) {
+                        Text(
+                            "דירוג האמן · $artistName",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        StarRow(rating = artistRating, onRate = onRateArtist, size = 26)
+                        Spacer(Modifier.height(14.dp))
                     }
-                }
-                // As if deleted, without deleting: back from the library settings.
-                if (onHide != null) {
-                    OptionRow(Icons.Filled.VisibilityOff, "הסתר מהנגן") {
-                        onHide()
+                    DesktopMenuItem.PLAYLISTS -> OptionRow(Icons.AutoMirrored.Filled.PlaylistAdd, "הוספה לרשימה") { picking = true }
+                    DesktopMenuItem.PLAY_NEXT -> OptionRow(Icons.Filled.SkipNext, "נגן אחרי הנוכחי") {
+                        onPlayNext()
                         onDismiss()
                     }
-                }
-                OptionRow(Icons.Filled.Delete, "מחק את הקובץ מהמחשב", tint = Color_Error) {
-                    confirmDelete = true
+                    DesktopMenuItem.ADD_TO_QUEUE -> OptionRow(Icons.AutoMirrored.Filled.PlaylistAddCheck, "הוסף לסוף התור") {
+                        onAddToQueue()
+                        onDismiss()
+                    }
+                    DesktopMenuItem.MIX -> OptionRow(Icons.Filled.AutoAwesome, "צור מיקס מהשיר הזה") {
+                        onMix()
+                        onDismiss()
+                    }
+                    DesktopMenuItem.RADIO -> OptionRow(Icons.Filled.Radio, "רדיו מהשיר הזה") {
+                        onRadio()
+                        onDismiss()
+                    }
+                    DesktopMenuItem.LYRICS -> OptionRow(Icons.Filled.FormatQuote, "מילות השיר") {
+                        onLyrics()
+                        onDismiss()
+                    }
+                    DesktopMenuItem.CAPO -> OptionRow(Icons.Filled.MusicNote, "אקורדים וקאפו") { capoOpen = true }
+                    DesktopMenuItem.WHY -> OptionRow(Icons.Filled.Insights, "למה זה הומלץ לי") { whyOpen = true }
+                    DesktopMenuItem.TAGS -> OptionRow(Icons.Filled.LocalOffer, "תגיות סגנון לשיר") { tagsOpen = true }
+                    DesktopMenuItem.MOOD -> OptionRow(Icons.Filled.Mood, "מצב הרוח של השיר") { moodOpen = true }
+                    DesktopMenuItem.BOOKMARKS -> OptionRow(Icons.Filled.Bookmark, "סימניות") {
+                        onBookmarks()
+                        onDismiss()
+                    }
+                    DesktopMenuItem.ARTIST -> OptionRow(Icons.Filled.Person, "עבור לאמן") {
+                        onOpenArtist()
+                        onDismiss()
+                    }
+                    DesktopMenuItem.ALBUM -> OptionRow(Icons.Filled.Album, "עבור לאלבום") {
+                        onOpenAlbum()
+                        onDismiss()
+                    }
+                    DesktopMenuItem.GENRE -> OptionRow(Icons.Filled.LocalOffer, "שנה ז'אנר") { genreOpen = true }
+                    // The detector's verdict, and a way to disagree with it.
+                    // Shown as the opposite of what it currently thinks, so the
+                    // row says what pressing it will do rather than what is
+                    // already true.
+                    DesktopMenuItem.SPOKEN -> {
+                        val markedSpoken = stat?.spoken == 1
+                        OptionRow(
+                            if (markedSpoken) Icons.Filled.MusicNote else Icons.Filled.RecordVoiceOver,
+                            if (markedSpoken) "זה בעצם מוזיקה" else "סמן כהרצאה או שיעור"
+                        ) {
+                            onSpoken(!markedSpoken)
+                            onDismiss()
+                        }
+                    }
+                    // Vocal-only: shown as the opposite of the current verdict,
+                    // like the speech row. The phone's row.
+                    DesktopMenuItem.VOCAL -> OptionRow(
+                        Icons.Filled.MusicNote,
+                        if (vocalNow) "זה לא ווקאלי" else "סמן כווקאלי (לספירה ולשלושת השבועות)"
+                    ) {
+                        onVocal(!vocalNow)
+                        onDismiss()
+                    }
+                    // Only worth offering when there is something to clear.
+                    DesktopMenuItem.RESET -> if ((stat?.playCount ?: 0) > 0) {
+                        OptionRow(Icons.Filled.RestartAlt, "אפס את מספר ההשמעות") {
+                            confirmReset = true
+                        }
+                    }
+                    // As if deleted, without deleting: back from the library settings.
+                    DesktopMenuItem.HIDE -> if (onHide != null) {
+                        OptionRow(Icons.Filled.VisibilityOff, "הסתר מהנגן") {
+                            onHide()
+                            onDismiss()
+                        }
+                    }
+                    DesktopMenuItem.DELETE -> OptionRow(Icons.Filled.Delete, "מחק את הקובץ מהמחשב", tint = Color_Error) {
+                        confirmDelete = true
+                    }
                 }
             }
         },
@@ -3003,4 +3011,90 @@ private fun FolderList(
             }
         }
     }
+}
+
+/**
+ * The rows of the song menu the listener can arrange, in the menu's own
+ * order: the phone's song-menu arrangement, with Windows' own rows. The keys
+ * are the phone's where the row is the same row.
+ */
+internal enum class DesktopMenuItem(val key: String, val label: String) {
+    ARTIST_RATING("artist_rating", "דירוג האמן"),
+    PLAYLISTS("playlists", "הוספה לרשימה"),
+    PLAY_NEXT("next", "נגן אחרי הנוכחי"),
+    ADD_TO_QUEUE("queue", "הוסף לסוף התור"),
+    MIX("mix", "צור מיקס מהשיר הזה"),
+    RADIO("radio", "רדיו מהשיר הזה"),
+    LYRICS("lyrics", "מילות השיר"),
+    CAPO("capo", "אקורדים וקאפו"),
+    WHY("why", "למה זה הומלץ לי"),
+    TAGS("tags", "תגיות סגנון לשיר"),
+    MOOD("mood", "מצב הרוח של השיר"),
+    BOOKMARKS("bookmarks", "סימניות"),
+    ARTIST("artist", "עבור לאמן"),
+    ALBUM("album", "עבור לאלבום"),
+    GENRE("genre", "שנה ז'אנר"),
+    SPOKEN("spoken", "הרצאה או מוזיקה"),
+    VOCAL("vocal", "ווקאלי"),
+    RESET("reset", "אפס את מספר ההשמעות"),
+    HIDE("hide", "הסתר מהנגן"),
+    DELETE("delete", "מחק את הקובץ מהמחשב")
+}
+
+/** Where a row sits: at the head of the menu, in its usual place, or not at all. The phone's three. */
+internal enum class DesktopMenuPlacement(val label: String) {
+    TOP("למעלה"),
+    MENU("במקום הרגיל"),
+    HIDDEN("מוסתר")
+}
+
+internal object DesktopSongMenu {
+    fun placementOf(saved: Map<String, String>, item: DesktopMenuItem): DesktopMenuPlacement =
+        DesktopMenuPlacement.entries.firstOrNull { it.name == saved[item.key] } ?: DesktopMenuPlacement.MENU
+
+    /** The rows to draw: those moved up first, then the rest, each in the menu's own order. */
+    fun shown(saved: Map<String, String>): List<DesktopMenuItem> {
+        val top = DesktopMenuItem.entries.filter { placementOf(saved, it) == DesktopMenuPlacement.TOP }
+        val rest = DesktopMenuItem.entries.filter { placementOf(saved, it) == DesktopMenuPlacement.MENU }
+        return top + rest
+    }
+}
+
+/** The arrangement, as the phone's sheet: each row up top, where it is, or hidden. Written straight through. */
+@Composable
+internal fun SongMenuArrangementDialog(saved: Map<String, String>, onChange: (Map<String, String>) -> Unit, onDismiss: () -> Unit) {
+    var current by remember { mutableStateOf(saved) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Surface1,
+        title = { Text("סידור תפריט השיר") },
+        text = {
+            DialogBody {
+                Column {
+                    Text(
+                        "מה מופיע בתפריט שלוש הנקודות של כל שיר, ובאיזה סדר: למעלה, במקום הרגיל, או מוסתר לגמרי.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    for (item in DesktopMenuItem.entries) {
+                        val placement = DesktopSongMenu.placementOf(current, item)
+                        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                            Text(item.label, style = MaterialTheme.typography.bodyLarge)
+                            Spacer(Modifier.height(6.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                for (option in DesktopMenuPlacement.entries) {
+                                    Chip(label = option.label, selected = placement == option, onClick = {
+                                        current = current + (item.key to option.name)
+                                        onChange(current)
+                                    })
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("סגור", color = Accent) } }
+    )
 }

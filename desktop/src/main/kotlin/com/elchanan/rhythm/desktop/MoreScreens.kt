@@ -356,7 +356,9 @@ internal fun TagFixScreen(
     onApply: (List<TagFixer.Proposal>, Boolean) -> Unit,
     onEdit: (Long, String, String) -> Unit,
     onBack: () -> Unit,
-    onOpenHebrewNames: () -> Unit = {}
+    onOpenHebrewNames: () -> Unit = {},
+    /** Where each song's file is, for "from the file name" in the hand edit. */
+    pathOf: (Long) -> String? = { null }
 ) {
     var filter by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<TagFixer.Proposal?>(null) }
@@ -520,6 +522,15 @@ internal fun TagFixScreen(
                             singleLine = true,
                             label = { Text("שם השיר") }
                         )
+                        // The name the file was saved under - usually the
+                        // right one when the tags came wrong with a download.
+                        // The phone's tag editor offers the same.
+                        val fromFile = pathOf(proposal.songId)?.let { com.elchanan.rhythm.data.FileTitles.of(it) }
+                        if (fromFile != null && fromFile != title.trim()) {
+                            TextButton(onClick = { title = fromFile }) {
+                                Text("משם הקובץ: $fromFile", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
                         Spacer(Modifier.height(10.dp))
                         OutlinedTextField(
                             value = artist,

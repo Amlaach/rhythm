@@ -1,5 +1,8 @@
 package com.elchanan.rhythm.desktop
 
+import androidx.compose.material.icons.filled.AutoAwesome
+import com.elchanan.rhythm.desktop.audio.Hooks
+import com.elchanan.rhythm.engine.Samples
 import androidx.compose.material.icons.filled.VisibilityOff
 import com.elchanan.rhythm.data.FileTitles
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -328,6 +331,13 @@ private fun RhythmApp() {
     // only ever changes from this screen.
     var tagTipVisible by remember { mutableStateOf(!prefs.tagTipSeen) }
     var searchHintVisible by remember { mutableStateOf(!prefs.searchHintSeen) }
+    // The tastes: chosen once per library, songs already tasted moved to the
+    // end, and how often the chorus was found - the phone's.
+    var tastes by remember { mutableStateOf<List<SongEntity>?>(null) }
+    var tastesFor by remember { mutableStateOf(0) }
+    val tasted = remember { HashSet<Long>() }
+    var hookAccuracy by remember { mutableStateOf(prefs.hookTastes to prefs.hookMisses) }
+    var tastesWarmed by remember { mutableStateOf(false) }
     var ratingTipVisible by remember { mutableStateOf(!prefs.ratingTipSeen) }
     var tagFixDismissedAt by remember { mutableStateOf(prefs.tagFixBannerDismissedAt) }
     var welcomeDone by remember { mutableStateOf(prefs.welcomeSeen) }
@@ -453,6 +463,7 @@ private fun RhythmApp() {
     // The library is on disk from the last run, so it is on screen before
     // anything is scanned.
     LaunchedEffect(Unit) {
+        Hooks.init(Store.folder)
         reload()
         volume = prefs.volume / 100f
         player.setVolume(volume)
@@ -1686,6 +1697,45 @@ private fun RhythmApp() {
 
     fun deleteSong(song: SongEntity) = deleteSongs(listOf(song))
 
+    /** The tastes, chosen by the rule the phone uses (engine Samples). */
+    fun chooseTastes(): List<SongEntity> {
+        val now = System.currentTimeMillis()
+        val styles = artists.associate { it.artistKey to it.styles }
+        return Samples.choose(
+            songs = songs,
+            stats = stats,
+            features = features,
+            inSeason = JewishSeasons.at(now) != null,
+            isVocal = { song, feature -> Vocal.isVocal(song, stats[song.id], feature, styles[song.artistKey].orEmpty()) },
+            score = { engine?.totalScore(it) ?: 0.0 }
+        )
+    }
+
+    fun openTastes() {
+        val signature = songs.fold(songs.size) { acc, s -> acc * 31 + s.id.toInt() }
+        val known = tastes
+        if (known != null && signature == tastesFor) {
+            tastes = Samples.tastedLast(known, tasted)
+            return
+        }
+        tastes = null
+        scope.launch {
+            val chosen = withContext(Dispatchers.Default) { chooseTastes() }
+            tastesFor = signature
+            tastes = Samples.tastedLast(chosen, tasted)
+        }
+    }
+
+    // A few moments after the library is up, the first tastes' choruses are
+    // found on a low-priority thread, so the tab opens on a chorus. Once a run.
+    LaunchedEffect(songs.isNotEmpty()) {
+        if (songs.isEmpty() || tastesWarmed) return@LaunchedEffect
+        tastesWarmed = true
+        delay(12_000)
+        val first = withContext(Dispatchers.Default) { chooseTastes() }
+        Hooks.prefetch(first.take(TASTES_AHEAD))
+    }
+
     /**
      * "Hide from the player", as on the phone: gone from every list, search
      * and shelf and from the queue, the file untouched, and back from the
@@ -1901,6 +1951,7 @@ private fun RhythmApp() {
             inPlaylist = (stack.lastOrNull() as? Route.Detail)?.list?.playlistId,
             onDismiss = { options = null },
             onRate = { rate(song, it) },
+            menuArrangement = remember(song.id) { prefs.songMenu },
             artistName = library.artists.firstOrNull { it.key == song.artistKey }
                 ?.takeIf { !optionsFromPlayer || placement(PlayerAction.ARTIST_RATING) != ActionPlacement.HIDDEN }
                 ?.displayName,
@@ -2341,6 +2392,7 @@ private fun RhythmApp() {
                 )
 
                 Route.Tags -> TagFixScreen(
+                    pathOf = { id -> songs.firstOrNull { it.id == id }?.path },
                     proposals = proposals,
                     stripForeign = prefs.tagStripForeign,
                     writeToFiles = prefs.writeTagsToFiles,
@@ -2530,6 +2582,44 @@ private fun RhythmApp() {
                         onOpenList = { stack = stack + Route.Detail(it) },
                         onBack = { go(0) }
                     )
+                    4 -> TastesPane(
+                        songs = tastes,
+                        likedOf = { id -> stats[id]?.liked ?: 0 },
+                        volume = volume,
+                        accuracy = hookAccuracy,
+                        mainPlaying = { player.state.value.playing },
+                        onPauseMain = { player.pause() },
+                        onResumeMain = { player.resume() },
+                        onLike = { like(it) },
+                        onDislike = { dislike(it) },
+                        onQueue = { song ->
+                            if (queueIndex < 0) {
+                                status = "נוסף לתור"
+                                queue = listOf(song)
+                                queueIndex = 0
+                                play(queue, 0)
+                                player.pause()
+                            } else {
+                                queue = queue + song
+                                status = "נוסף לתור"
+                            }
+                        },
+                        // The whole song, from the top, in the app's player -
+                        // on the home screen with the player bar under it.
+                        onPlayWhole = { song ->
+                            play(listOf(song), 0)
+                            go(0)
+                        },
+                        onTasted = { tasted.add(it.id) },
+                        onHeard = {
+                            prefs.hookTastes = prefs.hookTastes + 1
+                            hookAccuracy = prefs.hookTastes to prefs.hookMisses
+                        },
+                        onNotTheChorus = {
+                            prefs.hookMisses = prefs.hookMisses + 1
+                            hookAccuracy = prefs.hookTastes to prefs.hookMisses
+                        }
+                    )
                     2 -> LibraryPane(
                         library = library,
                         stats = stats,
@@ -2663,7 +2753,9 @@ private fun RhythmApp() {
         }
         }
 
-        MiniPlayer(
+        // The tastes play in a player of their own; the bar would only sit
+        // paused under them.
+        if (!(tab == 4 && stack.isEmpty())) MiniPlayer(
             song = current,
             positionMs = state.positionMs,
             durationMs = state.durationMs,
@@ -2701,6 +2793,8 @@ private fun RhythmApp() {
         // bar away from the four that are the app.
         NavigationBar(containerColor = Color.Transparent) {
             NavTab(tab, 0, "בית", Icons.Filled.Home) { go(0) }
+            // Tastes where search was, as on the phone.
+            NavTab(tab, 4, "טעימות", Icons.Filled.AutoAwesome) { go(4); openTastes() }
             // Search is the magnifier at the top of the home screen now; it
             // keeps its index, so the panes below need no renumbering.
             NavTab(tab, 2, "ספרייה", Icons.Filled.LibraryMusic) { go(2) }
