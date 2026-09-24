@@ -127,6 +127,9 @@ internal fun Art(
             //
             // Only when fitting. A cropped cover already reaches every edge.
             if (fit) {
+                // Neutral ground under the dimmed backdrop, so the artist's
+                // tint does not show through as a purple or pink frame.
+                Box(modifier = Modifier.fillMaxSize().background(Bg))
                 Image(
                     bitmap = image,
                     contentDescription = null,

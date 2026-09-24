@@ -5,42 +5,42 @@ import androidx.compose.ui.graphics.Color
 
 /**
  * Not quite black. A flat near-black ground makes every surface above it read
- * as a hole rather than a layer. A few points of blue and violet keep the
- * screen feeling lit without ever becoming a colour of its own.
+ * as a hole rather than a layer. Neutral graphite, with no hue of its own: the
+ * colour on a screen belongs to the covers and the accent, not to the ground.
  */
-val Bg = Color(0xFF0A0910)
+val Bg = Color(0xFF0B0B0E)
 val BgElevated = Color(0xFF101014)
 
 /**
- * The app's ground, with a warm wash under the status bar.
+ * The app's ground, a little lighter under the status bar.
  *
  * Used instead of a flat fill on every full screen surface. A single colour
  * behind everything reads as an absence - the eye has nothing to place the
- * content against - and the small amount of violet at the top gives each screen
- * a top edge without ever competing with artwork or text.
+ * content against - and a slightly lighter graphite at the top gives each screen
+ * a top edge without ever competing with artwork or text. It used to be violet;
+ * the owner found it read as a purple glow, and pure black was not wanted either.
  *
  * It has to be applied by the screens themselves: anything painted over it,
  * including a Scaffold's own container colour, hides it completely.
  */
 val AppBackground: Brush = Brush.verticalGradient(
     colorStops = arrayOf(
-        0.00f to Color(0xFF16121F),
-        0.12f to Color(0xFF110E19),
-        0.30f to Color(0xFF0C0A13),
-        0.55f to Color(0xFF0A0910)
+        0.00f to Color(0xFF17171B),
+        0.12f to Color(0xFF131316),
+        0.30f to Color(0xFF0E0E11),
+        0.55f to Color(0xFF0B0B0E)
     )
 )
 /**
- * The wash across the top of the home screen: violet on one side running into a
- * warm amber, then out into the page.
+ * The wash across the top of the home screen: soft graphite light fading out
+ * into the page.
  *
- * Kept well below full strength. At full saturation a band like this takes the
- * whole screen over and every cover underneath it starts looking tinted; at
- * this weight it reads as light falling on the top of the page, which is the
- * effect worth having.
+ * No hue. It was violet, and a coloured band like this reads as a glow that
+ * tints every cover under it; grey light only says where the top of the page
+ * is, the way a lit surface would, and leaves the colour to the artwork.
  */
-val HeaderWarm = Color(0xFF3A2150)
-val HeaderMid = Color(0xFF2A1B30)
+val HeaderWarm = Color(0xFF26262C)
+val HeaderMid = Color(0xFF18181D)
 
 val Surface1 = Color(0xFF17171D)
 val Surface2 = Color(0xFF23232B)
