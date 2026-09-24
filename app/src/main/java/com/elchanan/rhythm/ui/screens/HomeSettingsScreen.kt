@@ -57,6 +57,7 @@ import com.elchanan.rhythm.ui.theme.TextSecondary
  * of its own rather than one more row to scroll past. The shelves themselves
  * are a tap further in, in [ShelfSheet].
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     val gutter = rememberMetrics().gutter
@@ -127,6 +128,30 @@ fun HomeSettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
             compact = it
             vm.prefs.compactMode = it
             Display.compact = it
+        }
+
+        // The text alone, where "small screen" above sizes everything. For
+        // the words bigger than the phone has them without bigger
+        // everything else, and without changing every other app.
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp)) {
+            Text("גודל הטקסט", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "רק הכתב באפליקציה גדל או קטן. שאר התצוגה ושאר האפליקציות בטלפון לא משתנים",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary
+            )
+            Spacer(Modifier.height(8.dp))
+            androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                for ((scale, name) in Display.TEXT_SCALES) {
+                    Chip(label = name, selected = Display.textScale == scale, onClick = {
+                        vm.prefs.textScale = scale
+                        Display.textScale = scale
+                    })
+                }
+            }
         }
 
         Row(

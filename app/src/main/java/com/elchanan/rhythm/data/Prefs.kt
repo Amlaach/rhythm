@@ -321,6 +321,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_COMPACT, false)
         set(value) = sp.edit { putBoolean(KEY_COMPACT, value) }
 
+    /** The app's own text size, 1 = the phone's (see Display.textScale). */
+    var textScale: Float
+        get() = sp.getFloat("text_scale", 1f).coerceIn(0.8f, 1.4f)
+        set(value) = sp.edit { putFloat("text_scale", value.coerceIn(0.8f, 1.4f)) }
+
     /** From how many minutes a track counts as a medley, 0 for the title alone. See EngineTuning.medleyMinutes. */
     var medleyMinutes: Int
         get() = sp.getInt(KEY_MEDLEY_MINUTES, 0)

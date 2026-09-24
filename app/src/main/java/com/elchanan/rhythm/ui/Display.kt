@@ -22,6 +22,17 @@ object Display {
     /** The folders as a tab of their own on the bar at the bottom, beside the library. Off by default. */
     var foldersTab by mutableStateOf(false)
 
+    /**
+     * The app's own text size, on top of the phone's: for someone who wants
+     * the words bigger (or smaller) here without changing every other app,
+     * or the layout along with them as the display size does. 1 is as the
+     * phone has it.
+     */
+    var textScale by mutableStateOf(1f)
+
+    /** The sizes offered, smallest first, with their names. */
+    val TEXT_SCALES = listOf(0.9f to "קטן", 1f to "רגיל", 1.15f to "גדול", 1.3f to "גדול מאוד")
+
     /** How much smaller, for sizes and for text. Tuned so a 5" phone gains about a row and a half per screen. */
     const val COMPACT_SIZE = 0.86f
     const val COMPACT_TEXT = 0.93f
