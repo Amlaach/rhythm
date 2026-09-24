@@ -173,6 +173,9 @@ interface MusicDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertArtistsIfMissing(artists: List<ArtistEntity>)
 
+    @Query("DELETE FROM artists WHERE artistKey = :key")
+    suspend fun deleteArtist(key: String)
+
     // ---------- affinity ----------
 
     @Query("SELECT * FROM affinity")

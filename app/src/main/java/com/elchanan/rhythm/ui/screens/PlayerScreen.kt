@@ -1173,6 +1173,7 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
 
     if (showSavePlaylist) {
         AlertDialog(
+            containerColor = Surface1,
             onDismissRequest = { showSavePlaylist = false },
             title = { Text("שמירת תור כפלייליסט") },
             text = {

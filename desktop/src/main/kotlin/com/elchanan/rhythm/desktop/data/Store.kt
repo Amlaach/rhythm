@@ -1023,6 +1023,15 @@ class Store private constructor(private val conn: Connection) {
         }
     }
 
+    /** Forgets an artist row: one whose profile has moved to where its songs went. */
+    @Synchronized
+    fun deleteArtist(artistKey: String) {
+        conn.prepareStatement("DELETE FROM artists WHERE artistKey = ?").use { ps ->
+            ps.setString(1, artistKey)
+            ps.executeUpdate()
+        }
+    }
+
     /**
      * The style words for an artist, which is where the learner's labels come
      * from - every song by a tagged artist becomes a labelled example.

@@ -188,6 +188,15 @@ class MusicRepository(
                 keep
             }
             .map { song -> applyOverride(song, overrides[song.id]) }
+            .let { list ->
+                // A duet written the Hebrew way files under its first singer
+                // rather than as an artist of its own - see Names.duet.
+                val known = Names.soloArtists(list.map { it.artistName })
+                list.map { song ->
+                    val key = Names.primaryKey(song.artistName, known)
+                    if (key == song.artistKey) song else song.copy(artistKey = key)
+                }
+            }
 
         // What is already known, by path. The path is the only thing about a
         // song that survives a card being pulled out and put back: MediaStore
@@ -307,6 +316,14 @@ class MusicRepository(
                 )
             }
         artistRows.chunked(300).forEach { dao.insertArtistsIfMissing(it) }
+        // Ratings and styles left on a name that no longer has songs - by a
+        // tag fix made before profiles followed their songs, by tags written
+        // into the files, or by a key that now reads a spelling as the same
+        // name - go to where those songs are now. See ArtistMerge.orphanMoves.
+        runCatching {
+            val rawKey = onDevice.associate { it.id to it.artistKey }
+            rehomeArtistProfiles(found.mapNotNull { song -> rawKey[song.id]?.let { it to song.artistKey } })
+        }
         prefs.lastScanAt = System.currentTimeMillis()
         _scans.value = _scans.value + 1
         // The songs still filed under storage that is not attached count as
@@ -794,6 +811,41 @@ class MusicRepository(
                     updatedAt = System.currentTimeMillis()
                 )
             )
+        }
+    }
+
+    /**
+     * Moves the profiles of artists with no songs to the artist their songs
+     * now belong to, and forgets the empty name - so a rating given there
+     * is not put back after being changed. Whatever the new name has been
+     * told already stays.
+     */
+    private suspend fun rehomeArtistProfiles(rawToNow: List<Pair<String, String>>) {
+        val songs = dao.allSongs()
+        val present = HashSet<String>()
+        val known = Names.soloArtists(songs.map { it.artistName })
+        for (song in songs) {
+            present.add(song.artistKey)
+            for (credit in Names.credits(song.artistName, known)) present.add(Names.normalizeKey(credit))
+        }
+        val orphans = dao.allArtists().filter { a ->
+            a.artistKey !in present && (a.rating != 0 || a.styles.isNotBlank() || a.note.isNotBlank())
+        }
+        if (orphans.isEmpty()) return
+        val moves = ArtistMerge.orphanMoves(orphans.map { it.artistKey }, present, rawToNow)
+        for (from in orphans) {
+            val key = moves[from.artistKey] ?: continue
+            val name = songs.firstOrNull { it.artistKey == key }?.let { Names.primaryArtist(it.artistName) } ?: key
+            val to = dao.artist(key) ?: ArtistEntity(artistKey = key, displayName = name)
+            dao.putArtist(
+                to.copy(
+                    rating = if (to.rating == 0) from.rating else to.rating,
+                    styles = to.styles.ifBlank { from.styles },
+                    note = to.note.ifBlank { from.note },
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+            dao.deleteArtist(from.artistKey)
         }
     }
 

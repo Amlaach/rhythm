@@ -260,6 +260,16 @@ fun TagFixScreen(vm: MainViewModel, onBack: () -> Unit) {
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
+                        // The album too, where a site's name was all it was.
+                        if (proposal.albumChanged) {
+                            Text(
+                                "אלבום: ${proposal.oldAlbum} ← ${proposal.newAlbum}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
             }

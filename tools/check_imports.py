@@ -47,7 +47,7 @@ DEFAULT = {
     "AutoCloseable", "ClassCastException", "Error", "IllegalArgumentException",
     "IllegalStateException", "IndexOutOfBoundsException", "Math",
     "NoSuchElementException", "NullPointerException", "NumberFormatException",
-    "Runnable", "Runtime", "RuntimeException", "System", "Thread", "UnsupportedOperationException",
+    "Runnable", "Runtime", "RuntimeException", "System", "Character", "Thread", "UnsupportedOperationException",
     "ArithmeticException", "InterruptedException", "StackOverflowError",
     "OutOfMemoryError", "Cloneable", "Comparator", "RegexOption", "MatchGroup",
     "MatchGroupCollection", "StringBuffer", "IntIterator", "Typography",

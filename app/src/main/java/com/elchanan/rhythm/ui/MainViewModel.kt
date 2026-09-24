@@ -194,10 +194,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // appears alone still gets a page.
             val byArtist = LinkedHashMap<String, MutableList<SongEntity>>()
             val nameForKey = HashMap<String, String>()
+            // A Hebrew duet - "ישי ריבו ומוטי שטיינמץ" - belongs on both
+            // pages too, when both singers are artists here in their own right.
+            val known = Names.soloArtists(songs.map { it.artistName })
             for (song in songs) {
                 byArtist.getOrPut(song.artistKey) { ArrayList() }.add(song)
                 nameForKey.putIfAbsent(song.artistKey, Names.primaryArtist(song.artistName))
-                for (credit in Names.credits(song.artistName)) {
+                for (credit in Names.credits(song.artistName, known)) {
                     val key = Names.normalizeKey(credit)
                     if (key == song.artistKey) continue
                     byArtist.getOrPut(key) { ArrayList() }.add(song)
@@ -1759,7 +1762,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private fun startFileWrite(changed: List<TagFixer.Proposal>) {
         val songs = library.value.songsById
         startFileWriteItems(changed.mapNotNull { p ->
-            songs[p.songId]?.let { TagFileWriter.Item(p.songId, it.path, TagEdit(title = p.newTitle, artist = p.newArtist)) }
+            songs[p.songId]?.let {
+                TagFileWriter.Item(
+                    p.songId, it.path,
+                    TagEdit(title = p.newTitle, artist = p.newArtist, album = if (p.albumChanged) p.newAlbum else null)
+                )
+            }
         })
     }
 

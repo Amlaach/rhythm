@@ -1,6 +1,26 @@
 package com.elchanan.rhythm.ui.screens
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import com.elchanan.rhythm.ui.theme.Accent
+import com.elchanan.rhythm.ui.theme.Surface1
+import com.elchanan.rhythm.ui.theme.TextSecondary
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -23,17 +43,20 @@ import com.elchanan.rhythm.ui.MainViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/**
+ * Artists that look like one artist twice, offered for joining.
+ *
+ * A card with a button, at the top of the artists list: it was a line of
+ * text on the ratings screen, which read as the app remarking on something
+ * rather than offering to do it, in a place nobody looks for duplicates.
+ */
 @Composable
-fun ArtistMergeSuggestions(vm: MainViewModel, artists: List<ArtistInfo>) {
+fun ArtistMergeSuggestions(vm: MainViewModel, artists: List<ArtistInfo>, gutter: Dp = 16.dp) {
     val pairs by produceState<List<Pair<ArtistInfo, ArtistInfo>>>(emptyList(), artists) {
         value = withContext(Dispatchers.Default) {
-            buildList {
-                for (i in artists.indices) for (j in i + 1 until artists.size) {
-                    if (ArtistMerge.oneLetterApart(artists[i].key, artists[j].key)) {
-                        add(artists[i] to artists[j])
-                    }
-                }
-            }
+            // One letter apart, the same words in another order or with a
+            // title, full and short spelling, or Hebrew and English.
+            ArtistMerge.suggestions(artists) { it.displayName }
         }
     }
     val busy by vm.mergingArtist.collectAsStateWithLifecycle()
@@ -41,12 +64,43 @@ fun ArtistMergeSuggestions(vm: MainViewModel, artists: List<ArtistInfo>) {
     var selected by remember { mutableStateOf<Pair<ArtistInfo, ArtistInfo>?>(null) }
     var keepFirst by remember { mutableStateOf(true) }
     if (pairs.isNotEmpty()) {
-        TextButton(onClick = { show = true }, enabled = !busy) {
-            Text("נמצאו ${pairs.size} זוגות אמנים עם שמות דומים — בדוק איחוד")
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = gutter, vertical = 8.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Surface1)
+                .clickable(enabled = !busy) { show = true }
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.People, contentDescription = null, tint = Accent, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    if (pairs.size == 1) "אמן אחד שנראה כפול" else "${pairs.size} אמנים שנראים כפולים",
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Text(
+                    "אותו אמן בשני איותים. אפשר לאחד אותם לאמן אחד",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(Accent)
+                    .padding(horizontal = 14.dp, vertical = 7.dp)
+            ) {
+                Text("בדיקה", style = MaterialTheme.typography.labelLarge, color = Color.White)
+            }
         }
     }
     if (show && selected == null) {
         AlertDialog(
+            containerColor = Surface1,
             onDismissRequest = { show = false },
             title = { Text("ייתכן שזה אותו אמן") },
             text = {
@@ -65,6 +119,7 @@ fun ArtistMergeSuggestions(vm: MainViewModel, artists: List<ArtistInfo>) {
         val target = if (keepFirst) pair.first else pair.second
         val source = if (keepFirst) pair.second else pair.first
         AlertDialog(
+            containerColor = Surface1,
             onDismissRequest = { selected = null },
             title = { Text("לאחד את האמנים?") },
             text = {

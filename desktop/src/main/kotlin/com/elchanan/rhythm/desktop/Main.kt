@@ -362,6 +362,7 @@ private fun RhythmApp() {
 
     suspend fun reload() {
         val loaded = withContext(Dispatchers.IO) {
+            runCatching { rehomeArtistProfiles(store) }
             val s = store.songs()
             val st = store.stats()
             val ar = store.artists()
@@ -2696,13 +2697,56 @@ private fun saveOverridesCarryingArtists(store: Store, rows: List<TagOverrideEnt
     }
 }
 
+/**
+ * Ratings and styles left on an artist name with no songs go to where its
+ * songs are now, as the phone does after a scan - see ArtistMerge.orphanMoves.
+ */
+private fun rehomeArtistProfiles(store: Store) {
+    val raw = store.songs()
+    val now = applyOverrides(raw, store.overrides())
+    val present = HashSet<String>()
+    val known = Names.soloArtists(now.map { it.artistName })
+    for (song in now) {
+        present.add(song.artistKey)
+        for (credit in Names.credits(song.artistName, known)) present.add(Names.normalizeKey(credit))
+    }
+    val orphans = store.artists().filter { a ->
+        a.artistKey !in present && (a.rating != 0 || a.styles.isNotBlank() || a.note.isNotBlank())
+    }
+    if (orphans.isEmpty()) return
+    val rawKey = raw.associate { it.id to Names.normalizeKey(Names.primaryArtist(it.artistName)) }
+    val moves = ArtistMerge.orphanMoves(
+        orphans.map { it.artistKey }, present, now.mapNotNull { s -> rawKey[s.id]?.let { it to s.artistKey } }
+    )
+    for ((old, key) in moves) {
+        val name = now.firstOrNull { it.artistKey == key }?.let { Names.primaryArtist(it.artistName) } ?: key
+        store.carryArtistProfile(old, key, name)
+        store.deleteArtist(old)
+    }
+}
+
 private fun applyOverrides(
     songs: List<SongEntity>,
     overrides: Map<Long, TagOverrideEntity>
 ): List<SongEntity> {
-    if (overrides.isEmpty()) return songs
+    // Every song's key read the way keys are read now, not the way they were
+    // when the folder was scanned: see Names.normalizeKey. A Hebrew duet
+    // files under its first singer, as on the phone: see Names.duet.
+    val fixed = applyOverridesOnly(songs, overrides)
+    val known = Names.soloArtists(fixed.map { it.artistName })
+    return fixed.map { song ->
+        val key = Names.primaryKey(song.artistName, known)
+        if (key == song.artistKey) song else song.copy(artistKey = key)
+    }
+}
+
+private fun applyOverridesOnly(
+    songs: List<SongEntity>,
+    overrides: Map<Long, TagOverrideEntity>
+): List<SongEntity> {
     return songs.map { song ->
-        val fix = overrides[song.id] ?: return@map song
+        val fix = overrides[song.id]
+            ?: return@map song.copy(artistKey = Names.normalizeKey(Names.primaryArtist(song.artistName)))
         val title = fix.title.ifBlank { song.title }
         val artist = fix.artistName.ifBlank { song.artistName }
         song.copy(

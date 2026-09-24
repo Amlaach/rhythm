@@ -105,10 +105,15 @@ object TagFixer {
          * the library, or a name split off an artist nobody knows. Shown as
          * "לא בטוח" and left out unless the listener asks for them.
          */
-        val certain: Boolean = true
+        val certain: Boolean = true,
+        /** The album, where a download stamped it; [newAlbum] is empty when it is left alone. */
+        val oldAlbum: String = "",
+        val newAlbum: String = ""
     ) {
+        val albumChanged: Boolean get() = newAlbum.isNotBlank() && newAlbum != oldAlbum
+
         val changed: Boolean
-            get() = newTitle != oldTitle || newArtist != oldArtist
+            get() = newTitle != oldTitle || newArtist != oldArtist || albumChanged
     }
 
     /** Strips channel boilerplate: "בן צור הערוץ הרשמי" -> "בן צור". */
@@ -342,21 +347,38 @@ object TagFixer {
      */
     fun propose(songs: List<SongEntity>, dropForeign: Boolean = false): List<Proposal> {
         val knowledge = Knowledge(songs)
+        // What the sites these came from stamped on them - see DownloadJunk.
+        val junk = DownloadJunk.learn(songs)
         return songs.map { song ->
+            val title = junk.clean(song.title)
+            val artistField = junk.clean(song.artistName)
             // A song name written twice is one name, not "Artist - Title":
             // "השיבנו - Hashivenu" must not become a song by השיבנו.
-            val twice = dropDuplicateName(normalize(song.title))
-            val (fromTitle, rawName) = if (twice != null) null to twice else split(song.title)
+            val twice = dropDuplicateName(normalize(title))
+            val (fromTitle, rawName) = if (twice != null) null to twice else split(title)
             val songName = if (dropForeign) stripForeign(rawName) else rawName
-            val artist = (fromTitle ?: cleanArtist(song.artistName)).trim()
-            val repaired = repairNames(songName.ifEmpty { song.title }, artist.ifEmpty { song.artistName }, song.artistName, knowledge)
+            val artist = (fromTitle ?: cleanArtist(artistField)).trim()
+            val repaired = repairNames(songName.ifEmpty { title }, artist.ifEmpty { artistField }, song.artistName, knowledge)
+            val newTitle = repaired.title.ifEmpty { song.title }
+            // An album that was nothing but the site's name becomes the song's
+            // own, as a single is its own album: it was one "album" of every
+            // song the site ever served, all under one cover.
+            val album = song.albumName
+            val newAlbum = when {
+                album.isBlank() -> ""
+                junk.isAllJunk(album) -> newTitle
+                Names.normalizeKey(junk.clean(album)) != Names.normalizeKey(album) -> junk.clean(album)
+                else -> ""
+            }
             Proposal(
                 songId = song.id,
                 oldTitle = song.title,
                 oldArtist = song.artistName,
-                newTitle = repaired.title.ifEmpty { song.title },
+                newTitle = newTitle,
                 newArtist = repaired.artist.ifEmpty { song.artistName },
-                certain = repaired.certain
+                certain = repaired.certain,
+                oldAlbum = album,
+                newAlbum = newAlbum
             )
         }
     }
@@ -371,7 +393,7 @@ object TagFixer {
                 songId = it.songId,
                 title = it.newTitle,
                 artistName = it.newArtist,
-                albumName = ""
+                albumName = if (it.albumChanged) it.newAlbum else ""
             )
         }
 }

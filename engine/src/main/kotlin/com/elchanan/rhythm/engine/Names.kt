@@ -20,7 +20,6 @@ import java.util.Locale
 object Names {
 
     /** Hebrew niqqud / cantillation ranges plus common punctuation we ignore in keys. */
-    private val stripRegex = Regex("[\\u0591-\\u05C7\\p{Punct}\\s]+")
 
     /** What the Android scanner writes when a file carries no artist. */
     const val UNKNOWN_ARTIST = "אמן לא ידוע"
@@ -148,12 +147,45 @@ object Names {
 
     private val collabSeparators = listOf(
         " feat. ", " feat ", " ft. ", " ft ", " featuring ",
-        " & ", " / ", " x ", " vs. ", " vs ", ";", " עם "
+        " & ", " / ", " x ", " vs. ", " vs ", ";", " עם ",
+        // How Hebrew credits a guest.
+        " בהשתתפות ", " מארח את ", " מארחת את ", " מארחים את ", " ו-", " + "
     )
 
+    /**
+     * The form two spellings of one name are compared in: lower case, the
+     * marks gone, and anything that is not a letter or a digit a single gap.
+     *
+     * It used `\p{Punct}` and `\s`, which in Java are ASCII only - and Hebrew
+     * tags are full of what they miss: the geresh and gershayim (׳ ״) where
+     * a download has ' and ", the en and em dashes, the invisible direction
+     * marks (RLM, LRM) that Hebrew text picks up on the way through a
+     * browser, a non-breaking space. Each made "the same" name a different
+     * key, so one singer came out as two artists and one song as two songs.
+     * And a niqqud mark was turned into a gap, so a pointed name split into
+     * letters and never met the same name unpointed.
+     *
+     * Decomposed first, so a precomposed letter and the same letter with its
+     * mark are one, in Hebrew and in accented Latin alike.
+     */
     fun normalizeKey(raw: String): String {
-        val lower = raw.lowercase(Locale.ROOT).trim()
-        return stripRegex.replace(lower, " ").trim().ifEmpty { "unknown" }
+        val decomposed = java.text.Normalizer.normalize(raw.lowercase(Locale.ROOT), java.text.Normalizer.Form.NFKD)
+        val out = StringBuilder(decomposed.length)
+        var gap = false
+        for (c in decomposed) {
+            when (Character.getType(c)) {
+                Character.NON_SPACING_MARK.toInt(), Character.COMBINING_SPACING_MARK.toInt(),
+                Character.ENCLOSING_MARK.toInt() -> continue
+            }
+            if (c.isLetterOrDigit()) {
+                if (gap && out.isNotEmpty()) out.append(' ')
+                gap = false
+                out.append(c)
+            } else {
+                gap = true
+            }
+        }
+        return out.toString().ifEmpty { "unknown" }
     }
 
     /** "יעקב שוואקי feat. מוטי שטיינמץ" -> "יעקב שוואקי" */
@@ -220,5 +252,47 @@ object Names {
         if (out.isEmpty()) return listOf(text)
         out.add(text.substring(from))
         return out
+    }
+
+    /**
+     * Artists the library knows by themselves: every name that is the whole
+     * of some song's artist field. What [duet] may split a name into.
+     */
+    fun soloArtists(artistNames: Collection<String>): Set<String> =
+        artistNames.mapNotNullTo(HashSet()) { name -> credits(name).singleOrNull()?.let { normalizeKey(it) } }
+
+    /**
+     * The two singers of a duet written the Hebrew way, "ישי ריבו ומוטי
+     * שטיינמץ", or null when [raw] is not one.
+     *
+     * The joining ו is not a separator on its own - it is the first letter
+     * of countless names and words, and splitting on it would cut "שלמה
+     * ובניו" in two. So a name is split at a ו only where both sides are
+     * artists the library has by themselves ([known]); otherwise the duet
+     * became a third artist of its own, with one song, and neither singer's
+     * page had it.
+     */
+    fun duet(raw: String, known: Set<String>): List<String>? {
+        val value = raw.trim()
+        var at = value.indexOf(" ו")
+        while (at > 0) {
+            val left = value.substring(0, at).trim()
+            val right = value.substring(at + 2).trim()
+            if (left.isNotEmpty() && right.isNotEmpty() &&
+                normalizeKey(left) in known && normalizeKey(right) in known
+            ) return listOf(left, right)
+            at = value.indexOf(" ו", at + 1)
+        }
+        return null
+    }
+
+    /** [credits], with a Hebrew duet of two [known] artists read as both of them. */
+    fun credits(raw: String, known: Set<String>): List<String> =
+        credits(raw).flatMap { part -> duet(part, known) ?: listOf(part) }.distinctBy { normalizeKey(it) }
+
+    /** The key a song files under: its first artist, a Hebrew duet included. */
+    fun primaryKey(raw: String, known: Set<String>): String {
+        val primary = primaryArtist(raw)
+        return normalizeKey(duet(primary, known)?.first() ?: primary)
     }
 }
