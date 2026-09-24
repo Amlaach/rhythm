@@ -829,17 +829,23 @@ private fun MoodDialog(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(mood.label, style = MaterialTheme.typography.titleSmall)
-                            val auto = reading?.get(mood)
+                            val read = reading
+                            val auto = read?.get(mood)
+                            // What the reading says, yes or no, kept in sight
+                            // after a mark too: it is how one follows whether
+                            // the reading is learning, and "זוהה" alone did not
+                            // say what had been found.
                             Text(
                                 when {
-                                    said != null -> "סימנת בעצמך"
-                                    reading == null -> "…"
-                                    reading!!.isEmpty() -> "השיר עוד לא נותח"
-                                    auto == true -> "זוהה אוטומטית"
-                                    else -> "לא זוהה"
+                                    read == null -> if (said != null) "סימנת בעצמך" else "…"
+                                    read.isEmpty() -> if (said != null) "סימנת בעצמך" else "השיר עוד לא נותח"
+                                    said != null && auto == true -> "סימנת בעצמך · הזיהוי האוטומטי: כן"
+                                    said != null -> "סימנת בעצמך · הזיהוי האוטומטי: לא"
+                                    auto == true -> "הזיהוי האוטומטי: כן"
+                                    else -> "הזיהוי האוטומטי: לא"
                                 },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = TextTertiary
+                                color = if (auto == true) Accent else TextTertiary
                             )
                         }
                         Chip("כן", selected = said == true) {

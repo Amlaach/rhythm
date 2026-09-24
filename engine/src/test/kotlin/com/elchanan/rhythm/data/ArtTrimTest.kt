@@ -57,6 +57,45 @@ class ArtTrimTest {
         assertNull(ArtTrim.crop(padded(320, 180, 4, 4), 320, 180))
     }
 
+    /** A 4:3 thumbnail: [top] rows of near-black above and below [inside]. */
+    private fun letterbox(w: Int, h: Int, top: Int, inside: (Int, Int) -> Int): IntArray {
+        val r = Random(9)
+        return IntArray(w * h) { i ->
+            val x = i % w; val y = i / w
+            if (y < top || y >= h - top) {
+                val v = 12 + r.nextInt(0, 5)
+                (0xFF shl 24) or (v shl 16) or (v shl 8) or v
+            } else inside(x, y - top)
+        }
+    }
+
+    @Test fun aLetterboxedVideoFrameLosesItsBlackBars() {
+        // YouTube's hqdefault: 480 x 360, a 480 x 270 frame between two 45 px bars.
+        val r = Random(4)
+        val pixels = letterbox(480, 360, 45) { _, _ -> busy(r) }
+        assertArrayEquals(intArrayOf(0, 46, 480, 314), ArtTrim.crop(pixels, 480, 360))
+    }
+
+    @Test fun aSleeveInALetterboxedFrameLosesBoth() {
+        // The frame is itself a 270 wide sleeve with 105 px of flat bar each side.
+        val r = Random(6)
+        val pixels = letterbox(480, 360, 45) { x, _ -> if (x < 105 || x >= 375) rust else busy(r) }
+        assertArrayEquals(intArrayOf(106, 46, 374, 314), ArtTrim.crop(pixels, 480, 360))
+    }
+
+    @Test fun darkBandsThatAreNotLetterboxingStay() {
+        val r = Random(8)
+        // Bands of a colour, not black: part of the design.
+        val w = 480; val h = 360
+        val coloured = IntArray(w * h) { i -> val y = i / w; if (y < 45 || y >= h - 45) rust else busy(r) }
+        assertNull(ArtTrim.crop(coloured, w, h))
+        // Black, but what is between them is not the shape of a video.
+        assertNull(ArtTrim.crop(letterbox(480, 400, 30) { _, _ -> busy(r) }, 480, 400))
+        // Black on one side only.
+        val one = IntArray(w * h) { i -> if (i / w < 60) 0xFF0C0C0C.toInt() else busy(r) }
+        assertNull(ArtTrim.crop(one, w, h))
+    }
+
     @Test fun barsThatAreNotFlatStay() {
         // A blurred copy of the sleeve as the padding: not one colour, so not cut.
         val r = Random(5)

@@ -1180,7 +1180,7 @@ private fun FolderTreeTab(
                             if (all.isNotEmpty()) vm.playList(all, 0, here.name)
                         })
                         Chip(label = "ערבב", selected = false, onClick = {
-                            vm.shuffleList(Folders.allSongs(here))
+                            vm.shuffleList(Folders.allSongs(here), here.name)
                         })
                         Chip(label = "תייג סגנון", selected = false, onClick = { tagging = here })
                         Chip(label = "דרג", selected = false, onClick = { rating = here })

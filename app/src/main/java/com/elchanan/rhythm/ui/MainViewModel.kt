@@ -749,8 +749,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         markStarted()
     }
 
-    fun shuffleList(songs: List<SongEntity>) {
+    fun shuffleList(songs: List<SongEntity>, source: String? = null) {
         if (songs.isEmpty()) return
+        // Named like any other start, so the queue says what it came from
+        // when shuffled too - a mood shuffled from its screen said nothing,
+        // or still named whatever had played before it.
+        QueueMeta.reset()
+        QueueMeta.setSource(source ?: _detail.value?.title)
         player.playShuffled(songs)
         markStarted()
     }
@@ -761,6 +766,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val e = engine ?: repo.buildRecommender().also { engine = it }
             val list = withContext(Dispatchers.Default) { e.radio(song, 40) }
             QueueMeta.reset()
+            QueueMeta.setSource("רדיו: ${song.title}")
             QueueMeta.markAuto(list.drop(1).map { it.id })
             // From the song that is playing, it simply carries on.
             if (!player.continueFromCurrent(list)) {
@@ -1110,6 +1116,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 songs = list,
                 key = "mix:seed:${song.id}"
             )
+            if (andPlay) {
+                QueueMeta.reset()
+                QueueMeta.setSource("מיקס: ${song.title}")
+            }
             if (andPlay && !player.continueFromCurrent(list)) {
                 player.play(list, 0)
                 markStarted()

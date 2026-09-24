@@ -1791,6 +1791,11 @@ object UiStrings {
         "בונה את מסך הבית מחדש" to "Rebuilds the home screen",
         "רענן" to "Refresh",
         "ההמלצות רועננו" to "Recommendations refreshed",
-        "מה שמעת, כמה ומתי, והאמנים שחזרת אליהם" to "What you heard, how much and when, and the artists you came back to"
+        "מה שמעת, כמה ומתי, והאמנים שחזרת אליהם" to "What you heard, how much and when, and the artists you came back to",
+        "הספרייה נסרקת עכשיו. הכפתורים יחזרו לפעול כשהסריקה תסתיים" to "The library is being scanned. The buttons come back when the scan is done",
+        "סימנת בעצמך · הזיהוי האוטומטי: כן" to "Marked by you · automatic reading: yes",
+        "סימנת בעצמך · הזיהוי האוטומטי: לא" to "Marked by you · automatic reading: no",
+        "הזיהוי האוטומטי: כן" to "Automatic reading: yes",
+        "הזיהוי האוטומטי: לא" to "Automatic reading: no"
     )
 }

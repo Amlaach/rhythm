@@ -488,7 +488,7 @@ private fun AlbumCardMenu(vm: MainViewModel, album: AlbumInfo, modifier: Modifie
             DropdownMenuItem(
                 text = { Text("נגן") },
                 leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                onClick = { open = false; vm.playList(album.songs) }
+                onClick = { open = false; vm.playList(album.songs, source = album.name) }
             )
             DropdownMenuItem(
                 text = { Text("הוסף לתור") },
@@ -779,7 +779,7 @@ private fun FeedSectionView(
                 title = section.title,
                 subtitle = section.subtitle,
                 actionLabel = "נגן הכל",
-                onAction = { vm.playList(section.songs) }
+                onAction = { vm.playList(section.songs, source = section.title) }
             )
             // Two shelves share this kind, and each gets the shape that does
             // its own job. Speed dial is the handful you keep returning to, and
@@ -794,7 +794,7 @@ private fun FeedSectionView(
                     gutter = gutter,
                     onPlay = { song ->
                         val index = section.songs.indexOf(song)
-                        vm.playList(section.songs, if (index >= 0) index else 0)
+                        vm.playList(section.songs, if (index >= 0) index else 0, source = section.title)
                     },
                     onMore = onMore
                 )
@@ -826,7 +826,8 @@ private fun FeedSectionView(
                                             val index = section.songs.indexOf(song)
                                             vm.playList(
                                                 section.songs,
-                                                if (index >= 0) index else 0
+                                                if (index >= 0) index else 0,
+                                                source = section.title
                                             )
                                         }
                                     },
@@ -852,7 +853,7 @@ private fun FeedSectionView(
                             vm.openMix(mix)
                             onOpenDetail()
                         },
-                        onPlay = { vm.playList(mix.songs) },
+                        onPlay = { vm.playList(mix.songs, source = mix.title) },
                         covers = collageSongs(mix.songs).map { it.id to it.albumId }
                     )
                 }
@@ -884,7 +885,7 @@ private fun FeedSectionView(
                                 vm.toggleSelect(song.id)
                             } else {
                                 val index = section.songs.indexOf(song)
-                                vm.playList(section.songs, if (index >= 0) index else 0)
+                                vm.playList(section.songs, if (index >= 0) index else 0, source = section.title)
                             }
                         },
                         onMore = { onMore(song) }

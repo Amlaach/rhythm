@@ -107,7 +107,18 @@ class MusicRepository(
      */
     private val scanLock = kotlinx.coroutines.sync.Mutex()
 
-    suspend fun rescan(): Int = withContext(Dispatchers.IO) { scanLock.withLock { rescanLocked() } }
+    suspend fun rescan(): Int = withContext(Dispatchers.IO) {
+        scanLock.withLock {
+            // Counted whether it got to the end or not: the screens wait on
+            // this count to stop looking busy, and a scan that failed left
+            // import and export greyed out for a quarter of an hour.
+            try {
+                rescanLocked()
+            } finally {
+                _scans.value = _scans.value + 1
+            }
+        }
+    }
 
     private suspend fun rescanLocked(): Int {
         val excluded = prefs.excludedFolders.map { it.lowercase() }
@@ -325,7 +336,6 @@ class MusicRepository(
             rehomeArtistProfiles(found.mapNotNull { song -> rawKey[song.id]?.let { it to song.artistKey } })
         }
         prefs.lastScanAt = System.currentTimeMillis()
-        _scans.value = _scans.value + 1
         // The songs still filed under storage that is not attached count as
         // part of the library, because they are: they come back the moment
         // the card does, with everything that was learned about them intact.

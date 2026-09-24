@@ -1193,6 +1193,13 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
     var showSavePlaylist by remember { mutableStateOf(false) }
     var playlistName by remember { mutableStateOf("") }
     val songs = state.queueIds.mapNotNull { library.songsById[it] }
+    val keys = remember(songs) {
+        val seen = HashMap<Long, Int>()
+        songs.map { song ->
+            val n = seen.merge(song.id, 1, Int::plus)!!
+            if (n == 1) "${song.id}" else "${song.id}#$n"
+        }
+    }
 
     // the first entry after the current one that the radio appended by itself
     val autoStart = remember(songs, autoIds, state.queueIndex) {
@@ -1286,8 +1293,10 @@ private fun QueueList(vm: MainViewModel, modifier: Modifier = Modifier) {
 
         // Keyed by song, so a removal moves the rows that remain instead of
         // leaving swipe offsets and drag state attached to whatever slid into
-        // that position.
-        itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
+        // that position. And by which time the song comes in the queue: "play
+        // next" on a song already in it puts it there twice, and two rows
+        // with one key closed the app.
+        itemsIndexed(songs, key = { index, _ -> keys[index] }) { index, song ->
             if (index == state.queueIndex + 1 && index != autoStart) {
                 QueueHeader("הבא בתור")
             }
