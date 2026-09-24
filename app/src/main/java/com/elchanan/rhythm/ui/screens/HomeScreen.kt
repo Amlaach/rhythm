@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.ui.screens
 
+import androidx.compose.ui.draw.clipToBounds
 import com.elchanan.rhythm.ui.theme.PointingHint
 import androidx.compose.material.icons.filled.Search
 import com.elchanan.rhythm.ui.components.DialogBody
@@ -654,7 +655,15 @@ private fun PullToRefreshFeed(onRefresh: () -> Unit, content: @Composable () -> 
             state.endRefresh()
         }
     }
-    Box(modifier = Modifier.fillMaxSize().nestedScroll(state.nestedScrollConnection)) {
+    // Clipped: at rest the spinner waits just above the feed, and without a
+    // clip it hung there in plain sight, an empty circle over the mood chips.
+    // Pulled, it slides down into the feed and shows as it should.
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clipToBounds()
+            .nestedScroll(state.nestedScrollConnection)
+    ) {
         content()
         androidx.compose.material3.pulltorefresh.PullToRefreshContainer(
             state = state,
