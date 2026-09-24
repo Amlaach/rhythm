@@ -90,6 +90,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_AUTO_ANALYZE, true)
         set(value) = sp.edit { putBoolean(KEY_AUTO_ANALYZE, value) }
 
+    /**
+     * Analyse as fast as the phone can: several songs at once, every core the
+     * models can use, at normal priority. Off by default - for a strong
+     * phone; it runs hotter and uses more battery while it works. The
+     * results are the same either way.
+     */
+    var fastAnalysis: Boolean
+        get() = sp.getBoolean(KEY_FAST_ANALYSIS, false)
+        set(value) = sp.edit { putBoolean(KEY_FAST_ANALYSIS, value) }
+
     /** Folders whose files never enter the library, one per line. */
     var excludedFolders: List<String>
         get() = sp.getString(KEY_EXCLUDED, "")
@@ -643,6 +653,7 @@ class Prefs(context: Context) {
         const val KEY_LEARNED_WEIGHTS = "learned_weights"
         const val KEY_ACOUSTIC_WEIGHT = "acoustic_weight"
         const val KEY_AUTO_ANALYZE = "auto_analyze"
+        const val KEY_FAST_ANALYSIS = "fast_analysis"
         const val KEY_EXCLUDED = "excluded_folders"
         const val KEY_QUEUE = "saved_queue"
         const val KEY_QUEUE_INDEX = "saved_queue_index"

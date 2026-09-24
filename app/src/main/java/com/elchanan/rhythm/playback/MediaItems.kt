@@ -28,6 +28,11 @@ object MediaItems {
     @Volatile
     var looseAlbums: Set<Long> = emptySet()
 
+    /** Whether [noteLibrary] has run in this process. */
+    @Volatile
+    var noted: Boolean = false
+        private set
+
     /**
      * Which albums may lend their picture to a song without one of its own:
      * only those that look like a real release.
@@ -39,6 +44,12 @@ object MediaItems {
      * does not. So an album lends its picture only when at least half its
      * songs carry a track number and it is not a folder-named mix of
      * artists. A song on its own lends only to itself, which is harmless.
+     *
+     * Different track numbers, not just any: a download site stamps its own
+     * name as the album and "1" as the track on every file it serves, so a
+     * folder of its singles counted as numbered and lent one song's cover to
+     * all the rest. Two discs of one album still number more than half of it
+     * differently.
      */
     fun noteLibrary(songs: List<SongEntity>) {
         looseAlbums = songs.groupBy { it.albumId }.filter { (_, list) ->
@@ -48,9 +59,10 @@ object MediaItems {
             val unnamed = first.albumName.isBlank() || first.albumName.startsWith("<")
             val folderNamed = first.albumName.trim().equals(folder.trim(), ignoreCase = true)
             val mixed = list.map { it.artistKey }.distinct().size > 1
-            val numbered = list.count { it.trackNumber > 0 } * 2 >= list.size
+            val numbered = list.map { it.trackNumber }.filter { it > 0 }.distinct().size * 2 >= list.size
             unnamed || (folderNamed && mixed) || !numbered
         }.keys
+        noted = true
     }
 
     fun toMediaItem(song: SongEntity): MediaItem {

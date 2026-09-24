@@ -591,6 +591,9 @@ object UiStrings {
         "נתח עכשיו" to "Analyze now",
         "אפס ניתוח" to "Reset analysis",
         "ניתוח אוטומטי" to "Automatic analysis",
+        "ניתוח מהיר" to "Fast analysis",
+        "לטלפונים חזקים: כמה שירים במקביל ובכל הכוח. אותן תוצאות, הרבה יותר מהר - אבל הטלפון מתחמם והסוללה יורדת מהר יותר בזמן הניתוח" to
+            "For strong phones: several songs at once, at full power. The same results, much sooner - but the phone runs warmer and the battery drains faster while it works",
         "מנתח קבצים חדשים לבד אחרי כל סריקה" to "Analyzes new files by itself after each scan",
         "טיימר שינה" to "Sleep timer",
         "מילות השיר" to "Lyrics",
