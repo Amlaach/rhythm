@@ -22,6 +22,7 @@ import com.elchanan.rhythm.data.YouTubeMusicImport
 import com.elchanan.rhythm.data.TagEdit
 import com.elchanan.rhythm.data.TagFileWriter
 import com.elchanan.rhythm.data.TagFixer
+import com.elchanan.rhythm.engine.HebrewSpelling
 import com.elchanan.rhythm.data.db.ArtistEntity
 import com.elchanan.rhythm.data.db.AudioFeatureEntity
 import com.elchanan.rhythm.data.db.BookmarkEntity
@@ -1758,6 +1759,62 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 songIds.mapNotNull { id -> songs[id]?.let { TagFileWriter.Item(id, it.path, edit) } },
                 fileOnly = fileOnly
             )
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Hebrew spellings for names written in English letters
+    // -----------------------------------------------------------------------
+
+    private val _hebrewSuggestions = MutableStateFlow<List<HebrewSpelling.Suggestion>?>(null)
+
+    /** Null while they are being worked out. */
+    val hebrewSuggestions: StateFlow<List<HebrewSpelling.Suggestion>?> = _hebrewSuggestions.asStateFlow()
+
+    fun buildHebrewSuggestions() {
+        viewModelScope.launch {
+            val songs = library.value.songs
+            _hebrewSuggestions.value = withContext(Dispatchers.Default) { HebrewSpelling.suggest(songs) }
+        }
+    }
+
+    /**
+     * The spellings the listener accepted, as the name the app shows - the
+     * same corrections the tag fixer saves, so they survive a rescan and an
+     * artist's ratings follow the new name. Into the files too, when the
+     * settings say corrections go there.
+     */
+    fun applyHebrewNames(chosen: List<HebrewSpelling.Suggestion>) {
+        if (chosen.isEmpty()) return
+        viewModelScope.launch {
+            val existing = repo.overrides().associateBy { it.songId }.toMutableMap()
+            val edits = LinkedHashMap<Long, TagEdit>()
+            for (s in chosen) {
+                for (id in s.songIds) {
+                    val row = existing[id] ?: TagOverrideEntity(songId = id)
+                    val edit = edits[id] ?: TagEdit()
+                    when (s.field) {
+                        HebrewSpelling.Field.ARTIST -> {
+                            existing[id] = row.copy(artistName = s.hebrew)
+                            edits[id] = edit.copy(artist = s.hebrew)
+                        }
+                        HebrewSpelling.Field.TITLE -> {
+                            existing[id] = row.copy(title = s.hebrew)
+                            edits[id] = edit.copy(title = s.hebrew)
+                        }
+                    }
+                }
+            }
+            repo.saveOverrides(edits.keys.mapNotNull { existing[it] })
+            refreshFeed()
+            _message.value = "עודכנו ${edits.size} שירים"
+            buildHebrewSuggestions()
+            if (prefs.writeTagsToFiles) {
+                val songs = library.value.songsById
+                startFileWriteItems(edits.mapNotNull { (id, edit) ->
+                    songs[id]?.let { TagFileWriter.Item(id, it.path, edit) }
+                })
+            }
         }
     }
 

@@ -1745,6 +1745,21 @@ object UiStrings {
         "לתקן לאמן אחד?" to "Fix into one artist?",
         "סגור אלבום" to "Close album",
         "פתח אלבום" to "Open album",
-        "לעמוד האלבום" to "Album page"
+        "לעמוד האלבום" to "Album page",
+        "שמות בעברית" to "Hebrew names",
+        "הצעות לאיות בעברית לאמנים ושירים שכתובים באותיות אנגליות" to "Hebrew spellings for artists and songs written in English letters",
+        "שמות של אמנים ושירים שכתובים באותיות אנגליות, ואיך הם נכתבים בעברית. זו הצעה בלבד: יש שירים ששמם האמיתי באנגלית, אז שום דבר לא מסומן מראש. סמן את מה שנכון, ואפשר ללחוץ על הצעה כדי לתקן את האיות לפני שמחילים." to "Artist and song names written in English letters, and how they are spelled in Hebrew. These are only suggestions: some songs really have English names, so nothing is ticked in advance. Tick what is right; tap a suggestion to correct its spelling before applying.",
+        "שמות של אמנים ושירים שכתובים באותיות אנגליות, ואיך הם נכתבים בעברית. זו הצעה בלבד: יש שירים ששמם האמיתי באנגלית, אז שום דבר לא מסומן מראש. לחיצה על הצעה מאפשרת לתקן את האיות." to "Artist and song names written in English letters, and how they are spelled in Hebrew. These are only suggestions: some songs really have English names, so nothing is ticked in advance. Click a suggestion to correct its spelling.",
+        "מחפש…" to "Searching…",
+        "אין כרגע שמות באנגלית שנמצא להם איות בעברית." to "No English-letter names with a Hebrew spelling were found right now.",
+        "· כך כתוב בספרייה" to "· spelled this way in your library",
+        " · כך כתוב בספרייה" to " · spelled this way in your library",
+        "האיות בעברית" to "Hebrew spelling",
+        "מסומן" to "Ticked",
+        "לא מסומן" to "Not ticked",
+        "בחר הכל" to "Select all",
+        "החל על \${chosen.size}" to "Apply to \${chosen.size}",
+        "אמנים (\${artists.size})" to "Artists (\${artists.size})",
+        "שירים (\${titles.size})" to "Songs (\${titles.size})"
     )
 }

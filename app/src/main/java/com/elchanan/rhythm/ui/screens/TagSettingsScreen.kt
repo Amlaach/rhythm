@@ -53,7 +53,8 @@ import com.elchanan.rhythm.ui.theme.TextTertiary
 fun TagSettingsScreen(
     vm: MainViewModel,
     onBack: () -> Unit,
-    onOpenTagFix: () -> Unit
+    onOpenTagFix: () -> Unit,
+    onOpenHebrewNames: () -> Unit = {}
 ) {
     val lyricsFolder by vm.lyricsFolder.collectAsStateWithLifecycle()
     val gutter = rememberMetrics().gutter
@@ -96,6 +97,11 @@ fun TagSettingsScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = Accent)
                 ) { Text("פתח") }
             }
+        }
+
+        item {
+            Spacer(Modifier.height(4.dp))
+            HebrewNamesDoor(gutter, onOpenHebrewNames)
         }
 
 

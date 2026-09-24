@@ -77,6 +77,7 @@ import com.elchanan.rhythm.ui.screens.SearchScreen
 import com.elchanan.rhythm.ui.screens.SelectionBar
 import com.elchanan.rhythm.ui.screens.SettingsScreen
 import com.elchanan.rhythm.ui.screens.TagFixScreen
+import com.elchanan.rhythm.ui.screens.HebrewNamesScreen
 import com.elchanan.rhythm.ui.screens.TagSettingsScreen
 import com.elchanan.rhythm.ui.screens.TransferScreen
 import com.elchanan.rhythm.ui.screens.WelcomeScreen
@@ -107,6 +108,7 @@ object Routes {
     const val ALBUMS = "albums"
     const val RECAP = "recap"
     const val TAGS = "tags"
+    const val HEBREW_NAMES = "hebrewnames"
     const val EQUALIZER = "equalizer"
 }
 
@@ -445,7 +447,8 @@ fun RhythmRoot(
                             TagSettingsScreen(
                                 vm = vm,
                                 onBack = { navController.popBackStack() },
-                                onOpenTagFix = { navController.navigate(Routes.TAGS) }
+                                onOpenTagFix = { navController.navigate(Routes.TAGS) },
+                                onOpenHebrewNames = { navController.navigate(Routes.HEBREW_NAMES) }
                             )
                         }
                         composable(Routes.TRANSFER) {
@@ -472,7 +475,14 @@ fun RhythmRoot(
                             )
                         }
                         composable(Routes.TAGS) {
-                            TagFixScreen(vm = vm, onBack = { navController.popBackStack() })
+                            TagFixScreen(
+                                vm = vm,
+                                onBack = { navController.popBackStack() },
+                                onOpenHebrewNames = { navController.navigate(Routes.HEBREW_NAMES) }
+                            )
+                        }
+                        composable(Routes.HEBREW_NAMES) {
+                            HebrewNamesScreen(vm = vm, onBack = { navController.popBackStack() })
                         }
                         composable(Routes.EQUALIZER) {
                             EqualizerScreen(vm = vm, onBack = { navController.popBackStack() })

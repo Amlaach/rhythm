@@ -1,5 +1,6 @@
 package com.elchanan.rhythm.desktop
 
+import com.elchanan.rhythm.engine.HebrewSpelling
 import com.elchanan.rhythm.ui.theme.localized
 
 import androidx.compose.foundation.Image
@@ -322,6 +323,7 @@ private fun RhythmApp() {
     var welcomeDone by remember { mutableStateOf(prefs.welcomeSeen) }
     var recap by remember { mutableStateOf<RecapData?>(null) }
     var proposals by remember { mutableStateOf<List<TagFixer.Proposal>>(emptyList()) }
+    var hebrewSuggestions by remember { mutableStateOf<List<HebrewSpelling.Suggestion>?>(null) }
     var bookmarks by remember { mutableStateOf<List<BookmarkEntity>>(emptyList()) }
     var resumePoints by remember { mutableStateOf<Map<Long, Long>>(emptyMap()) }
     var bookmarksOpen by remember { mutableStateOf(false) }
@@ -1122,6 +1124,45 @@ private fun RhythmApp() {
                 // when the listener asks for them, as on the phone.
                 TagFixer.propose(songs, dropForeign = prefs.tagStripForeign)
             }
+        }
+    }
+
+    fun buildHebrewSuggestions() {
+        scope.launch {
+            hebrewSuggestions = withContext(Dispatchers.Default) { HebrewSpelling.suggest(songs) }
+        }
+    }
+
+    /**
+     * The spellings the listener accepted, saved as the names the app shows -
+     * the same corrections the tag fixer saves, so an artist's ratings follow
+     * the new name - and into the files when the settings say so.
+     */
+    fun applyHebrewNames(chosen: List<HebrewSpelling.Suggestion>) {
+        if (chosen.isEmpty()) return
+        scope.launch {
+            val note = withContext(Dispatchers.IO) {
+                val rows = LinkedHashMap<Long, TagOverrideEntity>()
+                val existing = store.overrides()
+                for (s in chosen) for (id in s.songIds) {
+                    val row = rows[id] ?: existing[id] ?: TagOverrideEntity(songId = id)
+                    rows[id] = when (s.field) {
+                        HebrewSpelling.Field.ARTIST -> row.copy(artistName = s.hebrew)
+                        HebrewSpelling.Field.TITLE -> row.copy(title = s.hebrew)
+                    }
+                }
+                saveOverridesCarryingArtists(store, rows.values.toList())
+                if (!prefs.writeTagsToFiles) {
+                    "עודכנו ${rows.size} שירים"
+                } else {
+                    val result = TagWriter.write(rows.values.toList(), songs.associateBy { it.id })
+                    if (result.failed > 0) "${result.failed} קבצים לא ניתנים לכתיבה" else "עודכנו ${rows.size} שירים"
+                }
+            }
+            reload()
+            buildProposals()
+            buildHebrewSuggestions()
+            status = note
         }
     }
 
@@ -2206,6 +2247,17 @@ private fun RhythmApp() {
                     onWriteToFiles = { prefs.writeTagsToFiles = it },
                     onApply = { list, uncertain -> applyTagFix(list, uncertain) },
                     onEdit = { id, title, artist -> editTags(id, title, artist) },
+                    onBack = { stack = stack.dropLast(1) },
+                    onOpenHebrewNames = {
+                        buildHebrewSuggestions()
+                        stack = stack + Route.HebrewNames
+                    }
+                )
+
+                Route.HebrewNames -> HebrewNamesScreen(
+                    suggestions = hebrewSuggestions,
+                    artistOf = { id -> songs.firstOrNull { it.id == id }?.artistName.orEmpty() },
+                    onApply = { applyHebrewNames(it) },
                     onBack = { stack = stack.dropLast(1) }
                 )
 
@@ -2589,6 +2641,7 @@ private sealed interface Route {
     data object Equalizer : Route
     data object Algorithm : Route
     data object Tags : Route
+    data object HebrewNames : Route
     data object Recap : Route
     data object Queue : Route
     data class Lyrics(val songId: Long) : Route
