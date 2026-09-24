@@ -966,11 +966,9 @@ private fun ArtistMergeSuggestions(
 ) {
     val pairs by produceState<List<Pair<ArtistInfo, ArtistInfo>>>(emptyList(), artists) {
         value = withContext(Dispatchers.Default) {
-            buildList {
-                for (i in artists.indices) for (j in i + 1 until artists.size) {
-                    if (ArtistMerge.oneLetterApart(artists[i].key, artists[j].key)) add(artists[i] to artists[j])
-                }
-            }
+            // As the phone: one letter apart, other word order or a title,
+            // full and short spelling, or Hebrew and English.
+            ArtistMerge.suggestions(artists) { it.displayName }
         }
     }
     var show by remember { mutableStateOf(false) }

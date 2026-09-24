@@ -20,7 +20,6 @@ import java.util.Locale
 object Names {
 
     /** Hebrew niqqud / cantillation ranges plus common punctuation we ignore in keys. */
-    private val stripRegex = Regex("[\\u0591-\\u05C7\\p{Punct}\\s]+")
 
     /** What the Android scanner writes when a file carries no artist. */
     const val UNKNOWN_ARTIST = "אמן לא ידוע"
@@ -151,9 +150,40 @@ object Names {
         " & ", " / ", " x ", " vs. ", " vs ", ";", " עם "
     )
 
+    /**
+     * The form two spellings of one name are compared in: lower case, the
+     * marks gone, and anything that is not a letter or a digit a single gap.
+     *
+     * It used `\p{Punct}` and `\s`, which in Java are ASCII only - and Hebrew
+     * tags are full of what they miss: the geresh and gershayim (׳ ״) where
+     * a download has ' and ", the en and em dashes, the invisible direction
+     * marks (RLM, LRM) that Hebrew text picks up on the way through a
+     * browser, a non-breaking space. Each made "the same" name a different
+     * key, so one singer came out as two artists and one song as two songs.
+     * And a niqqud mark was turned into a gap, so a pointed name split into
+     * letters and never met the same name unpointed.
+     *
+     * Decomposed first, so a precomposed letter and the same letter with its
+     * mark are one, in Hebrew and in accented Latin alike.
+     */
     fun normalizeKey(raw: String): String {
-        val lower = raw.lowercase(Locale.ROOT).trim()
-        return stripRegex.replace(lower, " ").trim().ifEmpty { "unknown" }
+        val decomposed = java.text.Normalizer.normalize(raw.lowercase(Locale.ROOT), java.text.Normalizer.Form.NFKD)
+        val out = StringBuilder(decomposed.length)
+        var gap = false
+        for (c in decomposed) {
+            when (Character.getType(c)) {
+                Character.NON_SPACING_MARK.toInt(), Character.COMBINING_SPACING_MARK.toInt(),
+                Character.ENCLOSING_MARK.toInt() -> continue
+            }
+            if (c.isLetterOrDigit()) {
+                if (gap && out.isNotEmpty()) out.append(' ')
+                gap = false
+                out.append(c)
+            } else {
+                gap = true
+            }
+        }
+        return out.toString().ifEmpty { "unknown" }
     }
 
     /** "יעקב שוואקי feat. מוטי שטיינמץ" -> "יעקב שוואקי" */

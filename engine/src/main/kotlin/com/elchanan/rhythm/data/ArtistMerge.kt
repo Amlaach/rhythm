@@ -1,6 +1,7 @@
 package com.elchanan.rhythm.data
 
 import com.elchanan.rhythm.engine.Names
+import com.elchanan.rhythm.engine.Transliteration
 
 /** Suggestions only; callers must ask which spelling to keep. */
 object ArtistMerge {
@@ -66,5 +67,106 @@ object ArtistMerge {
         }
         return movedTo.filter { (old, targets) -> old !in stillThere && targets.size == 1 }
             .mapValues { it.value.first() }
+    }
+
+    /**
+     * A name as loosely as two spellings of one Hebrew name can differ and
+     * still be the same person.
+     *
+     * The key already ignores case, marks and punctuation. This also ignores
+     * the order of the words ("ריבו ישי"), a title in front ("הרב", "ר'",
+     * "החזן"), a final letter written as an ordinary one, and the doubled
+     * vav and yod of full spelling ("שוואקי" and "שואקי", "וייס" and "ויס").
+     * Too loose to merge by itself; exactly right to ask about.
+     */
+    fun looseKey(name: String): String {
+        val words = Names.normalizeKey(name).split(' ')
+            .filter { it.length > 1 && it !in TITLES }
+            .map { word ->
+                val folded = StringBuilder(word.length)
+                for (c in word) folded.append(FINALS[c] ?: c)
+                folded.toString().replace("וו", "ו").replace("יי", "י")
+            }
+            .sorted()
+        return words.joinToString(" ").ifEmpty { Names.normalizeKey(name) }
+    }
+
+    /** Titles that come before a name and are not part of it. */
+    private val TITLES = setOf(
+        "הרב", "הרבנית", "הגאון", "הגה", "רבי", "הזמר", "הזמרת", "החזן", "חזן", "המנחה",
+        "rabbi", "reb", "cantor", "chazzan", "the", "mr", "mrs"
+    )
+
+    private val FINALS = mapOf('ך' to 'כ', 'ם' to 'מ', 'ן' to 'נ', 'ף' to 'פ', 'ץ' to 'צ')
+
+    /**
+     * Whether two artist names are probably one artist: the same loosely,
+     * one letter apart, or one in Hebrew and the other its English spelling.
+     * A suggestion to put to the user, never a merge.
+     */
+    fun likelySame(left: String, right: String): Boolean {
+        val a = Names.normalizeKey(left)
+        val b = Names.normalizeKey(right)
+        if (a == b || a == "unknown" || b == "unknown") return false
+        val la = looseKey(left)
+        val lb = looseKey(right)
+        if (la == lb) return true
+        if (oneLetterApart(left, right) || oneLetterApart(la, lb)) return true
+        return Transliteration.sameName(left, right) || Transliteration.sameName(right, left)
+    }
+
+    /** Every pair of [names] that is [likelySame], each pair once, in the order given. */
+    fun <T> suggestions(names: List<T>, nameOf: (T) -> String): List<Pair<T, T>> {
+        val out = ArrayList<Pair<T, T>>()
+        for (i in names.indices) for (j in i + 1 until names.size) {
+            if (likelySame(nameOf(names[i]), nameOf(names[j]))) out.add(names[i] to names[j])
+        }
+        return out
+    }
+
+    /**
+     * Where the rating, styles and note of artists with no songs left should
+     * go, when the answer is clear.
+     *
+     * A tag fix or a merge moves an artist's songs to another spelling, and
+     * the profile is carried along when it happens (see [profileMoves]) -
+     * but only since that was added, and only when the change was made in
+     * the app. Profiles stranded before, or by tags written into the files,
+     * sat on a name with no songs: the rating looked lost. This finds them
+     * a home after the fact, in this order:
+     *
+     *  - the old key read the way keys are read now: a name spelled with a
+     *    geresh, a dash or a direction mark was a key of its own until
+     *    [Names.normalizeKey] learned to see through them;
+     *  - where the songs filed under it by their own tags are all filed now:
+     *    [rawToNow] is each song's artist key from its file and in the app;
+     *  - the one artist it is loosely the same as ([looseKey]), when there is
+     *    exactly one.
+     *
+     * Anything less certain stays where it is.
+     */
+    fun orphanMoves(
+        orphans: Collection<String>,
+        present: Set<String>,
+        rawToNow: Collection<Pair<String, String>>
+    ): Map<String, String> {
+        val byLoose = present.groupBy { looseKey(it) }
+        val out = HashMap<String, String>()
+        for (old in orphans) {
+            if (old in present) continue
+            val renamed = Names.normalizeKey(old)
+            if (renamed != old && renamed in present) {
+                out[old] = renamed
+                continue
+            }
+            val went = rawToNow.filter { it.first == old || it.first == renamed }.mapTo(HashSet()) { it.second }
+            if (went.size == 1 && went.first() in present && went.first() != old) {
+                out[old] = went.first()
+                continue
+            }
+            val same = byLoose[looseKey(old)].orEmpty().filter { it != old }
+            if (same.size == 1) out[old] = same[0]
+        }
+        return out
     }
 }

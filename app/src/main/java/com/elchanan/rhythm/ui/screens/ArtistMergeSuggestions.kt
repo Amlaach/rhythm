@@ -27,13 +27,9 @@ import kotlinx.coroutines.withContext
 fun ArtistMergeSuggestions(vm: MainViewModel, artists: List<ArtistInfo>) {
     val pairs by produceState<List<Pair<ArtistInfo, ArtistInfo>>>(emptyList(), artists) {
         value = withContext(Dispatchers.Default) {
-            buildList {
-                for (i in artists.indices) for (j in i + 1 until artists.size) {
-                    if (ArtistMerge.oneLetterApart(artists[i].key, artists[j].key)) {
-                        add(artists[i] to artists[j])
-                    }
-                }
-            }
+            // One letter apart, the same words in another order or with a
+            // title, full and short spelling, or Hebrew and English.
+            ArtistMerge.suggestions(artists) { it.displayName }
         }
     }
     val busy by vm.mergingArtist.collectAsStateWithLifecycle()
