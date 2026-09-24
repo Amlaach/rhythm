@@ -1815,6 +1815,7 @@ object UiStrings {
         "הסתרה מהנגן" to "Hide from the player",
         "השיר נעלם מכל הרשימות, ואפשר להחזיר אותו בהגדרות" to "The song disappears from every list; it can be brought back in the settings",
         "כוכבים לאמן של השיר, בלי לצאת מהנגן" to "Stars for the song's artist, without leaving the player",
-        "דירוג האמן · \${artistName}" to "Artist rating · \${artistName}"
+        "דירוג האמן · \${artistName}" to "Artist rating · \${artistName}",
+        "התגיות בקבצים שהורדו מהאינטרנט לרוב שגויות. בהגדרות יש תיקון אוטומטי שמפריד את שם האמן משם השיר" to "The tags in files downloaded from the Internet are often wrong. The settings have an automatic fix that separates the artist's name from the song's title"
     )
 }
