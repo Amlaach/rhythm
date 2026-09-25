@@ -1210,6 +1210,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { analysis.restart() }
     }
 
+    fun setAnalyseOnlyCharging(on: Boolean) {
+        if (repo.prefs.analyseOnlyCharging == on) return
+        repo.prefs.analyseOnlyCharging = on
+        if (!analysis.progress.value.running) return
+        viewModelScope.launch { analysis.restart() }
+    }
+
     fun stopAnalysis() = analysis.stop()
 
     fun resetAnalysis() {

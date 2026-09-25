@@ -1008,13 +1008,14 @@ class MusicRepository(
                 Versions.withoutDuplicates(all, types)
             }
         }
-        val featuresById = featureRows.associateBy { it.songId }
+        val hasMoodMarks = statsById.values.any { it.moods.isNotEmpty() }
+        val leanFeatures = Recommender.leanFeatures(featureRows, keepSoundPrint = hasMoodMarks)
         // Worked out here rather than inside the engine, because deciding what
         // is speech needs the tag scores unpacked from their stored form and
         // the user's own answer where they gave one - neither of which the
         // engine is handed.
         val spokenIds = allSongs.filterTo(HashSet()) { song ->
-            val feature = featuresById[song.id]
+            val feature = leanFeatures[song.id]
             Spoken.isSpoken(
                 song,
                 feature,
@@ -1026,7 +1027,7 @@ class MusicRepository(
         val engineArtists = ArtistStyles.withCatalogue(dao.allArtists().associateBy { it.artistKey }, allSongs)
         val vocalIds = allSongs.filter { song ->
             com.elchanan.rhythm.engine.Vocal.isVocal(
-                song, statsById[song.id], featuresById[song.id],
+                song, statsById[song.id], leanFeatures[song.id],
                 engineArtists[song.artistKey]?.styles.orEmpty()
             )
         }.mapTo(HashSet()) { it.id }
@@ -1045,7 +1046,7 @@ class MusicRepository(
             transitions = transitionMap(),
             // The space is made from the full rows; the engine keeps them
             // without what only the space reads. See Recommender.leanFeatures.
-            features = Recommender.leanFeatures(featureRows),
+            features = leanFeatures,
             acoustic = if (featureRows.size >= 8) AcousticSpace(featureRows) else null,
             tuning = com.elchanan.rhythm.engine.EngineTuning(
                 discovery = prefs.discovery,

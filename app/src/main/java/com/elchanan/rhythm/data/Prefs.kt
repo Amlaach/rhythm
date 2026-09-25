@@ -100,6 +100,14 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_FAST_ANALYSIS, false)
         set(value) = sp.edit { putBoolean(KEY_FAST_ANALYSIS, value) }
 
+    /**
+     * Analyse only while the device is plugged into power (charging or full).
+     * Prevents battery drain when running on battery.
+     */
+    var analyseOnlyCharging: Boolean
+        get() = sp.getBoolean(KEY_ANALYSE_ONLY_CHARGING, false)
+        set(value) = sp.edit { putBoolean(KEY_ANALYSE_ONLY_CHARGING, value) }
+
     /** Folders whose files never enter the library, one per line. */
     var excludedFolders: List<String>
         get() = sp.getString(KEY_EXCLUDED, "")
@@ -654,6 +662,7 @@ class Prefs(context: Context) {
         const val KEY_ACOUSTIC_WEIGHT = "acoustic_weight"
         const val KEY_AUTO_ANALYZE = "auto_analyze"
         const val KEY_FAST_ANALYSIS = "fast_analysis"
+        const val KEY_ANALYSE_ONLY_CHARGING = "analyse_only_charging"
         const val KEY_EXCLUDED = "excluded_folders"
         const val KEY_QUEUE = "saved_queue"
         const val KEY_QUEUE_INDEX = "saved_queue_index"

@@ -59,6 +59,7 @@ fun LibrarySettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
     var minDuration by remember { mutableFloatStateOf(vm.prefs.minDurationSec.toFloat()) }
     var autoAnalyze by remember { mutableStateOf(vm.prefs.autoAnalyze) }
     var fastAnalysis by remember { mutableStateOf(vm.prefs.fastAnalysis) }
+    var analyseOnlyCharging by remember { mutableStateOf(vm.prefs.analyseOnlyCharging) }
     var skipRecordings by remember { mutableStateOf(vm.prefs.skipRecordings) }
     var resumeSpoken by remember { mutableStateOf(vm.prefs.resumeSpoken) }
     var foldersOpen by remember { mutableStateOf(false) }
@@ -261,7 +262,7 @@ fun LibrarySettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                 )
                 if (analysis.running) {
                     Text(
-                        text = analysis.currentTitle ?: "מעבד…",
+                        text = if (analysis.waitingForPower) "ממתין לחיבור לטעינה…" else (analysis.currentTitle ?: "מעבד…"),
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                         maxLines = 1
@@ -347,6 +348,33 @@ fun LibrarySettingsScreen(vm: MainViewModel, onBack: () -> Unit) {
                     onCheckedChange = {
                         fastAnalysis = it
                         vm.setFastAnalysis(it)
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Accent,
+                        checkedTrackColor = Accent.copy(alpha = 0.4f)
+                    )
+                )
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = gutter, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("ניתוח בטעינה בלבד", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "הפעלת ניתוח אודיו ברקע רק כשהמכשיר מחובר לחשמל, כדי למנוע התרוקנות של הסוללה",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                }
+                Switch(
+                    checked = analyseOnlyCharging,
+                    onCheckedChange = {
+                        analyseOnlyCharging = it
+                        vm.setAnalyseOnlyCharging(it)
                     },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Accent,

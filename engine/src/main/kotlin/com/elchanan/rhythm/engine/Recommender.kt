@@ -2838,7 +2838,7 @@ class Recommender(
      * three fields per song inside that loop is work done thousands of times to
      * get the same answer.
      */
-    private val searchFields: Map<Long, Triple<String, String, String>> =
+    private val searchFields: Map<Long, Triple<String, String, String>> by lazy {
         songs.associate { song ->
             song.id to Triple(
                 SearchText.normalize(song.title),
@@ -2846,6 +2846,7 @@ class Recommender(
                 SearchText.normalize(song.albumName)
             )
         }
+    }
 
     /**
      * @param personal how much the learned taste is allowed to reorder results,
@@ -2862,11 +2863,11 @@ class Recommender(
             for (t in terms) {
                 // Best field wins for each term, so matching the artist does not
                 // disqualify a song whose title matches the next word.
-                val best = listOfNotNull(
-                    SearchText.score(title, t),
-                    SearchText.score(artist, t)?.times(0.8),
-                    SearchText.score(album, t)?.times(0.4)
-                ).maxOrNull() ?: return@mapNotNull null
+                val sTitle = SearchText.score(title, t)
+                val sArtist = SearchText.score(artist, t)?.let { it * 0.8 }
+                val sAlbum = SearchText.score(album, t)?.let { it * 0.4 }
+                val best = maxOf(sTitle ?: -1.0, sArtist ?: -1.0, sAlbum ?: -1.0)
+                if (best < 0.0) return@mapNotNull null
                 textScore += best
             }
             // Bounded, so taste can only reorder songs the text already ranks
@@ -2916,9 +2917,16 @@ class Recommender(
          * answers, so a later change that starts reading one of these fields
          * after construction fails there rather than quietly getting blanks.
          */
-        fun leanFeatures(rows: List<AudioFeatureEntity>): Map<Long, AudioFeatureEntity> =
+        fun leanFeatures(rows: List<AudioFeatureEntity>, keepSoundPrint: Boolean = true): Map<Long, AudioFeatureEntity> =
             rows.associate {
-                it.songId to it.copy(musicPrint = "", chroma = "", timbre = "", timbreVar = "", chroma24 = "")
+                it.songId to it.copy(
+                    musicPrint = "",
+                    soundPrint = if (keepSoundPrint) it.soundPrint else "",
+                    chroma = "",
+                    timbre = "",
+                    timbreVar = "",
+                    chroma24 = ""
+                )
             }
 
         /**

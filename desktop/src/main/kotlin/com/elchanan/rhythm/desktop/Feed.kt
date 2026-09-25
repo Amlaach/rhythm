@@ -59,7 +59,8 @@ object Feed {
         // decode; they must not enter the statistics of the acoustic space.
         // The phone leaves them out for the same reason.
         val rows = features.values.filter { it.energy > 0f }
-        val measured = rows.associateBy { it.songId }
+        val hasMoodMarks = stats.values.any { it.moods.isNotEmpty() }
+        val lean = Recommender.leanFeatures(rows, keepSoundPrint = hasMoodMarks)
         val engineArtists = com.elchanan.rhythm.engine.ArtistStyles.withCatalogue(
             artists.associateBy { it.artistKey }, songs
         )
@@ -71,7 +72,7 @@ object Feed {
         transitions = transitions,
         // The space is made from the full rows; the engine keeps them without
         // what only the space reads. See Recommender.leanFeatures.
-        features = Recommender.leanFeatures(rows),
+        features = lean,
         acoustic = if (rows.size >= MIN_ANALYSED_FOR_SPACE) {
             AcousticSpace(rows)
         } else {
@@ -85,7 +86,7 @@ object Feed {
         // shiur sat correctly on its own shelf and went on turning up in the
         // feed, in mixes and in shuffles like any other track.
         spoken = songs.filterTo(HashSet()) { song ->
-            val feature = measured[song.id]
+            val feature = lean[song.id]
             Spoken.isSpoken(
                 song,
                 feature,
@@ -97,7 +98,7 @@ object Feed {
         // Vocal-only songs, held back outside the Omer and the Three Weeks,
         // decided as the phone decides it.
         vocal = songs.filter { song ->
-            Vocal.isVocal(song, stats[song.id], measured[song.id], engineArtists[song.artistKey]?.styles.orEmpty())
+            Vocal.isVocal(song, stats[song.id], lean[song.id], engineArtists[song.artistKey]?.styles.orEmpty())
         }.mapTo(HashSet()) { it.id }
     )
     }

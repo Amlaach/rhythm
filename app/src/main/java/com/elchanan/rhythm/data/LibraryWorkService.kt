@@ -130,9 +130,13 @@ class LibraryWorkService : Service() {
                         }
                         val progress = app.analysis.progress.value
                         if (!progress.running && progress.remaining == 0) break
+                        val text = when {
+                            progress.waitingForPower -> if (app.repository.prefs.language == "en") "Waiting for charger…" else "ממתין לחיבור לטעינה…"
+                            app.repository.prefs.language == "en" -> "Analyzing your music…"
+                            else -> getString(R.string.work_analyzing)
+                        }
                         notify(
-                            if (app.repository.prefs.language == "en") "Analyzing your music…"
-                            else getString(R.string.work_analyzing),
+                            text,
                             progress.done,
                             progress.total
                         )

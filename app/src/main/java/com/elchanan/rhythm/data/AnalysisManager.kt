@@ -45,7 +45,9 @@ class AnalysisManager(
          * attached. Said on the screen, so that a count that will not go down
          * is explained rather than offered as work the button will do.
          */
-        val unreachable: Int = 0
+        val unreachable: Int = 0,
+        /** True when paused waiting for power because analyseOnlyCharging is enabled. */
+        val waitingForPower: Boolean = false
     ) {
         val remaining: Int get() = (total - done).coerceAtLeast(0)
         val fraction: Float get() = if (total <= 0) 0f else (done.toFloat() / total).coerceIn(0f, 1f)
@@ -120,6 +122,13 @@ class AnalysisManager(
                 var after = Long.MIN_VALUE
                 val unreachable = AtomicInteger(0)
                 while (isActive) {
+                    if (repo.prefs.analyseOnlyCharging && !isCharging()) {
+                        _progress.update { it.copy(waitingForPower = true, currentTitle = null) }
+                        delay(2000)
+                        continue
+                    } else if (_progress.value.waitingForPower) {
+                        _progress.update { it.copy(waitingForPower = false) }
+                    }
                     // Batches wide enough to keep every fast worker busy.
                     val batch = repo.songsNeedingAnalysis(after, 12 * parallel)
                     if (batch.isEmpty()) break
@@ -165,7 +174,7 @@ class AnalysisManager(
                 // The model holds its weights and a working arena for as long
                 // as it is open, and the pass is the only thing that uses it.
                 runCatching { AudioAnalyzer.releaseTagger() }
-                if (!restarting) _progress.update { it.copy(running = false, currentTitle = null) }
+                if (!restarting) _progress.update { it.copy(running = false, currentTitle = null, waitingForPower = false) }
             }
         }
     }
@@ -255,7 +264,7 @@ class AnalysisManager(
     fun stop() {
         job?.cancel()
         job = null
-        _progress.update { it.copy(running = false, currentTitle = null) }
+        _progress.update { it.copy(running = false, currentTitle = null, waitingForPower = false) }
     }
 
     /** Stops the writer and waits until its finally block has released it. */
@@ -263,7 +272,7 @@ class AnalysisManager(
         val active = job
         job = null
         active?.cancelAndJoin()
-        _progress.update { it.copy(running = false, currentTitle = null) }
+        _progress.update { it.copy(running = false, currentTitle = null, waitingForPower = false) }
     }
 
     /**

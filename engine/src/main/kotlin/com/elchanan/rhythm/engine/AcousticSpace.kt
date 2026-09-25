@@ -115,7 +115,7 @@ class AcousticSpace(
             features: Collection<AudioFeatureEntity>,
             read: (AudioFeatureEntity) -> FloatArray?
         ): Map<Long, DoubleArray> {
-            val folded = HashMap<Long, DoubleArray>()
+            val folded = HashMap<Long, DoubleArray>(features.size)
             for (f in features) {
                 val p = read(f) ?: continue
                 folded[f.songId] = fold(p)
@@ -125,7 +125,7 @@ class AcousticSpace(
                 val mean = DoubleArray(PRINT_DIMS)
                 for (v in folded.values) for (i in 0 until PRINT_DIMS) mean[i] += v[i]
                 for (i in 0 until PRINT_DIMS) mean[i] = mean[i] / folded.size
-                folded.mapValues { (_, v) ->
+                for (v in folded.values) {
                     var norm = 0.0
                     for (i in 0 until PRINT_DIMS) {
                         v[i] -= mean[i]
@@ -133,8 +133,8 @@ class AcousticSpace(
                     }
                     val length = sqrt(norm)
                     if (length > 1e-9) for (i in 0 until PRINT_DIMS) v[i] /= length
-                    v
                 }
+                folded
             }
         }
 
@@ -195,11 +195,14 @@ class AcousticSpace(
                 val sd = sqrt(acc / max(1, raw.size - 1))
                 deviations[d] = if (sd < 1e-6) 1.0 else sd
             }
+            for (v in raw.values) {
+                for (d in 0 until DIMS) {
+                    v[d] = ((v[d] - means[d]) / deviations[d]).coerceIn(-4.0, 4.0)
+                }
+            }
         }
 
-        vectors = raw.mapValues { (_, v) ->
-            DoubleArray(DIMS) { d -> ((v[d] - means[d]) / deviations[d]).coerceIn(-4.0, 4.0) }
-        }
+        vectors = raw
     }
 
     /** Key invariant chroma only: the notes, ignoring how they were recorded. */
